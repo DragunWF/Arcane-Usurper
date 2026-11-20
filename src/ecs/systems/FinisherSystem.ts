@@ -14,7 +14,10 @@ import {
 import type { IAudioTrigger } from '../../engine/SoundEngine';
 import type { IVfxSpawner } from '../../engine/VfxFactory';
 import type { DarkMageRig } from '../../rigs/DarkMageRig';
-import type { BossRigAdapter } from '../../rigs/bosses/BossBase';
+import {
+  computeFinisherHeadChoreography,
+  type BossRigAdapter,
+} from '../../rigs/bosses/BossBase';
 import { useGameStore } from '../../state/useGameStore';
 import type { ECSWorld, ISystem } from '../World';
 
@@ -307,7 +310,13 @@ export class FinisherSystem implements ISystem {
       }
     }
 
-    // 6. Pose Boss FIRST so we can read her exact world-space mouth/headAnchor after dip rotation
+    // 6. Compute shared lip-pivot head choreography & pose Boss FIRST so headAnchor reflects live motion
+    const headChoreography = computeFinisherHeadChoreography(
+      elapsed,
+      sb.siphonProgress,
+      throttle,
+    );
+
     const bx = boss.transform.position.x;
     const bz = boss.transform.position.z;
     const dirX = Math.sin(boss.transform.rotationY);
@@ -321,6 +330,7 @@ export class FinisherSystem implements ISystem {
       elapsed,
       dt,
       throttle,
+      headChoreography,
     );
     this.bossRig.root.updateMatrixWorld(true);
     this.bossRig.headAnchor.getWorldPosition(this.scratchBossHead);
@@ -358,7 +368,7 @@ export class FinisherSystem implements ISystem {
       bz - player.transform.position.z,
     );
 
-    // Pose Dark Mage with smooth interpolation + zero-gap world-space lip lock onto boss headAnchor
+    // Pose Dark Mage with synchronized coupled head motion + zero-gap world-space lip lock onto boss headAnchor
     this.mageRig.root.position.set(
       player.transform.position.x,
       0,
@@ -372,6 +382,7 @@ export class FinisherSystem implements ISystem {
       dt,
       throttle,
       this.scratchBossHead,
+      headChoreography,
     );
 
     // 7. Update Lip-to-Lip Energy Ribbons, Pose [2] Aloft Staff Frost Ribbon, & Pose [3] Hair Strand

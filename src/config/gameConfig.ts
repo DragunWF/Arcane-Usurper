@@ -626,6 +626,36 @@ export const FINISHER_CONFIG = Object.freeze({
   finisherStaffLightIntensity: 1.85,
   finisherStaffLightSurgeBoost: 0.45,
 
+  // Pose [2] (Glacial Ballroom Dip) Upright Skyward Staff Channeling Angles (~18° off vertical)
+  dipRightShoulderX: -2.48,
+  dipRightShoulderY: 0.14,
+  dipRightShoulderZ: -0.38,
+  dipRightElbowX: -1.18,
+  dipRightElbowZ: -0.1,
+  dipStaffRotX: 2.96,
+  dipStaffRotZ: -0.18,
+
+  // Coupled Lip-Pivot Head Choreography (All 4 Poses, Scaled by Throttle & Drain)
+  headSwayFreqSavor: 0.72,
+  headSwayFreqFlow: 1.25,
+  headSwayFreqSurge: 2.35,
+  headRollAmpSavor: 0.14,
+  headRollAmpFlow: 0.115,
+  headRollAmpSurge: 0.105,
+  headPitchAmpSavor: 0.048,
+  headPitchAmpFlow: 0.036,
+  headPitchAmpSurge: 0.055,
+  headYawAmpSavor: 0.055,
+  headYawAmpFlow: 0.042,
+  headYawAmpSurge: 0.035,
+  headHarmonicRatio: 1.63,
+  headPitchFreqRatio: 1.35,
+  headYawFreqRatio: 0.82,
+  headTremorFreq: 21.5,
+  headTremorAmp: 0.022,
+  passiveNeckYieldMult: 1.35,
+  passiveNeckDroopPitch: 0.055,
+
   // Energy Ribbon & Rim-Light FX
   ribbonSegments: 22,
   ribbonPulseSpeed: 5.5,

@@ -12,6 +12,10 @@ import {
   type FinisherPoseId,
 } from '../config/gameConfig';
 import { ToonAssets } from '../engine/ToonAssets';
+import {
+  computeFinisherHeadChoreography,
+  type FinisherHeadChoreography,
+} from './bosses/BossBase';
 
 /**
  * Proportioned Cel-Shaded Humanoid Dark Mage Rig (Obsidian Siphon Mage).
@@ -1095,9 +1099,13 @@ export class DarkMageRig {
     dt = 1 / 60,
     throttleMode: DrainThrottleMode = DRAIN_THROTTLE_MODES.FLOW,
     bossLipWorldPos: THREE.Vector3 | null = null,
+    headChoreography?: FinisherHeadChoreography,
   ): void {
     // Guarantee cloak, hood, mantle & robes stay true dark obsidian (never washed purple)
     this.restoreObsidianMaterials();
+    const headAnim =
+      headChoreography ??
+      computeFinisherHeadChoreography(time, drainProgress, throttleMode);
 
     if (this.defeatBlushGroup) this.defeatBlushGroup.visible = false;
     if (this.puppetCrystalLeft) this.puppetCrystalLeft.visible = false;
@@ -1163,14 +1171,15 @@ export class DarkMageRig {
       targetLeftShoulderZ = 0.46;
       targetLeftElbowX = -0.92;
       targetLeftElbowZ = 0.56;
-      // Right arm raises staff aloft
-      targetRightShoulderX = -2.42;
-      targetRightShoulderY = 0;
-      targetRightShoulderZ = -0.32;
-      targetRightElbowX = -0.24;
-      targetRightElbowZ = 0;
-      targetStaffRotX = Math.PI * 0.12;
-      targetStaffRotZ = 0;
+      // Right arm raises hand upward & outward holding Obsidian Siphon Staff upright / diagonally
+      // skyward (~18° off vertical) with crystal high overhead as a channeling beacon (zero clipping)
+      targetRightShoulderX = FINISHER_CONFIG.dipRightShoulderX;
+      targetRightShoulderY = FINISHER_CONFIG.dipRightShoulderY;
+      targetRightShoulderZ = FINISHER_CONFIG.dipRightShoulderZ;
+      targetRightElbowX = FINISHER_CONFIG.dipRightElbowX;
+      targetRightElbowZ = FINISHER_CONFIG.dipRightElbowZ;
+      targetStaffRotX = FINISHER_CONFIG.dipStaffRotX;
+      targetStaffRotZ = FINISHER_CONFIG.dipStaffRotZ;
     } else if (poseId === FINISHER_POSE_IDS.HAIR_REINS) {
       // Pose [3]: Silver-Hair Reins — left forearm raised across chest/shoulder with silver hair lock
       // looped around wrist; right gloved hand reaches forward/inward to steady Marina's shoulder.
@@ -1353,16 +1362,21 @@ export class DarkMageRig {
     this.hoodTailPivot.rotation.z =
       Math.cos(time * (robeSpeed * 0.72)) * (robeAmp * 1.2);
 
-    // Torso draws gently while head counter-pitches to keep lips locked on Marina's mouth
+    // Torso draws gently while head executes coupled lip-pivot choreography:
+    // - Same-sign local roll tilts facing heads to opposite world sides (affectionate nestle, no nose clip)
+    // - Positive pitchPress deepens his press as Marina yields back
+    // - Inverted local yaw tracks Marina's horizontal nuzzle sway in lockstep
     this.torsoGroup.rotation.set(
       st.torsoX + torsoDrawPitch,
       0,
-      st.torsoZ + Math.sin(time * (siphonFreq * 0.5)) * 0.015 * siphonAmp,
+      st.torsoZ +
+        headAnim.roll * 0.22 +
+        Math.sin(time * (siphonFreq * 0.5)) * 0.012 * siphonAmp,
     );
     this.headGroup.rotation.set(
-      st.headX - torsoDrawPitch * 0.85,
-      0,
-      st.headZ,
+      st.headX - torsoDrawPitch * 0.85 + headAnim.pitchPress,
+      -headAnim.yawSway,
+      st.headZ + headAnim.roll,
     );
 
     this.leftShoulderPivot.rotation.set(

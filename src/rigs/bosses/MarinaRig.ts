@@ -19,8 +19,10 @@ import {
 import { ToonAssets } from '../../engine/ToonAssets';
 import {
   applyMaterialBleach,
+  computeFinisherHeadChoreography,
   restoreDrainableMaterials,
   type BossRigAdapter,
+  type FinisherHeadChoreography,
   type MaterialBleachMetadata,
 } from './BossBase';
 
@@ -1612,8 +1614,12 @@ export class MarinaRig implements BossRigAdapter {
     time: number,
     dt = 1 / 60,
     throttleMode: DrainThrottleMode = DRAIN_THROTTLE_MODES.FLOW,
+    headChoreography?: FinisherHeadChoreography,
   ): void {
     this.applyDrainBleach(drainProgress);
+    const headAnim =
+      headChoreography ??
+      computeFinisherHeadChoreography(time, drainProgress, throttleMode);
 
     const safeDt = Math.max(0.001, Math.min(dt, 0.05));
     const lerpAlpha =
@@ -1818,12 +1824,22 @@ export class MarinaRig implements BossRigAdapter {
       0,
       st.torsoZ + savorDreamySway + surgeShudder,
     );
-    // Counter-pitch/roll head to pin headAnchor (her lips) firmly at the contact pivot
-    this.headGroup.rotation.set(
-      st.headX - chestBreathPitch * 0.85,
-      0,
-      st.headZ - savorDreamySway * 0.85 - surgeShudder * 0.5,
-    );
+    // Coupled lip-pivot head choreography: counter-stabilizes chest heave while adding
+    // expressive roll, deepening pitch yield, gentle nuzzle yaw, early tremor (0->50%),
+    // and deeper passive neck relaxation past 50% drain & Endless Savor.
+    const bossHeadPitch =
+      st.headX -
+      chestBreathPitch * 0.85 -
+      headAnim.pitchPress * headAnim.bossYieldScale -
+      limpness * FINISHER_CONFIG.passiveNeckDroopPitch;
+    const bossHeadYaw =
+      headAnim.yawSway * headAnim.bossYieldScale + headAnim.bossTremor * 0.65;
+    const bossHeadRoll =
+      st.headZ -
+      savorDreamySway * 0.65 +
+      headAnim.roll * headAnim.bossYieldScale +
+      headAnim.bossTremor;
+    this.headGroup.rotation.set(bossHeadPitch, bossHeadYaw, bossHeadRoll);
 
     this.leftLegPivot.rotation.set(st.leftHipX, 0, -0.08);
     this.rightLegPivot.rotation.set(st.rightHipX, 0, 0.08);

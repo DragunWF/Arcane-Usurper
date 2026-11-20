@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import {
+  DRAIN_THROTTLE_MODES,
+  FINISHER_CONFIG,
   PALETTE,
   type BossExpression,
   type BossPhase,
@@ -7,6 +9,99 @@ import {
   type FinisherPoseId,
   type GameState,
 } from '../../config/gameConfig';
+
+/**
+ * Shared coupled lip-pivot head choreography state computed once per frame so
+ * the Dark Mage and any sovereign BossRigAdapter move in exact phase-locked harmony.
+ */
+export interface FinisherHeadChoreography {
+  /** Complementary side-to-side head tilt (same local sign tilts facing heads to opposite world sides). */
+  readonly roll: number;
+  /** Rhythmic deepening kiss press/nod (+ presses Mage forward, - yields Boss slightly). */
+  readonly pitchPress: number;
+  /** Gentle synchronized horizontal nuzzle sway. */
+  readonly yawSway: number;
+  /** Overwhelmed neck tremor on Boss during 0%->50% drain (fades to 0 past 50%). */
+  readonly bossTremor: number;
+  /** Passive neck relaxation multiplier past 50% drain (1.0 -> passiveNeckYieldMult). */
+  readonly bossYieldScale: number;
+}
+
+/**
+ * Computes synchronized multi-frequency lip-pivot head choreography scaled by
+ * active drain throttle (SAVOR / FLOW / SURGE) and drain progress (0% -> 100%).
+ */
+export function computeFinisherHeadChoreography(
+  time: number,
+  drainProgress: number,
+  throttleMode: DrainThrottleMode,
+): FinisherHeadChoreography {
+  const isSurge = throttleMode === DRAIN_THROTTLE_MODES.SURGE;
+  const isSavor = throttleMode === DRAIN_THROTTLE_MODES.SAVOR;
+
+  const freq = isSurge
+    ? FINISHER_CONFIG.headSwayFreqSurge
+    : isSavor
+      ? FINISHER_CONFIG.headSwayFreqSavor
+      : FINISHER_CONFIG.headSwayFreqFlow;
+  const rollAmp = isSurge
+    ? FINISHER_CONFIG.headRollAmpSurge
+    : isSavor
+      ? FINISHER_CONFIG.headRollAmpSavor
+      : FINISHER_CONFIG.headRollAmpFlow;
+  const pitchAmp = isSurge
+    ? FINISHER_CONFIG.headPitchAmpSurge
+    : isSavor
+      ? FINISHER_CONFIG.headPitchAmpSavor
+      : FINISHER_CONFIG.headPitchAmpFlow;
+  const yawAmp = isSurge
+    ? FINISHER_CONFIG.headYawAmpSurge
+    : isSavor
+      ? FINISHER_CONFIG.headYawAmpSavor
+      : FINISHER_CONFIG.headYawAmpFlow;
+
+  const rollWave =
+    0.72 * Math.sin(time * freq) +
+    0.28 * Math.sin(time * freq * FINISHER_CONFIG.headHarmonicRatio + 0.9);
+  const pitchWave =
+    0.68 * Math.sin(time * freq * FINISHER_CONFIG.headPitchFreqRatio + 0.4) +
+    0.32 * Math.cos(time * freq * 2.1);
+  const yawWave = Math.sin(time * freq * FINISHER_CONFIG.headYawFreqRatio + 1.4);
+
+  const half = FINISHER_CONFIG.limpThreshold;
+  const earlyResistance = 1 - THREE.MathUtils.clamp(drainProgress / half, 0, 1);
+  const limpness = THREE.MathUtils.clamp(
+    (drainProgress - half) / (1 - half),
+    0,
+    1,
+  );
+
+  const tremorScale = isSurge
+    ? FINISHER_CONFIG.surgeShudderMultiplier * 0.75
+    : isSavor
+      ? FINISHER_CONFIG.savorSwayMultiplier
+      : 1.0;
+  const bossTremor =
+    Math.sin(time * FINISHER_CONFIG.headTremorFreq) *
+    FINISHER_CONFIG.headTremorAmp *
+    (0.35 + earlyResistance * 0.65) *
+    (1 - limpness) *
+    tremorScale;
+
+  const bossYieldScale = THREE.MathUtils.lerp(
+    1.0,
+    FINISHER_CONFIG.passiveNeckYieldMult,
+    limpness,
+  );
+
+  return {
+    roll: rollWave * rollAmp,
+    pitchPress: pitchWave * pitchAmp,
+    yawSway: yawWave * yawAmp,
+    bossTremor,
+    bossYieldScale,
+  };
+}
 
 /**
  * Standardized Boss Rig contract honored by every sovereign boss (Marina, Miku, Mermaid).
@@ -47,6 +142,7 @@ export interface BossRigAdapter {
     time: number,
     dt?: number,
     throttleMode?: DrainThrottleMode,
+    headChoreography?: FinisherHeadChoreography,
   ): void;
   applyVictoryCollapsePose(time: number): void;
   applyPuppetMasterPose(time: number): void;
