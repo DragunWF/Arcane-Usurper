@@ -121,6 +121,7 @@ export class IcePalaceLevel {
 
   private readonly _pillarColliders: ChamberCollider[] = [];
   private readonly _pillarMeshes: THREE.Object3D[] = [];
+  private readonly _cameraColliders: THREE.Object3D[] = [];
   private readonly _urnSpawns: FrostUrnSpawnRecord[] = [];
   private readonly banners: SwayingBannerRecord[] = [];
   private readonly braziers: BrazierFlameRecord[] = [];
@@ -153,6 +154,10 @@ export class IcePalaceLevel {
 
   public get pillarMeshes(): readonly THREE.Object3D[] {
     return this._pillarMeshes;
+  }
+
+  public get cameraColliders(): readonly THREE.Object3D[] {
+    return this._cameraColliders;
   }
 
   public get urnSpawns(): readonly FrostUrnSpawnRecord[] {
@@ -535,21 +540,26 @@ export class IcePalaceLevel {
       ToonAssets.createToonMaterial(PALETTE.marbleWall, {
         emissive: PALETTE.glacialNavy,
         emissiveIntensity: 0.12,
+        side: THREE.FrontSide,
       }),
     );
     const trimMat = this.trackMat(
       new THREE.MeshBasicMaterial({ color: PALETTE.bannerTrim }),
     );
     const ceilingMat = this.trackMat(
-      ToonAssets.createToonMaterial(PALETTE.chamberVoid),
+      ToonAssets.createToonMaterial(PALETTE.chamberVoid, {
+        side: THREE.FrontSide,
+      }),
     );
 
-    // Side Nave Walls (Left & Right)
-    const sideWallGeo = this.trackGeo(new THREE.BoxGeometry(T, H, L + T * 2));
+    // Single-sided FrontSide Outer Enclosure Walls facing inward into the cathedral hall
+    // (zero exterior BackSide outline shells on outer perimeter walls)
+    const sideWallGeo = this.trackGeo(new THREE.PlaneGeometry(L, H));
     const sideSides: readonly (-1 | 1)[] = [-1, 1];
     sideSides.forEach((side) => {
       const wall = new THREE.Mesh(sideWallGeo, wallMat);
-      wall.position.set(side * (W * 0.5 + T * 0.5), H * 0.5, 0);
+      wall.position.set(side * (W * 0.5), H * 0.5, 0);
+      wall.rotation.y = side === -1 ? Math.PI / 2 : -Math.PI / 2;
       wall.receiveShadow = true;
       this.root.add(wall);
       this._pillarMeshes.push(wall);
@@ -565,21 +575,23 @@ export class IcePalaceLevel {
       this.root.add(upperTrim);
     });
 
-    // Far Apse Wall behind the Astral Portal Dais (-Z) & Entrance Gate Wall (+Z)
-    const endWallGeo = this.trackGeo(new THREE.BoxGeometry(W + T * 2, H, T));
+    // Far Apse Wall (-Z, facing +Z inward) & Southern Entrance Wall (+Z, facing -Z inward)
+    const endWallGeo = this.trackGeo(new THREE.PlaneGeometry(W, H));
     const backWall = new THREE.Mesh(endWallGeo, wallMat);
-    backWall.position.set(0, H * 0.5, -(L * 0.5 + T * 0.5));
+    backWall.position.set(0, H * 0.5, -(L * 0.5));
+    backWall.rotation.y = 0;
     backWall.receiveShadow = true;
     this.root.add(backWall);
     this._pillarMeshes.push(backWall);
 
     const frontWall = new THREE.Mesh(endWallGeo, wallMat);
-    frontWall.position.set(0, H * 0.5, L * 0.5 + T * 0.5);
+    frontWall.position.set(0, H * 0.5, L * 0.5);
+    frontWall.rotation.y = Math.PI;
     frontWall.receiveShadow = true;
     this.root.add(frontWall);
     this._pillarMeshes.push(frontWall);
 
-    // High Vaulted Cathedral Ceiling Cap
+    // High Vaulted Cathedral Ceiling Cap (FrontSide facing downward)
     const ceilGeo = this.trackGeo(new THREE.PlaneGeometry(W + T * 2, L + T * 2));
     const ceilMesh = new THREE.Mesh(ceilGeo, ceilingMat);
     ceilMesh.rotation.x = Math.PI / 2;
@@ -721,6 +733,7 @@ export class IcePalaceLevel {
           height: pillarH,
         });
         this._pillarMeshes.push(shaftMesh, plinth);
+        this._cameraColliders.push(shaftMesh, plinth);
       }
 
       // Pointed Gothic Crystal Arch spanning the pair of pillars

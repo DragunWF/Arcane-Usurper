@@ -1209,10 +1209,18 @@ export const CAMERA_CONFIG = Object.freeze({
   far: 260,
   farPlane: 260,
 
-  // Third-Person Combat Follow
+  // Third-Person Combat Follow & Spring-Arm Wall Collision
   followDistance: 6.5,
   followHeight: 2.8,
   lookAtHeight: 1.55,
+  combatShoulderPivotY: 1.55,
+  combatMinSpringDist: 1.15,
+  combatWallMargin: 0.55,
+  combatCeilingMaxY: 11.0,
+  springCompressLerp: 22.0,
+  springRecoverLerp: 8.5,
+  playerFadeStartDist: 1.75,
+  playerMinFadeOpacity: 0.25,
   minPitch: -0.32,
   maxPitch: 0.72,
   initialYaw: Math.PI,

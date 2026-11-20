@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   ARENA_CONFIG,
+  CAMERA_CONFIG,
   DIORAMA_CONFIG,
   DRAIN_THROTTLE_MODES,
   FINISHER_CONFIG,
@@ -104,6 +105,9 @@ export class DarkMageRig {
 
   private readonly scene: THREE.Scene;
   private readonly flashMaterials: THREE.MeshToonMaterial[] = [];
+  private readonly proximityFadeMaterials: THREE.Material[] = [];
+  private readonly outlineMeshes: THREE.Object3D[] = [];
+  private lastProximityOpacity = 1.0;
 
   // Shared Cel-Shaded Materials
   private matAbyssal!: THREE.MeshToonMaterial;
@@ -133,6 +137,7 @@ export class DarkMageRig {
     this.buildRecessedHeadAndDrapedHood();
     this.buildArticulatedArmsAndStaff();
     this.buildEncoreFrostWings();
+    this.collectOutlineMeshes();
 
     this.root.position.set(
       PLAYER_CONFIG.spawnX,
@@ -182,6 +187,73 @@ export class DarkMageRig {
       this.matAmethystTrim,
       this.matDarkMetal,
     );
+
+    this.proximityFadeMaterials.push(
+      this.matAbyssal,
+      this.matShadowSlate,
+      this.matCowlShadow,
+      this.matAmethystTrim,
+      this.matSilverRune,
+      this.matDarkMetal,
+      this.matHoodInner,
+    );
+  }
+
+  private collectOutlineMeshes(): void {
+    this.outlineMeshes.length = 0;
+    this.root.traverse((obj) => {
+      if (obj.userData.isOutline) {
+        this.outlineMeshes.push(obj);
+      }
+    });
+  }
+
+  /**
+   * Smoothly fades the Dark Mage's robes/hood/mantle when the spring-arm camera pulls
+   * close against an enclosed chamber wall or pillar, restoring opaque rendering once clear.
+   */
+  public setCameraProximityDistance(distance: number): void {
+    const startDist = CAMERA_CONFIG.playerFadeStartDist;
+    const minDist = CAMERA_CONFIG.combatMinSpringDist;
+    const minOpacity = CAMERA_CONFIG.playerMinFadeOpacity;
+
+    const targetOpacity =
+      distance >= startDist
+        ? 1.0
+        : THREE.MathUtils.lerp(
+            minOpacity,
+            1.0,
+            THREE.MathUtils.clamp(
+              (distance - minDist) / Math.max(0.01, startDist - minDist),
+              0,
+              1,
+            ),
+          );
+
+    if (Math.abs(targetOpacity - this.lastProximityOpacity) < 0.005) {
+      return;
+    }
+    this.lastProximityOpacity = targetOpacity;
+    const isOpaque = targetOpacity >= 0.995;
+
+    for (let i = 0; i < this.proximityFadeMaterials.length; i++) {
+      const mat = this.proximityFadeMaterials[i];
+      if (!mat) continue;
+      const shouldBeTransparent = !isOpaque;
+      if (mat.transparent !== shouldBeTransparent) {
+        mat.transparent = shouldBeTransparent;
+        mat.needsUpdate = true;
+      }
+      mat.opacity = targetOpacity;
+      mat.depthWrite = isOpaque || targetOpacity > 0.72;
+    }
+
+    // Hide ink-black BackSide outline shells while faded so they don't silhouette through translucent robes
+    const showOutlines = targetOpacity >= 0.85;
+    for (let i = 0; i < this.outlineMeshes.length; i++) {
+      const outline = this.outlineMeshes[i];
+      if (outline) outline.visible = showOutlines;
+    }
   }
 
   private buildLegs(): void {
@@ -1061,6 +1133,7 @@ export class DarkMageRig {
     this.matAmethystTrim.color.setHex(PALETTE.amethystTrim);
     this.matAmethystTrim.emissive.setHex(PALETTE.amethystTrim);
     this.matAmethystTrim.emissiveIntensity = 0.35;
+    this.setCameraProximityDistance(CAMERA_CONFIG.playerFadeStartDist + 1);
   }
 
   /**

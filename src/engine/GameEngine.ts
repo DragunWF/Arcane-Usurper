@@ -1008,8 +1008,19 @@ export class GameEngine implements IGameController {
           this.orbitCameraTarget,
         );
       } else {
-        this.cameraRig.update(dt, this.state, this.playerCameraTarget);
+        this.cameraRig.update(
+          dt,
+          this.state,
+          this.playerCameraTarget,
+          null,
+          this.sceneManager,
+        );
       }
+
+      // Close-range player fade when spring-arm camera pulls tight against chamber walls/pillars
+      this.mageRig.setCameraProximityDistance(
+        this.cameraRig.cameraDistanceToPivot,
+      );
 
       // Render WebGL Scene
       this.sceneManager.render(this.cameraRig.camera);

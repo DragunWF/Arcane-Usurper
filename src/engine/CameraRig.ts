@@ -57,11 +57,21 @@ export class CameraRig {
     0,
   );
   private readonly raycaster = new THREE.Raycaster();
+  private readonly springRaycaster = new THREE.Raycaster();
   private readonly floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+  // Spring-arm wall/pillar collision state
+  private currentSpringDist: number = Math.hypot(
+    CAMERA_CONFIG.followDistance,
+    CAMERA_CONFIG.followHeight - CAMERA_CONFIG.combatShoulderPivotY,
+  );
+  private _cameraDistanceToPivot: number = CAMERA_CONFIG.followDistance;
 
   // Reusable scratch objects (zero per-frame GC churn)
   private readonly desiredPos = new THREE.Vector3();
   private readonly desiredLookAt = new THREE.Vector3();
+  private readonly springPivotPos = new THREE.Vector3();
+  private readonly springDir = new THREE.Vector3();
   private readonly reticleNdc = new THREE.Vector2(0, 0);
   private readonly scratchBossCenter = new THREE.Vector3();
   private readonly scratchBossSphere = new THREE.Sphere();
@@ -81,6 +91,10 @@ export class CameraRig {
 
   public get isPointerLocked(): boolean {
     return this._isPointerLocked;
+  }
+
+  public get cameraDistanceToPivot(): number {
+    return this._cameraDistanceToPivot;
   }
 
   constructor(domElement: HTMLElement) {
@@ -448,19 +462,22 @@ export class CameraRig {
   }
 
   /**
-   * Updates camera transform for TITLE orbit, COMBAT follow, or 360° SPHERICAL_ORBIT.
+   * Updates camera transform for TITLE orbit, COMBAT follow (with spring-arm wall/pillar
+   * collision clamping), or 360° SPHERICAL_ORBIT.
    */
   public update(
     dt: number,
     state: GameState,
     followTarget: ICameraTarget,
     orbitTarget: ICameraTarget | null = null,
+    arena: IArenaGeometry | null = null,
   ): void {
     this.activeMode = this.resolveModeForState(state);
     const targetPos = followTarget.position;
 
     if (this.activeMode === 'TITLE') {
       this.orbitRimGroup.visible = false;
+      this._cameraDistanceToPivot = CAMERA_CONFIG.playerFadeStartDist + 1;
       this.titleOrbitAngle += dt * CAMERA_CONFIG.titleOrbitSpeed;
       const r = CAMERA_CONFIG.titleOrbitRadius;
       this.desiredPos.set(
@@ -484,6 +501,7 @@ export class CameraRig {
         Math.min(1, dt * CAMERA_CONFIG.titleLookLerp),
       );
     } else if (this.activeMode === 'SPHERICAL_ORBIT') {
+      this._cameraDistanceToPivot = CAMERA_CONFIG.playerFadeStartDist + 1;
       const focus = orbitTarget ?? followTarget;
       const focusY = focus.position.y + (focus.focusOffsetY ?? 0);
       const horizR = Math.cos(this.orbitElevation) * this.orbitDistance;
@@ -511,6 +529,12 @@ export class CameraRig {
       const horizDist = Math.cos(this.pitch) * dist;
       const vertOffset = Math.sin(this.pitch) * dist;
 
+      // Shoulder pivot & ideal unobstructed camera position
+      this.springPivotPos.set(
+        targetPos.x,
+        targetPos.y + CAMERA_CONFIG.combatShoulderPivotY,
+        targetPos.z,
+      );
       this.desiredPos.set(
         targetPos.x + Math.sin(this.yaw) * horizDist,
         Math.max(
@@ -520,6 +544,89 @@ export class CameraRig {
         targetPos.z + Math.cos(this.yaw) * horizDist,
       );
 
+      // Spring-arm ray from Dark Mage shoulder pivot -> desired camera position
+      this.springDir.subVectors(this.desiredPos, this.springPivotPos);
+      const fullDist = Math.max(0.001, this.springDir.length());
+      this.springDir.divideScalar(fullDist);
+
+      let allowedDist = fullDist;
+      const bounds = arena ? arena.getArenaBounds() : null;
+      const margin = CAMERA_CONFIG.combatWallMargin;
+
+      // 1. Analytical Bounds Clamp for enclosed rectangular halls (walls & ceiling)
+      if (bounds && bounds.kind === ARENA_BOUNDS_KINDS.RECTANGULAR) {
+        const boxMinX = -(bounds.halfWidth - margin);
+        const boxMaxX = bounds.halfWidth - margin;
+        const boxMinZ = -(bounds.halfLength - margin);
+        const boxMaxZ = bounds.halfLength - margin;
+        const boxMinY = CAMERA_CONFIG.minCameraY;
+        const boxMaxY = CAMERA_CONFIG.combatCeilingMaxY;
+
+        if (this.springDir.x > 0.0001) {
+          const t = (boxMaxX - this.springPivotPos.x) / this.springDir.x;
+          if (t >= 0) allowedDist = Math.min(allowedDist, t);
+        } else if (this.springDir.x < -0.0001) {
+          const t = (boxMinX - this.springPivotPos.x) / this.springDir.x;
+          if (t >= 0) allowedDist = Math.min(allowedDist, t);
+        }
+
+        if (this.springDir.z > 0.0001) {
+          const t = (boxMaxZ - this.springPivotPos.z) / this.springDir.z;
+          if (t >= 0) allowedDist = Math.min(allowedDist, t);
+        } else if (this.springDir.z < -0.0001) {
+          const t = (boxMinZ - this.springPivotPos.z) / this.springDir.z;
+          if (t >= 0) allowedDist = Math.min(allowedDist, t);
+        }
+
+        if (this.springDir.y > 0.0001) {
+          const t = (boxMaxY - this.springPivotPos.y) / this.springDir.y;
+          if (t >= 0) allowedDist = Math.min(allowedDist, t);
+        } else if (this.springDir.y < -0.0001) {
+          const t = (boxMinY - this.springPivotPos.y) / this.springDir.y;
+          if (t >= 0) allowedDist = Math.min(allowedDist, t);
+        }
+      }
+
+      // 2. Interior Pillar Raycast against chamber ice pillars
+      const colliders = arena ? arena.getCameraColliders() : [];
+      if (colliders.length > 0 && allowedDist > CAMERA_CONFIG.combatMinSpringDist) {
+        this.springRaycaster.set(this.springPivotPos, this.springDir);
+        this.springRaycaster.near = 0.05;
+        this.springRaycaster.far = allowedDist;
+        const hits = this.springRaycaster.intersectObjects(
+          colliders as THREE.Object3D[],
+          false,
+        );
+        const firstHit = hits[0];
+        if (firstHit) {
+          allowedDist = Math.min(allowedDist, firstHit.distance - margin);
+        }
+      }
+
+      // 3. Asymmetric spring smoothing: fast inward compression, smooth outward recovery
+      const targetSpringDist = Math.max(
+        CAMERA_CONFIG.combatMinSpringDist,
+        Math.min(fullDist, allowedDist),
+      );
+      const isCompressing = targetSpringDist < this.currentSpringDist;
+      const springSpeed = isCompressing
+        ? CAMERA_CONFIG.springCompressLerp
+        : CAMERA_CONFIG.springRecoverLerp;
+      const springAlpha = 1 - Math.exp(-Math.max(0, dt) * springSpeed);
+      this.currentSpringDist = Math.max(
+        CAMERA_CONFIG.combatMinSpringDist,
+        THREE.MathUtils.lerp(
+          this.currentSpringDist,
+          targetSpringDist,
+          springAlpha,
+        ),
+      );
+
+      // Reconstruct collision-safe desired position along spring ray
+      this.desiredPos
+        .copy(this.springPivotPos)
+        .addScaledVector(this.springDir, this.currentSpringDist);
+
       this.desiredLookAt.set(
         targetPos.x - Math.sin(this.yaw) * CAMERA_CONFIG.lookAheadOffset,
         targetPos.y +
@@ -528,9 +635,37 @@ export class CameraRig {
         targetPos.z - Math.cos(this.yaw) * CAMERA_CONFIG.lookAheadOffset,
       );
 
-      const smooth = Math.min(1, dt * CAMERA_CONFIG.smoothFactor);
-      this.currentPosition.lerp(this.desiredPos, smooth);
-      this.currentLookAt.lerp(this.desiredLookAt, smooth);
+      const posSmooth = isCompressing
+        ? 1 - Math.exp(-Math.max(0, dt) * CAMERA_CONFIG.springCompressLerp)
+        : Math.min(1, dt * CAMERA_CONFIG.smoothFactor);
+      this.currentPosition.lerp(this.desiredPos, posSmooth);
+      this.currentLookAt.lerp(
+        this.desiredLookAt,
+        Math.min(1, dt * CAMERA_CONFIG.smoothFactor),
+      );
+
+      // Hard-clamp final smoothed camera inside enclosed box so fast turns never clip a wall
+      if (bounds && bounds.kind === ARENA_BOUNDS_KINDS.RECTANGULAR) {
+        this.currentPosition.x = THREE.MathUtils.clamp(
+          this.currentPosition.x,
+          -(bounds.halfWidth - margin),
+          bounds.halfWidth - margin,
+        );
+        this.currentPosition.z = THREE.MathUtils.clamp(
+          this.currentPosition.z,
+          -(bounds.halfLength - margin),
+          bounds.halfLength - margin,
+        );
+        this.currentPosition.y = THREE.MathUtils.clamp(
+          this.currentPosition.y,
+          CAMERA_CONFIG.minCameraY,
+          CAMERA_CONFIG.combatCeilingMaxY,
+        );
+      }
+
+      this._cameraDistanceToPivot = this.currentPosition.distanceTo(
+        this.springPivotPos,
+      );
     }
 
     // Apply decaying camera shake
