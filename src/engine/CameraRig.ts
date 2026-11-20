@@ -10,7 +10,12 @@ import {
   PALETTE,
   type GameState,
 } from '../config/gameConfig';
-import type { IArenaGeometry } from './SceneManager';
+import {
+  clampPointToCompositeLobby,
+  intersectRayCompositeLobby,
+  isPointInsideCompositeLobby,
+  type IArenaGeometry,
+} from './SceneManager';
 
 /**
  * Narrow camera focus target contract exposed to ECS systems (ISP & DIP).
@@ -449,6 +454,13 @@ export class CameraRig {
             bounds.halfWidth + CAMERA_CONFIG.reticleFloorRadiusPad &&
           Math.abs(this.scratchFloorHit.z) <=
             bounds.halfLength + CAMERA_CONFIG.reticleFloorRadiusPad;
+      } else if (bounds && bounds.kind === ARENA_BOUNDS_KINDS.COMPOSITE_LOBBY) {
+        withinFloor = isPointInsideCompositeLobby(
+          this.scratchFloorHit.x,
+          this.scratchFloorHit.z,
+          bounds,
+          -CAMERA_CONFIG.reticleFloorRadiusPad,
+        );
       } else {
         const radialSq =
           this.scratchFloorHit.x * this.scratchFloorHit.x +
@@ -480,6 +492,7 @@ export class CameraRig {
     if (state === GAME_STATES.TITLE) return 'TITLE';
     if (
       state === GAME_STATES.SIPHON_FINISHER ||
+      state === GAME_STATES.LOBBY_SIPHON ||
       state === GAME_STATES.VICTORY_DIORAMA ||
       state === GAME_STATES.ENDLESS_SAVOR ||
       state === GAME_STATES.DEFEAT_DIORAMA
@@ -624,6 +637,30 @@ export class CameraRig {
           const t = (boxMinY - this.springPivotPos.y) / this.springDir.y;
           if (t >= 0) allowedDist = Math.min(allowedDist, t);
         }
+      } else if (bounds && bounds.kind === ARENA_BOUNDS_KINDS.COMPOSITE_LOBBY) {
+        // Analytical ray-union clamp across Rotunda ∪ Southern Bridge ∪ Siphon Gallery
+        const compositeDist = intersectRayCompositeLobby(
+          this.springPivotPos.x,
+          this.springPivotPos.z,
+          this.springDir.x,
+          this.springDir.z,
+          allowedDist,
+          bounds,
+          margin,
+        );
+        allowedDist = Math.min(allowedDist, compositeDist);
+
+        if (this.springDir.y > 0.0001) {
+          const t =
+            (CAMERA_CONFIG.combatCeilingMaxY - this.springPivotPos.y) /
+            this.springDir.y;
+          if (t >= 0) allowedDist = Math.min(allowedDist, t);
+        } else if (this.springDir.y < -0.0001) {
+          const t =
+            (CAMERA_CONFIG.minCameraY - this.springPivotPos.y) /
+            this.springDir.y;
+          if (t >= 0) allowedDist = Math.min(allowedDist, t);
+        }
       } else if (
         bounds &&
         bounds.kind === ARENA_BOUNDS_KINDS.CIRCULAR &&
@@ -729,7 +766,7 @@ export class CameraRig {
         );
       }
 
-      // Hard-clamp final smoothed camera inside enclosed box so fast turns never clip a wall
+      // Hard-clamp final smoothed camera inside enclosed box or composite lobby so fast turns never clip a wall
       if (bounds && bounds.kind === ARENA_BOUNDS_KINDS.RECTANGULAR) {
         this.currentPosition.x = THREE.MathUtils.clamp(
           this.currentPosition.x,
@@ -741,6 +778,13 @@ export class CameraRig {
           -(bounds.halfLength - margin),
           bounds.halfLength - margin,
         );
+        this.currentPosition.y = THREE.MathUtils.clamp(
+          this.currentPosition.y,
+          CAMERA_CONFIG.minCameraY,
+          CAMERA_CONFIG.combatCeilingMaxY,
+        );
+      } else if (bounds && bounds.kind === ARENA_BOUNDS_KINDS.COMPOSITE_LOBBY) {
+        clampPointToCompositeLobby(this.currentPosition, bounds, margin);
         this.currentPosition.y = THREE.MathUtils.clamp(
           this.currentPosition.y,
           CAMERA_CONFIG.minCameraY,

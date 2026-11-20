@@ -19,6 +19,7 @@ export interface ILobbyCallbacks {
   getGameState: () => GameState;
   onEnterRealm1: () => void;
   onEncoreTierToggled: (nextTier: number) => void;
+  onSyncGalleryUnlocked: (unlocked: boolean) => void;
 }
 
 /**
@@ -61,6 +62,8 @@ export class LobbySystem implements ISystem {
   public syncSanctumState(): void {
     const store = useGameStore.getState();
     this.mageTower.setTrophyVisible(store.marinaDefeated, store.encoreTier);
+    this.callbacks.onSyncGalleryUnlocked(store.marinaDefeated);
+    this.mageTower.updateMarinaCaptiveState(store.marinaCoreCharge, 0, 0.016);
     this.mageRig.setEncoreTier(store.encoreTier);
     this.setPromptIfChanged(null);
   }
@@ -155,12 +158,18 @@ export class LobbySystem implements ISystem {
     }
   }
 
-  public update(_dt: number, _elapsed: number): void {
+  public update(dt: number, elapsed: number): void {
     const state = this.callbacks.getGameState();
     const store = useGameStore.getState();
 
     if (state === GAME_STATES.TITLE) {
       this.mageTower.setTrophyVisible(store.marinaDefeated, store.encoreTier);
+      this.callbacks.onSyncGalleryUnlocked(store.marinaDefeated);
+      this.mageTower.updateMarinaCaptiveState(
+        store.marinaCoreCharge,
+        elapsed,
+        dt,
+      );
       if (this.activePrompt !== null) {
         this.setPromptIfChanged(null);
       }
@@ -175,6 +184,12 @@ export class LobbySystem implements ISystem {
     }
 
     this.mageTower.setTrophyVisible(store.marinaDefeated, store.encoreTier);
+    this.callbacks.onSyncGalleryUnlocked(store.marinaDefeated);
+    this.mageTower.updateMarinaCaptiveState(
+      store.marinaCoreCharge,
+      elapsed,
+      dt,
+    );
 
     const player = this.world.queryFirst(
       'playerTag',

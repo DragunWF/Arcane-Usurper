@@ -14,6 +14,7 @@
 export const GAME_STATES = Object.freeze({
   TITLE: 'TITLE',
   LOBBY: 'LOBBY',
+  LOBBY_SIPHON: 'LOBBY_SIPHON',
   CHAMBER_COMBAT: 'CHAMBER_COMBAT',
   PORTAL_TRANSITION: 'PORTAL_TRANSITION',
   BOSS_COMBAT: 'BOSS_COMBAT',
@@ -93,6 +94,8 @@ export const LOBBY_PROMPT_KINDS = Object.freeze({
   REALM_2_SEALED: 'REALM_2_SEALED',
   REALM_3_SEALED: 'REALM_3_SEALED',
   TROPHY_PEDESTAL: 'TROPHY_PEDESTAL',
+  SIPHON_GALLERY_WARD: 'SIPHON_GALLERY_WARD',
+  MARINA_DAIS: 'MARINA_DAIS',
 } as const);
 
 export type LobbyPromptKind =
@@ -101,6 +104,7 @@ export type LobbyPromptKind =
 export const ARENA_BOUNDS_KINDS = Object.freeze({
   RECTANGULAR: 'RECTANGULAR',
   CIRCULAR: 'CIRCULAR',
+  COMPOSITE_LOBBY: 'COMPOSITE_LOBBY',
 } as const);
 
 export type ArenaBoundsKind =
@@ -266,6 +270,7 @@ export const PALETTE = Object.freeze({
   parchmentCream: 0xfef3c7,
   crimsonPotion: 0xe11d48,
   candleWax: 0xfde68a,
+  galleryVelvet: 0x3b1354,
 
   // CSS Hex Strings for Canvas2D, Tailwind inline styles, and SVG tokens
   hex: Object.freeze({
@@ -334,6 +339,7 @@ export const PALETTE = Object.freeze({
     parchmentCream: '#FEF3C7',
     crimsonPotion: '#E11D48',
     candleWax: '#FDE68A',
+    galleryVelvet: '#3B1354',
   } as const),
 
   // Canvas2D RGBA & Gradient Stop Tokens (Zero Inline Color Literals)
@@ -1252,7 +1258,7 @@ export const LOBBY_CONFIG = Object.freeze({
   outerWallRadius: 13.0,
   wallHeight: 11.2,
   domeRadius: 13.0,
-  skyDomeRadius: 34.0,
+  skyDomeRadius: 54.0,
   playerSpawn: Object.freeze({ x: 0, y: 0, z: 4.5 }),
   playerSpawnYaw: Math.PI,
   titleOrbitRadius: 4.8,
@@ -1280,7 +1286,7 @@ export const LOBBY_CONFIG = Object.freeze({
   portalSupportPillarHeight: 3.35,
   portalSupportPillarRadius: 0.28,
 
-  // Floor Summoning Circle, Non-Overlapping Runners & Southern/Side Bookshelves
+  // Floor Summoning Circle, Non-Overlapping Runners & Side Bookshelves (keeping southern archway open)
   summoningCircleRingRadiiPx: Object.freeze([62, 76, 128, 142] as const),
   outerFloorRuneRingPx: 438,
   runnerStartRadius: 3.95,
@@ -1290,8 +1296,6 @@ export const LOBBY_CONFIG = Object.freeze({
   bookshelfBayAngles: Object.freeze([
     -Math.PI * 0.4167,
     -Math.PI * 0.25,
-    -Math.PI * 0.0833,
-    Math.PI * 0.0833,
     Math.PI * 0.25,
     Math.PI * 0.4167,
   ] as const),
@@ -1328,8 +1332,8 @@ export const LOBBY_CONFIG = Object.freeze({
     hemiIntensity: 1.25,
     keyIntensity: 1.95,
     rimIntensity: 1.15,
-    fogDensity: 0.013,
-    shadowExtent: 18,
+    fogDensity: 0.0115,
+    shadowExtent: 28,
     candleLightIntensity: 3.4,
     candleLightDistance: 7.5,
     portalLightIntensity: 5.2,
@@ -1337,6 +1341,87 @@ export const LOBBY_CONFIG = Object.freeze({
     trophyLightIntensity: 3.8,
     trophyLightDistance: 5.5,
   } as const),
+} as const);
+
+// ============================================================================
+// SIPHON GALLERY ANNEX (PHASE 5 CAPTIVE SOVEREIGN RECHARGE WING) CONFIGURATION
+// ============================================================================
+
+export const SIPHON_GALLERY_CONFIG = Object.freeze({
+  marinaCoreChargeStorageKey: 'arcane_usurper_marina_core_charge',
+
+  // Spatial Layout (Southern Archway + Velvet Bridge + Circular Gallery)
+  bridgeHalfWidth: 2.3,
+  bridgeStartZ: 10.8,
+  bridgeEndZ: 18.8,
+  bridgeVisualStartZ: 11.5,
+  bridgeVisualEndZ: 18.5,
+  bridgeWallHalfSpan: 2.68,
+  bridgeWallHeight: 5.4,
+  bridgeArchCount: 3,
+  galleryCenterZ: 24.5,
+  galleryRadius: 7.2,
+  galleryOuterWallRadius: 7.85,
+  galleryWallHeight: 8.6,
+  galleryArchCount: 8,
+  galleryPierCollisionRadius: 0.62,
+  southArchwayZ: 12.2,
+  southArchwayHalfWidth: 2.52,
+  southArchwayHeight: 5.4,
+
+  // Raised Velvet Dais Alcoves (Center-South Marina + Left/Right Dormant Future Bosses)
+  marinaDaisPos: Object.freeze({ x: 0, y: 0, z: 27.6 }),
+  leftDormantDaisPos: Object.freeze({ x: -4.75, y: 0, z: 24.9 }),
+  rightDormantDaisPos: Object.freeze({ x: 4.75, y: 0, z: 24.9 }),
+  daisRadius: 1.85,
+  dormantDaisRadius: 1.45,
+  daisHeight: 0.28,
+  daisCollisionRadius: 1.15,
+  dormantDaisCollisionRadius: 1.35,
+  interactRadius: 2.6,
+  wardInteractRadius: 2.8,
+
+  // Bound Marina Captive Posture, Arcane Rune-Cuffs & Cryo Core Reservoir Crystal
+  marinaFacingYaw: Math.PI,
+  conduitOffsetX: 1.32,
+  conduitOffsetZ: -0.22,
+  conduitHeight: 2.05,
+  conduitTipY: 1.88,
+  reservoirOffsetX: 2.15,
+  reservoirOffsetZ: -0.45,
+  reservoirHeight: 2.35,
+  reservoirCoreRadius: 0.22,
+  reservoirMinFillScale: 0.04,
+  runeSegmentCount: 12,
+  runeRingInnerRadius: 1.98,
+  runeRingOuterRadius: 2.18,
+  tetherRadius: 0.016,
+  wristCuffRadius: 0.056,
+  wristCuffTube: 0.014,
+  captiveLowChargeThreshold: 0.2,
+  captiveHighChargeThreshold: 0.72,
+  captiveBreathFreqMin: 1.45,
+  captiveBreathFreqMax: 2.5,
+  captiveHeadDroopMax: 0.34,
+  captiveHeadLiftMin: -0.14,
+  captiveTorsoSlumpMax: 0.3,
+  captiveTorsoUprightMin: 0.14,
+  captiveKneelBodyY: 0.48,
+  captiveFaceRedrawIntervalSec: 0.12,
+
+  // Recharge Rates & Bounds
+  passiveRechargePerSec: 0.018,
+  chamberWaveRechargeBonus: 0.35,
+  bossDefeatRechargeBonus: 1.0,
+  minDrainableCharge: 0.05,
+  defaultCoreCharge: 1.0,
+
+  // Gallery Atmosphere & Cold-Flame Brazier Lights
+  brazierLightIntensity: 3.1,
+  brazierLightDistance: 10.5,
+  reservoirLightIntensity: 3.4,
+  reservoirLightDistance: 7.5,
+  wardRippleDuration: 0.65,
 } as const);
 
 // ============================================================================

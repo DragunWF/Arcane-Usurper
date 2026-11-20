@@ -3,8 +3,10 @@ import {
   ARENA_CONFIG,
   LOBBY_CONFIG,
   PALETTE,
+  SIPHON_GALLERY_CONFIG,
 } from '../config/gameConfig';
 import { ToonAssets } from '../engine/ToonAssets';
+import { MarinaRig } from '../rigs/bosses/MarinaRig';
 
 export interface SanctumCollider {
   readonly x: number;
@@ -25,6 +27,12 @@ interface FloatingCandleRecord {
   readonly light: THREE.PointLight | null;
   readonly baseY: number;
   readonly group: THREE.Group;
+  readonly phase: number;
+}
+
+interface GalleryBrazierRecord {
+  readonly flameMesh: THREE.Mesh;
+  readonly light: THREE.PointLight;
   readonly phase: number;
 }
 
@@ -124,6 +132,45 @@ export class MageTowerLevel {
   private realm3WardMat: THREE.MeshBasicMaterial | null = null;
   private realm3RippleTimer = 0;
 
+  // Siphon Gallery Annex (Southern Archway, Velvet Bridge, Bound Marina & Cryo Reservoir)
+  private galleryWardGroup: THREE.Group | null = null;
+  private galleryWardMat: THREE.MeshBasicMaterial | null = null;
+  private galleryWardRippleTimer = 0;
+  private galleryUnlocked = false;
+  private readonly galleryBraziers: GalleryBrazierRecord[] = [];
+  private marinaDaisGroup: THREE.Group | null = null;
+  private _captiveMarinaRig: MarinaRig | null = null;
+  private leftConduitTip: THREE.Object3D | null = null;
+  private rightConduitTip: THREE.Object3D | null = null;
+  private leftTetherMesh: THREE.Mesh | null = null;
+  private rightTetherMesh: THREE.Mesh | null = null;
+  private tetherMat: THREE.MeshBasicMaterial | null = null;
+  private cuffMat: THREE.MeshBasicMaterial | null = null;
+  private reservoirCoreMesh: THREE.Mesh | null = null;
+  private reservoirCoreMat: THREE.MeshToonMaterial | null = null;
+  private reservoirLight: THREE.PointLight | null = null;
+  private readonly daisRuneSegments: THREE.MeshBasicMaterial[] = [];
+
+  // Reusable scratch vectors for zero-GC tether updates
+  private readonly scratchWristL = new THREE.Vector3();
+  private readonly scratchWristR = new THREE.Vector3();
+  private readonly scratchTipL = new THREE.Vector3();
+  private readonly scratchTipR = new THREE.Vector3();
+  private readonly scratchMid = new THREE.Vector3();
+  private readonly scratchDir = new THREE.Vector3();
+  private readonly scratchQuat = new THREE.Quaternion();
+  private readonly upAxis = new THREE.Vector3(0, 1, 0);
+  private readonly scratchColorA = new THREE.Color(PALETTE.drainedAshSilver);
+  private readonly scratchColorB = new THREE.Color(PALETTE.frostRunes);
+
+  public get captiveMarinaRig(): MarinaRig | null {
+    return this._captiveMarinaRig;
+  }
+
+  public get isGalleryUnlocked(): boolean {
+    return this.galleryUnlocked;
+  }
+
   public get pillarColliders(): readonly SanctumCollider[] {
     return this._pillarColliders;
   }
@@ -146,6 +193,7 @@ export class MageTowerLevel {
     this.buildStolenTrophyPedestal();
     this.buildAbyssalTargetCrystal();
     this.buildThreeRealmPortals();
+    this.buildSiphonGalleryAnnex();
   }
 
   private trackGeo<T extends THREE.BufferGeometry>(geo: T): T {
@@ -449,41 +497,43 @@ export class MageTowerLevel {
       const px = Math.sin(angle) * R;
       const pz = Math.cos(angle) * R;
 
-      // Stone Pier Column between Gothic Windows
-      const pierGroup = new THREE.Group();
-      pierGroup.position.set(px, 0, pz);
-      pierGroup.lookAt(0, 0, 0);
+      // Skip the dead-center southern pier (i === 0, z = +R) to open the Siphon Gallery doorway
+      if (i !== 0) {
+        const pierGroup = new THREE.Group();
+        pierGroup.position.set(px, 0, pz);
+        pierGroup.lookAt(0, 0, 0);
 
-      const { group: plinthObj, mainMesh: plinthMesh } =
-        ToonAssets.createOutlinedMesh(
-          plinthGeo,
-          pierMat,
-          ARENA_CONFIG.defaultOutlineScale,
-          true,
-        );
-      plinthObj.position.y = 0.375;
-      pierGroup.add(plinthObj);
+        const { group: plinthObj, mainMesh: plinthMesh } =
+          ToonAssets.createOutlinedMesh(
+            plinthGeo,
+            pierMat,
+            ARENA_CONFIG.defaultOutlineScale,
+            true,
+          );
+        plinthObj.position.y = 0.375;
+        pierGroup.add(plinthObj);
 
-      const { group: pierObj, mainMesh: pierMesh } =
-        ToonAssets.createOutlinedMesh(
-          pierGeo,
-          stoneMat,
-          { x: 1.06, y: 1.01, z: 1.06 },
-          true,
-        );
-      pierObj.position.y = H * 0.5;
-      pierGroup.add(pierObj);
+        const { group: pierObj, mainMesh: pierMesh } =
+          ToonAssets.createOutlinedMesh(
+            pierGeo,
+            stoneMat,
+            { x: 1.06, y: 1.01, z: 1.06 },
+            true,
+          );
+        pierObj.position.y = H * 0.5;
+        pierGroup.add(pierObj);
 
-      this.root.add(pierGroup);
+        this.root.add(pierGroup);
 
-      this._pillarColliders.push({
-        x: px,
-        z: pz,
-        radius: LOBBY_CONFIG.archPierCollisionRadius,
-        height: H,
-      });
-      this._pillarMeshes.push(pierMesh, plinthMesh);
-      this._cameraColliders.push(pierMesh, plinthMesh);
+        this._pillarColliders.push({
+          x: px,
+          z: pz,
+          radius: LOBBY_CONFIG.archPierCollisionRadius,
+          height: H,
+        });
+        this._pillarMeshes.push(pierMesh, plinthMesh);
+        this._cameraColliders.push(pierMesh, plinthMesh);
+      }
 
       // Gothic Window Bay between Pier i and Pier i+1
       const midAngle = ((i + 0.5) / count) * Math.PI * 2;
@@ -494,12 +544,16 @@ export class MageTowerLevel {
       bayGroup.position.set(wx, 0, wz);
       bayGroup.lookAt(0, 0, 0);
 
-      const wainscotting = new THREE.Mesh(lowerWallGeo, stoneMat);
-      wainscotting.position.y = 1.1;
-      wainscotting.receiveShadow = true;
-      bayGroup.add(wainscotting);
-      this._cameraColliders.push(wainscotting);
-      this._pillarMeshes.push(wainscotting);
+      // Keep the two flanking southern bays (i === 0 and i === count - 1) open for the bridge archway
+      const isSouthernArchwayBay = i === 0 || i === count - 1;
+      if (!isSouthernArchwayBay) {
+        const wainscotting = new THREE.Mesh(lowerWallGeo, stoneMat);
+        wainscotting.position.y = 1.1;
+        wainscotting.receiveShadow = true;
+        bayGroup.add(wainscotting);
+        this._cameraColliders.push(wainscotting);
+        this._pillarMeshes.push(wainscotting);
+      }
 
       const lintel = new THREE.Mesh(lintelGeo, stoneMat);
       lintel.position.y = H - 0.9;
@@ -1445,6 +1499,1024 @@ export class MageTowerLevel {
   }
 
   /**
+   * Builds the southern **Siphon Gallery Annex** extending from the main rotunda:
+   * - Southern Gothic archway & progressive royal-violet ward seal
+   * - Velvet-carpeted obsidian stone bridge (z = 11.5..18.5) with crystal ribs & camera colliders
+   * - Circular Siphon Gallery (radius 7.2, centered at z = 24.5) with vaulted Gothic arches,
+   *   cold-flame braziers, and 3 raised velvet dais alcoves (Marina active + 2 dormant)
+   * - Dedicated kneeling captive MarinaRig with glowing wrist rune-cuffs, pulsing energy tethers
+   *   to twin flanking crystal conduits, 12-segment floor rune gauge, and Cryo Core Reservoir Crystal.
+   */
+  private buildSiphonGalleryAnnex(): void {
+    const cfg = SIPHON_GALLERY_CONFIG;
+
+    const stoneMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.sanctumStone, {
+        emissive: PALETTE.royalIndigo,
+        emissiveIntensity: 0.12,
+      }),
+    );
+    const darkObsidianMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.abyssalCloak, {
+        emissive: PALETTE.amethystTrim,
+        emissiveIntensity: 0.14,
+      }),
+    );
+    const pierMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.shadowSlate),
+    );
+    const velvetMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.galleryVelvet, {
+        emissive: PALETTE.amethystTrim,
+        emissiveIntensity: 0.16,
+      }),
+    );
+    const violetTrimMat = this.trackMat(
+      new THREE.MeshBasicMaterial({ color: PALETTE.amethystTrim }),
+    );
+    const crystalGlassMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.iceHighlights, {
+        emissive: PALETTE.frostRunes,
+        emissiveIntensity: 0.25,
+        transparent: true,
+        opacity: 0.34,
+        side: THREE.DoubleSide,
+      }),
+    );
+    const inwardWallMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.sanctumStone, {
+        emissive: PALETTE.royalIndigo,
+        emissiveIntensity: 0.1,
+        side: THREE.FrontSide,
+      }),
+    );
+
+    // -----------------------------------------------------------------------
+    // 1. Southern Gothic Archway Opening & Shimmering Violet Ward Seal
+    // -----------------------------------------------------------------------
+    const archGroup = new THREE.Group();
+    archGroup.position.set(0, 0, cfg.southArchwayZ);
+
+    const jambGeo = this.trackGeo(
+      new THREE.BoxGeometry(0.95, cfg.southArchwayHeight, 1.15),
+    );
+    const archLintelGeo = this.trackGeo(
+      new THREE.BoxGeometry(cfg.southArchwayHalfWidth * 2 + 1.4, 0.95, 1.25),
+    );
+    const flankWallGeo = this.trackGeo(new THREE.BoxGeometry(4.1, 2.35, 0.55));
+
+    const sides: readonly (-1 | 1)[] = [-1, 1];
+    sides.forEach((side) => {
+      const jambX = side * (cfg.southArchwayHalfWidth + 0.42);
+      const { group: jambObj, mainMesh: jambMesh } =
+        ToonAssets.createOutlinedMesh(
+          jambGeo,
+          darkObsidianMat,
+          { x: 1.05, y: 1.01, z: 1.05 },
+          true,
+        );
+      jambObj.position.set(jambX, cfg.southArchwayHeight * 0.5, 0);
+      archGroup.add(jambObj);
+      this._cameraColliders.push(jambMesh);
+      this._pillarMeshes.push(jambMesh);
+      this._pillarColliders.push({
+        x: jambX,
+        z: cfg.southArchwayZ,
+        radius: 0.62,
+        height: cfg.southArchwayHeight,
+      });
+
+      // Glowing crystal finial atop each archway jamb
+      const finial = new THREE.Mesh(
+        this.trackGeo(new THREE.ConeGeometry(0.26, 0.9, 6)),
+        violetTrimMat,
+      );
+      finial.position.set(jambX, cfg.southArchwayHeight + 0.5, 0);
+      archGroup.add(finial);
+
+      // Angled stone flank wall sealing the rotunda gap between doorway jamb and pier i=1 / i=11
+      const flank = new THREE.Mesh(flankWallGeo, stoneMat);
+      flank.position.set(side * 4.55, 1.18, -0.45);
+      flank.rotation.y = side * -0.24;
+      flank.receiveShadow = true;
+      archGroup.add(flank);
+      this._cameraColliders.push(flank);
+      this._pillarMeshes.push(flank);
+    });
+
+    const { group: lintelObj, mainMesh: lintelMesh } =
+      ToonAssets.createOutlinedMesh(archLintelGeo, stoneMat, 1.03, true);
+    lintelObj.position.set(0, cfg.southArchwayHeight + 0.32, 0);
+    archGroup.add(lintelObj);
+    this._cameraColliders.push(lintelMesh);
+
+    // Pointed Gothic crystal crown framing the southern doorway
+    const crownCurveL = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-cfg.southArchwayHalfWidth, cfg.southArchwayHeight - 1.1, 0),
+      new THREE.Vector3(-cfg.southArchwayHalfWidth * 0.52, cfg.southArchwayHeight + 0.1, 0),
+      new THREE.Vector3(0, cfg.southArchwayHeight + 0.82, 0),
+    ]);
+    const crownCurveR = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(cfg.southArchwayHalfWidth, cfg.southArchwayHeight - 1.1, 0),
+      new THREE.Vector3(cfg.southArchwayHalfWidth * 0.52, cfg.southArchwayHeight + 0.1, 0),
+      new THREE.Vector3(0, cfg.southArchwayHeight + 0.82, 0),
+    ]);
+    archGroup.add(
+      new THREE.Mesh(
+        this.trackGeo(new THREE.TubeGeometry(crownCurveL, 12, 0.16, 6, false)),
+        pierMat,
+      ),
+      new THREE.Mesh(
+        this.trackGeo(new THREE.TubeGeometry(crownCurveR, 12, 0.16, 6, false)),
+        pierMat,
+      ),
+    );
+
+    // Progressive Shimmering Violet Ward Seal across the southern archway
+    this.galleryWardGroup = new THREE.Group();
+    this.galleryWardGroup.position.set(0, cfg.southArchwayHeight * 0.48, 0.05);
+
+    this.galleryWardMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.glowViolet,
+        transparent: true,
+        opacity: 0.34,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    const wardPlane = new THREE.Mesh(
+      this.trackGeo(
+        new THREE.PlaneGeometry(
+          cfg.southArchwayHalfWidth * 2,
+          cfg.southArchwayHeight - 0.25,
+        ),
+      ),
+      this.galleryWardMat,
+    );
+    this.galleryWardGroup.add(wardPlane);
+
+    const wardSigilOuter = new THREE.Mesh(
+      this.trackGeo(new THREE.RingGeometry(1.15, 1.28, 28)),
+      violetTrimMat,
+    );
+    const wardSigilInner = new THREE.Mesh(
+      this.trackGeo(new THREE.RingGeometry(0.62, 0.72, 6)),
+      violetTrimMat,
+    );
+    const wardBarGeo = this.trackGeo(
+      new THREE.BoxGeometry(cfg.southArchwayHalfWidth * 1.9, 0.08, 0.06),
+    );
+    const wardBar1 = new THREE.Mesh(wardBarGeo, violetTrimMat);
+    wardBar1.rotation.z = 0.46;
+    const wardBar2 = new THREE.Mesh(wardBarGeo, violetTrimMat);
+    wardBar2.rotation.z = -0.46;
+    this.galleryWardGroup.add(wardSigilOuter, wardSigilInner, wardBar1, wardBar2);
+
+    archGroup.add(this.galleryWardGroup);
+    this.root.add(archGroup);
+
+    // -----------------------------------------------------------------------
+    // 2. Velvet-Carpeted Obsidian Stone Bridge (z = 11.5..18.5)
+    // -----------------------------------------------------------------------
+    const bridgeCenterZ = (cfg.bridgeVisualStartZ + cfg.bridgeVisualEndZ) * 0.5;
+    const bridgeLength = cfg.bridgeVisualEndZ - cfg.bridgeVisualStartZ + 1.4;
+    const bridgeSlabGeo = this.trackGeo(
+      new THREE.BoxGeometry(cfg.bridgeWallHalfSpan * 2 + 0.5, 0.8, bridgeLength),
+    );
+    const bridgeSlab = new THREE.Mesh(bridgeSlabGeo, stoneMat);
+    bridgeSlab.position.set(0, -0.4, bridgeCenterZ);
+    bridgeSlab.receiveShadow = true;
+    this.root.add(bridgeSlab);
+
+    // Continuous royal-plum velvet runner from main rotunda south rim -> bridge -> Marina's dais
+    const southRunnerStartZ = LOBBY_CONFIG.runnerStartRadius;
+    const southRunnerEndZ = cfg.marinaDaisPos.z - cfg.daisRadius - 0.15;
+    const southRunnerLen = southRunnerEndZ - southRunnerStartZ;
+    const southRunnerMidZ = (southRunnerStartZ + southRunnerEndZ) * 0.5;
+
+    const southCarpet = new THREE.Mesh(
+      this.trackGeo(
+        new THREE.PlaneGeometry(LOBBY_CONFIG.runnerWidth, southRunnerLen),
+      ),
+      velvetMat,
+    );
+    southCarpet.rotation.x = -Math.PI / 2;
+    southCarpet.position.set(0, 0.016, southRunnerMidZ);
+    southCarpet.receiveShadow = true;
+    this.root.add(southCarpet);
+
+    const southBorder = new THREE.Mesh(
+      this.trackGeo(
+        new THREE.PlaneGeometry(LOBBY_CONFIG.runnerBorderWidth, southRunnerLen),
+      ),
+      violetTrimMat,
+    );
+    southBorder.rotation.x = -Math.PI / 2;
+    southBorder.position.set(0, 0.012, southRunnerMidZ);
+    this.root.add(southBorder);
+
+    // Bridge side balustrades, inward-facing camera collider walls & 3 Gothic crystal ribs
+    const balustradeGeo = this.trackGeo(
+      new THREE.BoxGeometry(0.45, 1.35, bridgeLength),
+    );
+    const bridgeCamWallGeo = this.trackGeo(
+      new THREE.PlaneGeometry(bridgeLength, cfg.bridgeWallHeight),
+    );
+    const bridgeCamWallMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.sanctumStone,
+        transparent: true,
+        opacity: 0.0,
+        side: THREE.FrontSide,
+        depthWrite: false,
+      }),
+    );
+
+    sides.forEach((side) => {
+      const wallX = side * cfg.bridgeWallHalfSpan;
+      const { group: balObj, mainMesh: balMesh } =
+        ToonAssets.createOutlinedMesh(balustradeGeo, darkObsidianMat, 1.03, true);
+      balObj.position.set(wallX, 0.675, bridgeCenterZ);
+      this.root.add(balObj);
+      this._cameraColliders.push(balMesh);
+      this._pillarMeshes.push(balMesh);
+
+      const trimStrip = new THREE.Mesh(
+        this.trackGeo(new THREE.BoxGeometry(0.08, 0.06, bridgeLength - 0.2)),
+        violetTrimMat,
+      );
+      trimStrip.position.set(wallX - side * 0.22, 1.38, bridgeCenterZ);
+      this.root.add(trimStrip);
+
+      // Inward-facing full-height bridge wall collider plane so spring-arm camera stays inside bridge
+      const camWall = new THREE.Mesh(bridgeCamWallGeo, bridgeCamWallMat);
+      camWall.position.set(wallX - side * 0.12, cfg.bridgeWallHeight * 0.5, bridgeCenterZ);
+      camWall.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+      this.root.add(camWall);
+      this._cameraColliders.push(camWall);
+    });
+
+    const bridgeRibCurveL = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-cfg.bridgeWallHalfSpan, 1.3, 0),
+      new THREE.Vector3(-cfg.bridgeWallHalfSpan * 0.72, 4.15, 0),
+      new THREE.Vector3(0, cfg.bridgeWallHeight, 0),
+    ]);
+    const bridgeRibCurveR = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(cfg.bridgeWallHalfSpan, 1.3, 0),
+      new THREE.Vector3(cfg.bridgeWallHalfSpan * 0.72, 4.15, 0),
+      new THREE.Vector3(0, cfg.bridgeWallHeight, 0),
+    ]);
+    const bridgeRibGeoL = this.trackGeo(
+      new THREE.TubeGeometry(bridgeRibCurveL, 12, 0.14, 6, false),
+    );
+    const bridgeRibGeoR = this.trackGeo(
+      new THREE.TubeGeometry(bridgeRibCurveR, 12, 0.14, 6, false),
+    );
+    const ribCrystalGeo = this.trackGeo(new THREE.OctahedronGeometry(0.18, 0));
+
+    for (let i = 0; i < cfg.bridgeArchCount; i++) {
+      const t = (i + 0.5) / cfg.bridgeArchCount;
+      const rz = THREE.MathUtils.lerp(
+        cfg.bridgeVisualStartZ + 0.6,
+        cfg.bridgeVisualEndZ - 0.6,
+        t,
+      );
+      const ribGroup = new THREE.Group();
+      ribGroup.position.set(0, 0, rz);
+      ribGroup.add(
+        new THREE.Mesh(bridgeRibGeoL, pierMat),
+        new THREE.Mesh(bridgeRibGeoR, pierMat),
+      );
+      const keyStone = new THREE.Mesh(ribCrystalGeo, violetTrimMat);
+      keyStone.position.y = cfg.bridgeWallHeight;
+      ribGroup.add(keyStone);
+      this.root.add(ribGroup);
+    }
+
+    // -----------------------------------------------------------------------
+    // 3. Circular Siphon Gallery (radius 7.2, centered at z = 24.5)
+    // -----------------------------------------------------------------------
+    const galleryGroup = new THREE.Group();
+    galleryGroup.position.set(0, 0, cfg.galleryCenterZ);
+
+    const galFloorR = cfg.galleryOuterWallRadius;
+    const galFloorGeo = this.trackGeo(
+      new THREE.CylinderGeometry(galFloorR, galFloorR + 0.25, 0.8, 40),
+    );
+    const galFloorMat = this.trackMat(
+      new THREE.MeshStandardMaterial({
+        color: PALETTE.sanctumStone,
+        emissive: new THREE.Color(PALETTE.royalIndigo),
+        emissiveIntensity: 0.22,
+        roughness: 0.26,
+        metalness: 0.28,
+      }),
+    );
+    const galFloor = new THREE.Mesh(galFloorGeo, galFloorMat);
+    galFloor.position.y = -0.4;
+    galFloor.receiveShadow = true;
+    galleryGroup.add(galFloor);
+
+    // Decorative floor rune circle framing the gallery center
+    const galOuterRune = new THREE.Mesh(
+      this.trackGeo(
+        new THREE.RingGeometry(
+          cfg.galleryRadius - 0.45,
+          cfg.galleryRadius - 0.32,
+          48,
+        ),
+      ),
+      violetTrimMat,
+    );
+    galOuterRune.rotation.x = -Math.PI / 2;
+    galOuterRune.position.y = 0.015;
+    galleryGroup.add(galOuterRune);
+
+    // 8 Vaulted Gothic Stone-and-Crystal Arches around the Gallery perimeter
+    const galArchCount = cfg.galleryArchCount;
+    const galWallH = cfg.galleryWallHeight;
+    const galPierGeo = this.trackGeo(
+      new THREE.CylinderGeometry(0.36, 0.46, galWallH, 6),
+    );
+    const galBayArcLen = ((2 * Math.PI * galFloorR) / galArchCount) * 0.95;
+    const galWallPanelGeo = this.trackGeo(
+      new THREE.BoxGeometry(galBayArcLen, 2.6, 0.42),
+    );
+    const galUpperColliderGeo = this.trackGeo(
+      new THREE.PlaneGeometry(galBayArcLen * 1.05, galWallH),
+    );
+    const galRibCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, 4.4, galFloorR - 0.25),
+      new THREE.Vector3(0, galWallH - 0.6, galFloorR * 0.56),
+      new THREE.Vector3(0, galWallH + 0.4, 1.9),
+    ]);
+    const galRibGeo = this.trackGeo(
+      new THREE.TubeGeometry(galRibCurve, 12, 0.14, 6, false),
+    );
+
+    for (let i = 0; i < galArchCount; i++) {
+      const ang = (i / galArchCount) * Math.PI * 2;
+      const gx = Math.sin(ang) * galFloorR;
+      const gz = Math.cos(ang) * galFloorR;
+
+      // Skip the dead-north pier (i === galArchCount / 2, angle = PI) where the bridge connects
+      if (i !== galArchCount / 2) {
+        const pGroup = new THREE.Group();
+        pGroup.position.set(gx, 0, gz);
+        pGroup.lookAt(0, 0, 0);
+
+        const { group: pierObj, mainMesh: pierMesh } =
+          ToonAssets.createOutlinedMesh(
+            galPierGeo,
+            stoneMat,
+            { x: 1.06, y: 1.01, z: 1.06 },
+            true,
+          );
+        pierObj.position.y = galWallH * 0.5;
+        pGroup.add(pierObj);
+
+        const crystalRib = new THREE.Mesh(galRibGeo, crystalGlassMat);
+        crystalRib.rotation.y = ang;
+        galleryGroup.add(crystalRib);
+
+        galleryGroup.add(pGroup);
+        this._cameraColliders.push(pierMesh);
+        this._pillarMeshes.push(pierMesh);
+        this._pillarColliders.push({
+          x: gx,
+          z: cfg.galleryCenterZ + gz,
+          radius: cfg.galleryPierCollisionRadius,
+          height: galWallH,
+        });
+      }
+
+      // Wall bays (skip the 2 northern bays directly flanking the bridge opening)
+      const midAng = ((i + 0.5) / galArchCount) * Math.PI * 2;
+      const isNorthEntranceBay =
+        i === galArchCount / 2 - 1 || i === galArchCount / 2;
+      if (!isNorthEntranceBay) {
+        const bx = Math.sin(midAng) * galFloorR;
+        const bz = Math.cos(midAng) * galFloorR;
+        const bGroup = new THREE.Group();
+        bGroup.position.set(bx, 0, bz);
+        bGroup.lookAt(0, 0, 0);
+
+        const panel = new THREE.Mesh(galWallPanelGeo, inwardWallMat);
+        panel.position.y = 1.3;
+        panel.receiveShadow = true;
+        bGroup.add(panel);
+        this._cameraColliders.push(panel);
+        this._pillarMeshes.push(panel);
+
+        // Full-height inward-facing collider plane preventing camera clip through arched openings
+        const camPane = new THREE.Mesh(galUpperColliderGeo, bridgeCamWallMat);
+        camPane.position.set(0, galWallH * 0.5, 0.25);
+        bGroup.add(camPane);
+        this._cameraColliders.push(camPane);
+
+        galleryGroup.add(bGroup);
+      }
+    }
+
+    // Overhead Gallery Vaulted Crown & Oculus Ring
+    const galCrownRing = new THREE.Mesh(
+      this.trackGeo(new THREE.TorusGeometry(galFloorR - 0.15, 0.34, 8, 36)),
+      stoneMat,
+    );
+    galCrownRing.rotation.x = Math.PI / 2;
+    galCrownRing.position.y = galWallH;
+    galleryGroup.add(galCrownRing);
+
+    const galOculusRing = new THREE.Mesh(
+      this.trackGeo(new THREE.TorusGeometry(1.9, 0.14, 8, 28)),
+      violetTrimMat,
+    );
+    galOculusRing.rotation.x = Math.PI / 2;
+    galOculusRing.position.y = galWallH + 0.4;
+    galleryGroup.add(galOculusRing);
+
+    // 4 Cold-Flame Braziers illuminating the Siphon Gallery when unlocked
+    const brazierPositions = [
+      { x: -2.4, z: -5.4 },
+      { x: 2.4, z: -5.4 },
+      { x: -4.1, z: 3.4 },
+      { x: 4.1, z: 3.4 },
+    ];
+    const brazierStandGeo = this.trackGeo(
+      new THREE.CylinderGeometry(0.18, 0.34, 1.25, 6),
+    );
+    const brazierBowlGeo = this.trackGeo(
+      new THREE.CylinderGeometry(0.42, 0.2, 0.32, 8),
+    );
+    const coldFlameGeo = this.trackGeo(new THREE.ConeGeometry(0.24, 0.68, 6));
+    const coldFlameMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.coldFlame,
+        transparent: true,
+        opacity: 0.9,
+      }),
+    );
+
+    brazierPositions.forEach((bp, idx) => {
+      const bg = new THREE.Group();
+      bg.position.set(bp.x, 0, bp.z);
+
+      const { group: standObj } = ToonAssets.createOutlinedMesh(
+        brazierStandGeo,
+        darkObsidianMat,
+        1.05,
+        true,
+      );
+      standObj.position.y = 0.625;
+      bg.add(standObj);
+
+      const { group: bowlObj } = ToonAssets.createOutlinedMesh(
+        brazierBowlGeo,
+        pierMat,
+        1.05,
+        true,
+      );
+      bowlObj.position.y = 1.36;
+      bg.add(bowlObj);
+
+      const flame = new THREE.Mesh(coldFlameGeo, coldFlameMat);
+      flame.position.y = 1.78;
+      bg.add(flame);
+
+      const light = new THREE.PointLight(
+        PALETTE.coldFlame,
+        cfg.brazierLightIntensity,
+        cfg.brazierLightDistance,
+        1.7,
+      );
+      light.position.y = 2.05;
+      bg.add(light);
+
+      galleryGroup.add(bg);
+      this.galleryBraziers.push({
+        flameMesh: flame,
+        light,
+        phase: idx * 1.45,
+      });
+    });
+
+    this.root.add(galleryGroup);
+
+    // -----------------------------------------------------------------------
+    // 4. Left & Right Dormant Boss Alcove Daises (Future Realms II & III)
+    // -----------------------------------------------------------------------
+    const dormantSpecs = [
+      { pos: cfg.leftDormantDaisPos, color: PALETTE.sunkenTeal },
+      { pos: cfg.rightDormantDaisPos, color: PALETTE.harmonicEmerald },
+    ];
+    const dormantTier1Geo = this.trackGeo(
+      new THREE.CylinderGeometry(
+        cfg.dormantDaisRadius,
+        cfg.dormantDaisRadius + 0.16,
+        cfg.daisHeight * 0.55,
+        18,
+      ),
+    );
+    const dormantTier2Geo = this.trackGeo(
+      new THREE.CylinderGeometry(
+        cfg.dormantDaisRadius - 0.18,
+        cfg.dormantDaisRadius - 0.12,
+        cfg.daisHeight * 0.45,
+        18,
+      ),
+    );
+    const dormantSealGeo = this.trackGeo(
+      new THREE.CylinderGeometry(0.92, 0.92, 2.35, 16, 1, true),
+    );
+
+    dormantSpecs.forEach((ds) => {
+      const dg = new THREE.Group();
+      dg.position.set(ds.pos.x, ds.pos.y, ds.pos.z);
+
+      const { group: d1 } = ToonAssets.createOutlinedMesh(
+        dormantTier1Geo,
+        darkObsidianMat,
+        1.03,
+        true,
+      );
+      d1.position.y = cfg.daisHeight * 0.275;
+      dg.add(d1);
+
+      const { group: d2 } = ToonAssets.createOutlinedMesh(
+        dormantTier2Geo,
+        velvetMat,
+        1.03,
+        true,
+      );
+      d2.position.y = cfg.daisHeight * 0.775;
+      dg.add(d2);
+
+      const sealMat = this.trackMat(
+        new THREE.MeshBasicMaterial({
+          color: ds.color,
+          transparent: true,
+          opacity: 0.14,
+          side: THREE.DoubleSide,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      );
+      const sealCylinder = new THREE.Mesh(dormantSealGeo, sealMat);
+      sealCylinder.position.y = cfg.daisHeight + 1.18;
+      dg.add(sealCylinder);
+
+      const ring = new THREE.Mesh(
+        this.trackGeo(
+          new THREE.RingGeometry(
+            cfg.dormantDaisRadius + 0.08,
+            cfg.dormantDaisRadius + 0.2,
+            24,
+          ),
+        ),
+        this.trackMat(new THREE.MeshBasicMaterial({ color: ds.color })),
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.02;
+      dg.add(ring);
+
+      this.root.add(dg);
+      this._pillarColliders.push({
+        x: ds.pos.x,
+        z: ds.pos.z,
+        radius: cfg.dormantDaisCollisionRadius,
+        height: 2.5,
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // 5. Center-South Marina Velvet Dais, Captive MarinaRig & Cryo Reservoir
+    // -----------------------------------------------------------------------
+    this.marinaDaisGroup = new THREE.Group();
+    this.marinaDaisGroup.position.set(
+      cfg.marinaDaisPos.x,
+      cfg.marinaDaisPos.y,
+      cfg.marinaDaisPos.z,
+    );
+
+    const daisTier1Geo = this.trackGeo(
+      new THREE.CylinderGeometry(
+        cfg.daisRadius,
+        cfg.daisRadius + 0.2,
+        cfg.daisHeight * 0.55,
+        24,
+      ),
+    );
+    const { group: mDais1 } = ToonAssets.createOutlinedMesh(
+      daisTier1Geo,
+      darkObsidianMat,
+      1.025,
+      true,
+    );
+    mDais1.position.y = cfg.daisHeight * 0.275;
+    this.marinaDaisGroup.add(mDais1);
+
+    const daisTier2Geo = this.trackGeo(
+      new THREE.CylinderGeometry(
+        cfg.daisRadius - 0.18,
+        cfg.daisRadius - 0.1,
+        cfg.daisHeight * 0.45,
+        24,
+      ),
+    );
+    const { group: mDais2 } = ToonAssets.createOutlinedMesh(
+      daisTier2Geo,
+      velvetMat,
+      1.025,
+      true,
+    );
+    mDais2.position.y = cfg.daisHeight * 0.775;
+    this.marinaDaisGroup.add(mDais2);
+
+    // Front approach step facing north toward the bridge
+    const stepGeo = this.trackGeo(
+      new THREE.BoxGeometry(1.75, cfg.daisHeight * 0.52, 0.55),
+    );
+    const { group: stepObj } = ToonAssets.createOutlinedMesh(
+      stepGeo,
+      darkObsidianMat,
+      1.03,
+      true,
+    );
+    stepObj.position.set(0, cfg.daisHeight * 0.26, -(cfg.daisRadius + 0.12));
+    this.marinaDaisGroup.add(stepObj);
+
+    // 12-Segment Diegetic Floor Rune Ring around Marina's Dais
+    const segCount = cfg.runeSegmentCount;
+    const segArc = ((Math.PI * 2) / segCount) * 0.78;
+    for (let i = 0; i < segCount; i++) {
+      const startAngle = (i / segCount) * Math.PI * 2 - Math.PI * 0.5;
+      const segGeo = this.trackGeo(
+        new THREE.RingGeometry(
+          cfg.runeRingInnerRadius,
+          cfg.runeRingOuterRadius,
+          6,
+          1,
+          startAngle,
+          segArc,
+        ),
+      );
+      const segMat = this.trackMat(
+        new THREE.MeshBasicMaterial({
+          color: PALETTE.frostRunes,
+          transparent: true,
+          opacity: 0.9,
+          side: THREE.DoubleSide,
+        }),
+      );
+      const segMesh = new THREE.Mesh(segGeo, segMat);
+      segMesh.rotation.x = -Math.PI / 2;
+      segMesh.position.y = 0.022;
+      this.marinaDaisGroup.add(segMesh);
+      this.daisRuneSegments.push(segMat);
+    }
+
+    // Dedicated Captive MarinaRig mounted on the center-south velvet dais facing north
+    this._captiveMarinaRig = new MarinaRig(this.marinaDaisGroup);
+    this._captiveMarinaRig.root.position.set(0, cfg.daisHeight, 0);
+    this._captiveMarinaRig.root.rotation.set(0, cfg.marinaFacingYaw, 0);
+
+    // Glowing Royal-Violet Arcane Rune-Cuffs attached directly to Marina's wrists
+    this.cuffMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.glowViolet,
+      }),
+    );
+    const cuffGeo = this.trackGeo(
+      new THREE.TorusGeometry(cfg.wristCuffRadius, cfg.wristCuffTube, 8, 16),
+    );
+    const cuffPipGeo = this.trackGeo(new THREE.OctahedronGeometry(0.022, 0));
+
+    const attachWristCuff = (anchor: THREE.Object3D): void => {
+      const cuffGroup = new THREE.Group();
+      const ring = new THREE.Mesh(cuffGeo, this.cuffMat!);
+      ring.rotation.x = Math.PI / 2;
+      cuffGroup.add(ring);
+
+      for (let p = 0; p < 4; p++) {
+        const pa = (p / 4) * Math.PI * 2;
+        const pip = new THREE.Mesh(cuffPipGeo, this.cuffMat!);
+        pip.position.set(
+          Math.cos(pa) * (cfg.wristCuffRadius + 0.015),
+          0,
+          Math.sin(pa) * (cfg.wristCuffRadius + 0.015),
+        );
+        cuffGroup.add(pip);
+      }
+      anchor.add(cuffGroup);
+    };
+
+    attachWristCuff(this._captiveMarinaRig.leftWristAnchor);
+    attachWristCuff(this._captiveMarinaRig.rightWristAnchor);
+
+    // Twin Flanking Crystal Conduit Pylons tethering Marina's arcane rune-cuffs
+    const conduitBaseGeo = this.trackGeo(
+      new THREE.CylinderGeometry(0.14, 0.24, cfg.conduitHeight * 0.72, 6),
+    );
+    const conduitCrystalGeo = this.trackGeo(
+      new THREE.OctahedronGeometry(0.17, 0),
+    );
+    const conduitCrystalMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.glowViolet, {
+        emissive: PALETTE.amethystTrim,
+        emissiveIntensity: 0.7,
+      }),
+    );
+
+    sides.forEach((side) => {
+      const cg = new THREE.Group();
+      cg.position.set(side * cfg.conduitOffsetX, cfg.daisHeight, cfg.conduitOffsetZ);
+
+      const { group: shaft } = ToonAssets.createOutlinedMesh(
+        conduitBaseGeo,
+        darkObsidianMat,
+        1.06,
+        true,
+      );
+      shaft.position.y = cfg.conduitHeight * 0.36;
+      cg.add(shaft);
+
+      const tipCrystal = new THREE.Mesh(conduitCrystalGeo, conduitCrystalMat);
+      tipCrystal.scale.set(0.8, 1.55, 0.8);
+      tipCrystal.position.y = cfg.conduitTipY - cfg.daisHeight;
+      cg.add(tipCrystal);
+
+      const tipAnchor = new THREE.Object3D();
+      tipAnchor.position.y = cfg.conduitTipY - cfg.daisHeight;
+      cg.add(tipAnchor);
+
+      // Note: Marina faces North (rotation.y = PI), so her local Left wrist is toward +X in world space
+      if (side > 0) {
+        this.leftConduitTip = tipAnchor;
+      } else {
+        this.rightConduitTip = tipAnchor;
+      }
+
+      this.marinaDaisGroup!.add(cg);
+    });
+
+    // Pulsing Royal-Violet Energy Tether Strands connecting each wrist cuff to its crystal conduit
+    this.tetherMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.glowViolet,
+        transparent: true,
+        opacity: 0.72,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    const tetherGeo = this.trackGeo(
+      new THREE.CylinderGeometry(cfg.tetherRadius, cfg.tetherRadius, 1.0, 6, 1, true),
+    );
+    this.leftTetherMesh = new THREE.Mesh(tetherGeo, this.tetherMat);
+    this.rightTetherMesh = new THREE.Mesh(tetherGeo, this.tetherMat);
+    this.root.add(this.leftTetherMesh, this.rightTetherMesh);
+
+    // Tall Vertical Cryo Core Reservoir Crystal mounted beside Marina's dais
+    const resGroup = new THREE.Group();
+    resGroup.position.set(cfg.reservoirOffsetX, 0, cfg.reservoirOffsetZ);
+
+    const resPedestalGeo = this.trackGeo(
+      new THREE.CylinderGeometry(0.42, 0.56, 0.42, 6),
+    );
+    const { group: resBase } = ToonAssets.createOutlinedMesh(
+      resPedestalGeo,
+      darkObsidianMat,
+      1.05,
+      true,
+    );
+    resBase.position.y = 0.21;
+    resGroup.add(resBase);
+
+    // Outer translucent crystal containment housing
+    const resHousingGeo = this.trackGeo(
+      new THREE.CylinderGeometry(0.32, 0.34, cfg.reservoirHeight, 6, 1, true),
+    );
+    const resHousing = new THREE.Mesh(resHousingGeo, crystalGlassMat);
+    resHousing.position.y = 0.42 + cfg.reservoirHeight * 0.5;
+    resGroup.add(resHousing);
+
+    // Vertical obsidian corner struts framing the reservoir crystal
+    const strutGeo = this.trackGeo(
+      new THREE.BoxGeometry(0.06, cfg.reservoirHeight + 0.12, 0.06),
+    );
+    for (let s = 0; s < 3; s++) {
+      const sa = (s / 3) * Math.PI * 2;
+      const strut = new THREE.Mesh(strutGeo, pierMat);
+      strut.position.set(
+        Math.cos(sa) * 0.35,
+        0.42 + cfg.reservoirHeight * 0.5,
+        Math.sin(sa) * 0.35,
+      );
+      resGroup.add(strut);
+    }
+
+    // Inner glowing cyan Cryo Core fill column (bottom-anchored so scale.y fills upward!)
+    const resCoreGeo = this.trackGeo(
+      new THREE.CylinderGeometry(
+        cfg.reservoirCoreRadius,
+        cfg.reservoirCoreRadius,
+        cfg.reservoirHeight - 0.14,
+        8,
+      ),
+    );
+    resCoreGeo.translate(0, (cfg.reservoirHeight - 0.14) * 0.5, 0);
+
+    this.reservoirCoreMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.frostRunes, {
+        emissive: PALETTE.frostRunes,
+        emissiveIntensity: 0.9,
+      }),
+    );
+    this.reservoirCoreMesh = new THREE.Mesh(resCoreGeo, this.reservoirCoreMat);
+    this.reservoirCoreMesh.position.y = 0.46;
+    resGroup.add(this.reservoirCoreMesh);
+
+    const resCapGeo = this.trackGeo(new THREE.ConeGeometry(0.36, 0.62, 6));
+    const { group: resCap } = ToonAssets.createOutlinedMesh(
+      resCapGeo,
+      darkObsidianMat,
+      1.05,
+      true,
+    );
+    resCap.position.y = 0.42 + cfg.reservoirHeight + 0.31;
+    resGroup.add(resCap);
+
+    this.reservoirLight = new THREE.PointLight(
+      PALETTE.frostRunes,
+      cfg.reservoirLightIntensity,
+      cfg.reservoirLightDistance,
+      1.7,
+    );
+    this.reservoirLight.position.set(0, 0.42 + cfg.reservoirHeight * 0.55, 0);
+    resGroup.add(this.reservoirLight);
+
+    this.marinaDaisGroup.add(resGroup);
+    this.root.add(this.marinaDaisGroup);
+
+    this._pillarColliders.push({
+      x: cfg.marinaDaisPos.x,
+      z: cfg.marinaDaisPos.z,
+      radius: cfg.daisCollisionRadius,
+      height: 2.2,
+    });
+    this._pillarColliders.push({
+      x: cfg.marinaDaisPos.x + cfg.reservoirOffsetX,
+      z: cfg.marinaDaisPos.z + cfg.reservoirOffsetZ,
+      radius: 0.58,
+      height: cfg.reservoirHeight + 1.0,
+    });
+
+    // Initialize sealed state until synced from persisted store state
+    this.setGalleryUnlocked(false);
+    this.updateMarinaCaptiveState(cfg.defaultCoreCharge, 0, 0.016);
+  }
+
+  /**
+   * Shows/hides the shimmering royal-violet ward across the southern archway,
+   * toggles the captive Marina rig & energy tethers, and illuminates the gallery braziers.
+   */
+  public setGalleryUnlocked(unlocked: boolean): void {
+    this.galleryUnlocked = unlocked;
+    if (this.galleryWardGroup) {
+      this.galleryWardGroup.visible = !unlocked;
+    }
+    if (this._captiveMarinaRig) {
+      this._captiveMarinaRig.root.visible = unlocked;
+    }
+    if (this.leftTetherMesh) {
+      this.leftTetherMesh.visible = unlocked;
+    }
+    if (this.rightTetherMesh) {
+      this.rightTetherMesh.visible = unlocked;
+    }
+    for (let i = 0; i < this.galleryBraziers.length; i++) {
+      const br = this.galleryBraziers[i];
+      if (!br) continue;
+      br.flameMesh.visible = unlocked;
+      br.light.intensity = unlocked
+        ? SIPHON_GALLERY_CONFIG.brazierLightIntensity
+        : 0;
+    }
+    if (this.reservoirLight && !unlocked) {
+      this.reservoirLight.intensity = 0;
+    }
+  }
+
+  /**
+   * Triggers a glowing violet ripple across the locked Siphon Gallery ward seal.
+   */
+  public triggerGalleryWardRipple(): void {
+    this.galleryWardRippleTimer = SIPHON_GALLERY_CONFIG.wardRippleDuration;
+  }
+
+  /**
+   * Updates the bound Marina rig, pulsing wrist tether strands, 12-segment dais rune ring,
+   * and vertical Cryo Core Reservoir Crystal smoothly from `charge` (0.0 -> 1.0).
+   */
+  public updateMarinaCaptiveState(
+    charge: number,
+    time: number,
+    dt: number,
+  ): void {
+    const cfg = SIPHON_GALLERY_CONFIG;
+    const clamped = THREE.MathUtils.clamp(charge, 0, 1);
+
+    // 1. Update Captive Marina kneeling posture, breathing & bleach/restoration
+    if (this._captiveMarinaRig && this.galleryUnlocked) {
+      this._captiveMarinaRig.applyCaptiveDaisPose(clamped, time, dt);
+
+      // Keep wrist energy tether strands locked tightly between her cuffs and twin crystal conduits
+      if (
+        this.leftConduitTip &&
+        this.rightConduitTip &&
+        this.leftTetherMesh &&
+        this.rightTetherMesh
+      ) {
+        this.root.updateMatrixWorld(true);
+        this._captiveMarinaRig.getLeftWristWorldPosition(this.scratchWristL);
+        this._captiveMarinaRig.getRightWristWorldPosition(this.scratchWristR);
+        this.leftConduitTip.getWorldPosition(this.scratchTipL);
+        this.rightConduitTip.getWorldPosition(this.scratchTipR);
+
+        this.alignTetherCylinder(
+          this.leftTetherMesh,
+          this.scratchWristL,
+          this.scratchTipL,
+        );
+        this.alignTetherCylinder(
+          this.rightTetherMesh,
+          this.scratchWristR,
+          this.scratchTipR,
+        );
+      }
+    }
+
+    // Pulse the arcane rune-cuffs & tether energy opacity
+    const pulse = 0.62 + 0.28 * Math.sin(time * 3.8);
+    if (this.tetherMat) {
+      this.tetherMat.opacity = pulse;
+    }
+
+    // 2. Update Cryo Core Reservoir Crystal fill height, color & point light
+    if (this.reservoirCoreMesh && this.reservoirCoreMat) {
+      const fillScale = Math.max(cfg.reservoirMinFillScale, clamped);
+      this.reservoirCoreMesh.scale.set(1, fillScale, 1);
+      this.reservoirCoreMat.color
+        .copy(this.scratchColorA)
+        .lerp(this.scratchColorB, clamped);
+      this.reservoirCoreMat.emissive
+        .copy(this.scratchColorA)
+        .lerp(this.scratchColorB, clamped);
+      this.reservoirCoreMat.emissiveIntensity =
+        0.15 + clamped * (0.85 + 0.14 * Math.sin(time * 3.2));
+    }
+    if (this.reservoirLight) {
+      this.reservoirLight.intensity = this.galleryUnlocked
+        ? cfg.reservoirLightIntensity * (0.12 + clamped * 0.88)
+        : 0;
+    }
+
+    // 3. Update 12-segment diegetic floor rune ring around Marina's dais
+    const segCount = this.daisRuneSegments.length;
+    for (let i = 0; i < segCount; i++) {
+      const segMat = this.daisRuneSegments[i];
+      if (!segMat) continue;
+      const segThreshold = (i + 1) / segCount;
+      const prevThreshold = i / segCount;
+      const segFill = THREE.MathUtils.clamp(
+        (clamped - prevThreshold) / Math.max(0.001, segThreshold - prevThreshold),
+        0,
+        1,
+      );
+      segMat.color.copy(this.scratchColorA).lerp(this.scratchColorB, segFill);
+      segMat.opacity = this.galleryUnlocked ? 0.22 + segFill * 0.74 : 0.12;
+    }
+  }
+
+  private alignTetherCylinder(
+    mesh: THREE.Mesh,
+    startWorld: THREE.Vector3,
+    endWorld: THREE.Vector3,
+  ): void {
+    this.scratchMid.addVectors(startWorld, endWorld).multiplyScalar(0.5);
+    this.scratchDir.subVectors(endWorld, startWorld);
+    const dist = Math.max(0.02, this.scratchDir.length());
+    this.scratchDir.divideScalar(dist);
+
+    this.scratchQuat.setFromUnitVectors(this.upAxis, this.scratchDir);
+    mesh.position.copy(this.scratchMid);
+    mesh.quaternion.copy(this.scratchQuat);
+    mesh.scale.set(1, dist, 1);
+  }
+
+  /**
    * Triggers a glowing ward ripple on sealed Realm II (Sunken Sanctuary) or Realm III (Harmonic Citadel).
    */
   public triggerWardRipple(realmIndex: 2 | 3 = 2): void {
@@ -1568,9 +2640,44 @@ export class MageTowerLevel {
         this.realm3WardGroup.scale.set(1, 1, 1);
       }
     }
+
+    // 8. Animate Siphon Gallery southern ward seal & cold-flame braziers
+    if (this.galleryWardMat && this.galleryWardGroup && !this.galleryUnlocked) {
+      if (this.galleryWardRippleTimer > 0) {
+        this.galleryWardRippleTimer = Math.max(
+          0,
+          this.galleryWardRippleTimer - dt,
+        );
+        const r =
+          this.galleryWardRippleTimer /
+          SIPHON_GALLERY_CONFIG.wardRippleDuration;
+        this.galleryWardMat.opacity = 0.36 + r * 0.5;
+        const s = 1 + Math.sin(time * 30) * 0.03 * r;
+        this.galleryWardGroup.scale.set(s, s, 1);
+      } else {
+        this.galleryWardMat.opacity = 0.28 + 0.08 * Math.sin(time * 2.1);
+        this.galleryWardGroup.scale.set(1, 1, 1);
+      }
+    }
+
+    if (this.galleryUnlocked) {
+      for (let i = 0; i < this.galleryBraziers.length; i++) {
+        const br = this.galleryBraziers[i];
+        if (!br) continue;
+        const flicker = 1 + Math.sin(time * 9.5 + br.phase) * 0.14;
+        br.flameMesh.scale.set(1, flicker, 1);
+        br.light.intensity =
+          SIPHON_GALLERY_CONFIG.brazierLightIntensity *
+          (0.9 + 0.12 * flicker);
+      }
+    }
   }
 
   public dispose(): void {
+    if (this._captiveMarinaRig) {
+      this._captiveMarinaRig.dispose();
+      this._captiveMarinaRig = null;
+    }
     for (let i = 0; i < this.ownedGeometries.length; i++) {
       this.ownedGeometries[i]?.dispose();
     }

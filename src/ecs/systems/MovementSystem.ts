@@ -9,7 +9,10 @@ import {
   PLAYER_CONFIG,
   type GameState,
 } from '../../config/gameConfig';
-import type { IArenaGeometry } from '../../engine/SceneManager';
+import {
+  clampPointToCompositeLobby,
+  type IArenaGeometry,
+} from '../../engine/SceneManager';
 import type { IAudioTrigger } from '../../engine/SoundEngine';
 import type { IVfxSpawner } from '../../engine/VfxFactory';
 import type { DarkMageRig } from '../../rigs/DarkMageRig';
@@ -284,6 +287,8 @@ export class MovementSystem implements ISystem {
     if (bounds.kind === ARENA_BOUNDS_KINDS.RECTANGULAR) {
       pos.x = THREE.MathUtils.clamp(pos.x, bounds.minX, bounds.maxX);
       pos.z = THREE.MathUtils.clamp(pos.z, bounds.minZ, bounds.maxZ);
+    } else if (bounds.kind === ARENA_BOUNDS_KINDS.COMPOSITE_LOBBY) {
+      clampPointToCompositeLobby(pos, bounds, 0);
     } else {
       const radial = Math.hypot(pos.x, pos.z);
       if (radial > bounds.clampRadius) {

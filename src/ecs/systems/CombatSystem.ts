@@ -13,7 +13,10 @@ import {
   SERVANT_CONFIG,
   type GameState,
 } from '../../config/gameConfig';
-import type { IArenaGeometry } from '../../engine/SceneManager';
+import {
+  isPointInsideCompositeLobby,
+  type IArenaGeometry,
+} from '../../engine/SceneManager';
 import type { IAudioTrigger } from '../../engine/SoundEngine';
 import type { IVfxSpawner } from '../../engine/VfxFactory';
 import type { DarkMageRig } from '../../rigs/DarkMageRig';
@@ -390,6 +393,17 @@ export class CombatSystem implements ISystem {
             ) {
               hit = true;
             }
+          } else if (bounds.kind === ARENA_BOUNDS_KINDS.COMPOSITE_LOBBY) {
+            if (
+              isPointInsideCompositeLobby(
+                p.x,
+                p.z,
+                bounds,
+                -ARENA_CONFIG.floorCollisionRadiusPad,
+              )
+            ) {
+              hit = true;
+            }
           } else {
             const floorR = bounds.radius + ARENA_CONFIG.floorCollisionRadiusPad;
             if (p.x * p.x + p.z * p.z <= floorR * floorR) {
@@ -402,6 +416,12 @@ export class CombatSystem implements ISystem {
           bounds.kind === ARENA_BOUNDS_KINDS.RECTANGULAR &&
           (Math.abs(p.x) >= bounds.halfWidth ||
             Math.abs(p.z) >= bounds.halfLength)
+        ) {
+          hit = true;
+        } else if (
+          !hit &&
+          bounds.kind === ARENA_BOUNDS_KINDS.COMPOSITE_LOBBY &&
+          !isPointInsideCompositeLobby(p.x, p.z, bounds, -0.75)
         ) {
           hit = true;
         }

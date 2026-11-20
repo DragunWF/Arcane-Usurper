@@ -15,6 +15,7 @@ import {
   PLAYER_CONFIG,
   PORTAL_STATES,
   REALM_IDS,
+  SIPHON_GALLERY_CONFIG,
   type AudioMode,
   type BossExpression,
   type BossPhase,
@@ -63,6 +64,41 @@ function persistMarinaDefeated(defeated: boolean): void {
   }
 }
 
+function readInitialMarinaCoreCharge(): number {
+  try {
+    if (typeof window === 'undefined') {
+      return SIPHON_GALLERY_CONFIG.defaultCoreCharge;
+    }
+    const raw = window.localStorage.getItem(
+      SIPHON_GALLERY_CONFIG.marinaCoreChargeStorageKey,
+    );
+    if (raw === null) {
+      return SIPHON_GALLERY_CONFIG.defaultCoreCharge;
+    }
+    const parsed = Number.parseFloat(raw);
+    if (!Number.isFinite(parsed)) {
+      return SIPHON_GALLERY_CONFIG.defaultCoreCharge;
+    }
+    return Math.max(0, Math.min(1, parsed));
+  } catch {
+    return SIPHON_GALLERY_CONFIG.defaultCoreCharge;
+  }
+}
+
+function persistMarinaCoreCharge(charge: number): void {
+  try {
+    if (typeof window !== 'undefined') {
+      const clamped = Math.max(0, Math.min(1, charge));
+      window.localStorage.setItem(
+        SIPHON_GALLERY_CONFIG.marinaCoreChargeStorageKey,
+        clamped.toFixed(4),
+      );
+    }
+  } catch {
+    // Ignore storage quota / sandboxed iframe restrictions
+  }
+}
+
 /**
  * Throttled telemetry snapshot written by the 60 FPS ECS simulation (~15–20 Hz)
  * to keep React HUD re-renders lightweight and batched.
@@ -98,8 +134,9 @@ export interface GameStoreState {
   frostHitFlashToken: number;
   reticlePulseToken: number;
 
-  // Obsidian Spire Sanctum (3D Hub Lobby) Telemetry
+  // Obsidian Spire Sanctum (3D Hub Lobby) & Siphon Gallery Telemetry
   marinaDefeated: boolean;
+  marinaCoreCharge: number;
   lobbyPrompt: LobbyPromptState | null;
   lobbyDummyHit: LobbyDummyHitState | null;
 
@@ -169,6 +206,8 @@ export interface GameStoreState {
   setPortalWarpProgress: (progress: number) => void;
   resetChamberProgress: () => void;
   setMarinaDefeated: (val: boolean) => void;
+  setMarinaCoreCharge: (charge: number) => void;
+  addMarinaCoreCharge: (delta: number) => void;
   setLobbyPrompt: (prompt: LobbyPromptState | null) => void;
   setLobbyDummyHit: (hit: LobbyDummyHitState | null) => void;
   setFinisherPose: (pose: FinisherPoseId) => void;
@@ -210,6 +249,7 @@ const INITIAL_STATE = {
   reticlePulseToken: 0,
 
   marinaDefeated: readInitialMarinaDefeated(),
+  marinaCoreCharge: readInitialMarinaCoreCharge(),
   lobbyPrompt: null as LobbyPromptState | null,
   lobbyDummyHit: null as LobbyDummyHitState | null,
 
@@ -319,6 +359,17 @@ export const useGameStore = create<GameStoreState>((set) => ({
     persistMarinaDefeated(marinaDefeated);
     set({ marinaDefeated });
   },
+  setMarinaCoreCharge: (charge) => {
+    const clamped = Math.max(0, Math.min(1, charge));
+    persistMarinaCoreCharge(clamped);
+    set({ marinaCoreCharge: clamped });
+  },
+  addMarinaCoreCharge: (delta) =>
+    set((state) => {
+      const clamped = Math.max(0, Math.min(1, state.marinaCoreCharge + delta));
+      persistMarinaCoreCharge(clamped);
+      return { marinaCoreCharge: clamped };
+    }),
   setLobbyPrompt: (lobbyPrompt) => set({ lobbyPrompt }),
   setLobbyDummyHit: (lobbyDummyHit) => set({ lobbyDummyHit }),
 
@@ -411,6 +462,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
     set((state) => ({
       ...INITIAL_STATE,
       marinaDefeated: state.marinaDefeated,
+      marinaCoreCharge: state.marinaCoreCharge,
       audioMuted: state.audioMuted,
       musicVolume: state.musicVolume,
       sfxVolume: state.sfxVolume,

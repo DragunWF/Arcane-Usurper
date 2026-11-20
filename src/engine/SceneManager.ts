@@ -7,6 +7,7 @@ import {
   ENVIRONMENT_IDS,
   LOBBY_CONFIG,
   PALETTE,
+  SIPHON_GALLERY_CONFIG,
   type BossPhase,
   type EnvironmentId,
 } from '../config/gameConfig';
@@ -39,7 +40,199 @@ export interface RectangularArenaBounds {
   readonly maxZ: number;
 }
 
-export type ArenaBounds = CircularArenaBounds | RectangularArenaBounds;
+export interface CompositeLobbyBounds {
+  readonly kind: typeof ARENA_BOUNDS_KINDS.COMPOSITE_LOBBY;
+  readonly rotundaRadius: number;
+  readonly rotundaOuterRadius: number;
+  readonly bridgeHalfWidth: number;
+  readonly bridgeStartZ: number;
+  readonly bridgeEndZ: number;
+  readonly galleryCenterZ: number;
+  readonly galleryRadius: number;
+  readonly galleryOuterRadius: number;
+}
+
+export type ArenaBounds =
+  | CircularArenaBounds
+  | RectangularArenaBounds
+  | CompositeLobbyBounds;
+
+/**
+ * Returns true if point `(x, z)` lies inside the union of the main rotunda circle,
+ * southern bridge rectangle, and Siphon Gallery circle (each optionally inset by `margin`).
+ */
+export function isPointInsideCompositeLobby(
+  x: number,
+  z: number,
+  bounds: CompositeLobbyBounds,
+  margin = 0,
+): boolean {
+  const rotR = Math.max(1.0, bounds.rotundaRadius - margin);
+  if (x * x + z * z <= rotR * rotR) return true;
+
+  const bridgeHalfW = Math.max(0.5, bounds.bridgeHalfWidth - margin);
+  if (
+    Math.abs(x) <= bridgeHalfW &&
+    z >= bounds.bridgeStartZ - margin &&
+    z <= bounds.bridgeEndZ + margin
+  ) {
+    return true;
+  }
+
+  const galR = Math.max(1.0, bounds.galleryRadius - margin);
+  const gdz = z - bounds.galleryCenterZ;
+  if (x * x + gdz * gdz <= galR * galR) return true;
+
+  return false;
+}
+
+/**
+ * Clamps `(pos.x, pos.z)` to the exact closest point in the union of the main rotunda,
+ * southern bridge, and Siphon Gallery (each optionally inset by `margin`).
+ */
+export function clampPointToCompositeLobby(
+  pos: { x: number; z: number },
+  bounds: CompositeLobbyBounds,
+  margin = 0,
+): void {
+  const px = pos.x;
+  const pz = pos.z;
+  if (isPointInsideCompositeLobby(px, pz, bounds, margin)) return;
+
+  // Candidate 1: projection onto main rotunda circle (0, 0, rotR)
+  const rotR = Math.max(1.0, bounds.rotundaRadius - margin);
+  const rotLen = Math.hypot(px, pz) || 1;
+  const c1x = (px / rotLen) * rotR;
+  const c1z = (pz / rotLen) * rotR;
+  const d1 = (px - c1x) * (px - c1x) + (pz - c1z) * (pz - c1z);
+
+  // Candidate 2: projection onto southern bridge rectangle
+  const bridgeHalfW = Math.max(0.5, bounds.bridgeHalfWidth - margin);
+  const c2x = THREE.MathUtils.clamp(px, -bridgeHalfW, bridgeHalfW);
+  const c2z = THREE.MathUtils.clamp(
+    pz,
+    bounds.bridgeStartZ,
+    bounds.bridgeEndZ,
+  );
+  const d2 = (px - c2x) * (px - c2x) + (pz - c2z) * (pz - c2z);
+
+  // Candidate 3: projection onto Siphon Gallery circle (0, galleryCenterZ, galR)
+  const galR = Math.max(1.0, bounds.galleryRadius - margin);
+  const gdz = pz - bounds.galleryCenterZ;
+  const galLen = Math.hypot(px, gdz) || 1;
+  const c3x = (px / galLen) * galR;
+  const c3z = bounds.galleryCenterZ + (gdz / galLen) * galR;
+  const d3 = (px - c3x) * (px - c3x) + (pz - c3z) * (pz - c3z);
+
+  if (d1 <= d2 && d1 <= d3) {
+    pos.x = c1x;
+    pos.z = c1z;
+  } else if (d2 <= d3) {
+    pos.x = c2x;
+    pos.z = c2z;
+  } else {
+    pos.x = c3x;
+    pos.z = c3z;
+  }
+}
+
+/**
+ * Analytically computes the maximum distance `t <= maxDist` along horizontal ray
+ * `(ox, oz) + t * (dx, dz)` that remains continuously inside the composite lobby union.
+ */
+export function intersectRayCompositeLobby(
+  ox: number,
+  oz: number,
+  dx: number,
+  dz: number,
+  maxDist: number,
+  bounds: CompositeLobbyBounds,
+  margin: number,
+): number {
+  const intervalsA: [number, number, number] = [0, 0, 0];
+  const intervalsB: [number, number, number] = [0, 0, 0];
+  let count = 0;
+
+  const pushCircleInterval = (cz: number, radius: number): void => {
+    const r = Math.max(1.0, radius - margin);
+    const rz = oz - cz;
+    const a = dx * dx + dz * dz;
+    if (a < 0.000001) {
+      if (ox * ox + rz * rz <= r * r) {
+        intervalsA[count] = 0;
+        intervalsB[count] = maxDist;
+        count++;
+      }
+      return;
+    }
+    const b = 2 * (ox * dx + rz * dz);
+    const c = ox * ox + rz * rz - r * r;
+    const disc = b * b - 4 * a * c;
+    if (disc < 0) return;
+    const sqrtD = Math.sqrt(disc);
+    const t0 = Math.max(0, (-b - sqrtD) / (2 * a));
+    const t1 = Math.min(maxDist, (-b + sqrtD) / (2 * a));
+    if (t1 >= t0) {
+      intervalsA[count] = t0;
+      intervalsB[count] = t1;
+      count++;
+    }
+  };
+
+  // 1. Main rotunda circle
+  pushCircleInterval(0, bounds.rotundaOuterRadius);
+
+  // 2. Southern bridge rectangle slab intersection
+  const halfW = Math.max(0.5, bounds.bridgeHalfWidth - margin);
+  const minZ = bounds.bridgeStartZ;
+  const maxZ = bounds.bridgeEndZ;
+  let tMin = 0;
+  let tMax = maxDist;
+  let hitBox = true;
+
+  if (Math.abs(dx) < 0.00001) {
+    if (ox < -halfW || ox > halfW) hitBox = false;
+  } else {
+    const tx1 = (-halfW - ox) / dx;
+    const tx2 = (halfW - ox) / dx;
+    tMin = Math.max(tMin, Math.min(tx1, tx2));
+    tMax = Math.min(tMax, Math.max(tx1, tx2));
+  }
+
+  if (hitBox) {
+    if (Math.abs(dz) < 0.00001) {
+      if (oz < minZ || oz > maxZ) hitBox = false;
+    } else {
+      const tz1 = (minZ - oz) / dz;
+      const tz2 = (maxZ - oz) / dz;
+      tMin = Math.max(tMin, Math.min(tz1, tz2));
+      tMax = Math.min(tMax, Math.max(tz1, tz2));
+    }
+  }
+
+  if (hitBox && tMax >= tMin) {
+    intervalsA[count] = tMin;
+    intervalsB[count] = tMax;
+    count++;
+  }
+
+  // 3. Siphon Gallery circle
+  pushCircleInterval(bounds.galleryCenterZ, bounds.galleryOuterRadius);
+
+  // Merge connected intervals starting from t = 0
+  let reachable = 0;
+  for (let pass = 0; pass < 3; pass++) {
+    for (let i = 0; i < count; i++) {
+      const a = intervalsA[i] ?? 0;
+      const b = intervalsB[i] ?? 0;
+      if (a <= reachable + 0.02 && b > reachable) {
+        reachable = b;
+      }
+    }
+  }
+
+  return reachable > 0 ? Math.min(maxDist, reachable) : maxDist;
+}
 
 /**
  * Narrow geometry contract exposed to MovementSystem, CombatSystem, and CameraRig (ISP).
@@ -102,6 +295,20 @@ export class SceneManager implements IArenaGeometry {
     clampRadius: LOBBY_CONFIG.rotundaRadius,
   });
 
+  private readonly _compositeLobbyBounds: CompositeLobbyBounds = Object.freeze({
+    kind: ARENA_BOUNDS_KINDS.COMPOSITE_LOBBY,
+    rotundaRadius: LOBBY_CONFIG.rotundaRadius,
+    rotundaOuterRadius: LOBBY_CONFIG.outerWallRadius,
+    bridgeHalfWidth: SIPHON_GALLERY_CONFIG.bridgeHalfWidth,
+    bridgeStartZ: SIPHON_GALLERY_CONFIG.bridgeStartZ,
+    bridgeEndZ: SIPHON_GALLERY_CONFIG.bridgeEndZ,
+    galleryCenterZ: SIPHON_GALLERY_CONFIG.galleryCenterZ,
+    galleryRadius: SIPHON_GALLERY_CONFIG.galleryRadius,
+    galleryOuterRadius: SIPHON_GALLERY_CONFIG.galleryOuterWallRadius,
+  });
+
+  private isLobbyGalleryUnlocked = false;
+
   private readonly _chamberBounds: RectangularArenaBounds = Object.freeze({
     kind: ARENA_BOUNDS_KINDS.RECTANGULAR,
     halfWidth: CHAMBER_CONFIG.width * 0.5,
@@ -140,9 +347,21 @@ export class SceneManager implements IArenaGeometry {
       return this._chamberBounds;
     }
     if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
-      return this._lobbyBounds;
+      return this.isLobbyGalleryUnlocked
+        ? this._compositeLobbyBounds
+        : this._lobbyBounds;
     }
     return this._summitBounds;
+  }
+
+  /**
+   * Unlocks or seals the southern Siphon Gallery annex, updating both the visual
+   * ward barrier and the active composite walkable/camera bounds in LOBBY.
+   */
+  public setLobbyGalleryUnlocked(unlocked: boolean): void {
+    if (this.isLobbyGalleryUnlocked === unlocked) return;
+    this.isLobbyGalleryUnlocked = unlocked;
+    this.mageTowerLevel.setGalleryUnlocked(unlocked);
   }
 
   public getArenaBounds(): ArenaBounds {

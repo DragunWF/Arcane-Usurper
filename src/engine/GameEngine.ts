@@ -233,6 +233,9 @@ export class GameEngine implements IGameController {
         onEncoreTierToggled: () => {
           this.renderSyncSystem.flushHudSnapshot();
         },
+        onSyncGalleryUnlocked: (unlocked) => {
+          this.sceneManager.setLobbyGalleryUnlocked(unlocked);
+        },
       },
     );
 
