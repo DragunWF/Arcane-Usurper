@@ -277,7 +277,8 @@ export class MageTowerLevel {
           ? PALETTE.rgba.sanctumRuneEmissive
           : PALETTE.rgba.sanctumRuneDiffuse;
 
-        const radii = [92, 110, 215, 232, 395];
+        // Central violet summoning circle (outer perimeter strictly within ~3.6m so runners never overlap it)
+        const radii = LOBBY_CONFIG.summoningCircleRingRadiiPx;
         radii.forEach((r, idx) => {
           ctx.beginPath();
           ctx.arc(0, 0, r, 0, Math.PI * 2);
@@ -292,13 +293,25 @@ export class MageTowerLevel {
           ctx.stroke();
         });
 
-        // Inscribed arcane octagram star
+        // Subtle outer rotunda perimeter rune ring near the stone piers
+        ctx.beginPath();
+        ctx.arc(0, 0, LOBBY_CONFIG.outerFloorRuneRingPx, 0, Math.PI * 2);
+        ctx.strokeStyle = PALETTE.rgba.sanctumRuneSoftGlow;
+        ctx.lineWidth = 8;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(0, 0, LOBBY_CONFIG.outerFloorRuneRingPx, 0, Math.PI * 2);
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 2.4;
+        ctx.stroke();
+
+        // Inscribed arcane octagram star inside the central summoning circle
         for (let k = 0; k < 2; k++) {
           ctx.save();
           ctx.rotate((k * Math.PI) / 4);
           ctx.strokeStyle = stroke;
-          ctx.lineWidth = 2.6;
-          ctx.strokeRect(-152, -152, 304, 304);
+          ctx.lineWidth = 2.4;
+          ctx.strokeRect(-90, -90, 180, 180);
           ctx.restore();
         }
         ctx.restore();
@@ -333,21 +346,31 @@ export class MageTowerLevel {
     floorMesh.receiveShadow = true;
     this.root.add(floorMesh);
 
-    // Three velvet runners branching from the central circle toward the 3 northern portals
+    // Three non-overlapping velvet runners: each begins cleanly outside the central violet
+    // summoning circle (runnerStartRadius) and terminates flush at its portal plinth front step
     const runnerTargets = [
       { pos: LOBBY_CONFIG.realm1PortalPos, color: PALETTE.royalIndigo, trim: PALETTE.frostRunes },
       { pos: LOBBY_CONFIG.realm2PortalPos, color: PALETTE.glacialNavy, trim: PALETTE.sunkenTeal },
       { pos: LOBBY_CONFIG.realm3PortalPos, color: PALETTE.sanctumStone, trim: PALETTE.harmonicEmerald },
     ];
 
-    runnerTargets.forEach((rt, idx) => {
-      const len = Math.hypot(rt.pos.x, rt.pos.z) - 1.4;
+    const startR = LOBBY_CONFIG.runnerStartRadius;
+    const plinthFrontHalfDepth = LOBBY_CONFIG.portalPlinthTier1Depth * 0.5;
+
+    runnerTargets.forEach((rt) => {
+      const portalDist = Math.hypot(rt.pos.x, rt.pos.z);
+      const endR = Math.max(startR + 0.5, portalDist - plinthFrontHalfDepth);
+      const len = endR - startR;
+      const midR = (startR + endR) * 0.5;
       const angle = Math.atan2(rt.pos.x, rt.pos.z);
+
       const runnerGroup = new THREE.Group();
       runnerGroup.rotation.y = angle;
-      runnerGroup.position.y = 0.014 + idx * 0.002;
+      runnerGroup.position.y = 0.015;
 
-      const carpetGeo = this.trackGeo(new THREE.PlaneGeometry(1.75, len));
+      const carpetGeo = this.trackGeo(
+        new THREE.PlaneGeometry(LOBBY_CONFIG.runnerWidth, len),
+      );
       const carpetMat = this.trackMat(
         ToonAssets.createToonMaterial(rt.color, {
           emissive: rt.trim,
@@ -356,17 +379,19 @@ export class MageTowerLevel {
       );
       const carpet = new THREE.Mesh(carpetGeo, carpetMat);
       carpet.rotation.x = -Math.PI / 2;
-      carpet.position.z = len * 0.5 + 0.9;
+      carpet.position.z = midR;
       carpet.receiveShadow = true;
       runnerGroup.add(carpet);
 
-      const borderGeo = this.trackGeo(new THREE.PlaneGeometry(1.92, len));
+      const borderGeo = this.trackGeo(
+        new THREE.PlaneGeometry(LOBBY_CONFIG.runnerBorderWidth, len),
+      );
       const borderMat = this.trackMat(
         new THREE.MeshBasicMaterial({ color: rt.trim }),
       );
       const border = new THREE.Mesh(borderGeo, borderMat);
       border.rotation.x = -Math.PI / 2;
-      border.position.set(0, -0.002, len * 0.5 + 0.9);
+      border.position.set(0, -0.003, midR);
       runnerGroup.add(border);
 
       this.root.add(runnerGroup);
@@ -594,13 +619,14 @@ export class MageTowerLevel {
       this.trackMat(ToonAssets.createToonMaterial(PALETTE.harmonicEmerald)),
     ];
 
-    // 1. Curved Bookshelves in southern wall bays
-    const shelfAngles = [Math.PI * 0.72, -Math.PI * 0.72, Math.PI * 0.88, -Math.PI * 0.88];
+    // 1. Curved Bookshelves placed cleanly along southern, eastern, and western rotunda bays (z > -3.0)
+    // leaving the northern Gothic arch wall arc behind the three realm portals completely unobstructed
+    const shelfAngles = LOBBY_CONFIG.bookshelfBayAngles;
     const frameGeo = this.trackGeo(new THREE.BoxGeometry(2.3, 3.4, 0.55));
     const bookGeo = this.trackGeo(new THREE.BoxGeometry(0.14, 0.42, 0.34));
 
     shelfAngles.forEach((ang, sIdx) => {
-      const r = LOBBY_CONFIG.outerWallRadius - 0.85;
+      const r = LOBBY_CONFIG.outerWallRadius - LOBBY_CONFIG.bookshelfRadiusOffset;
       const shelfGroup = new THREE.Group();
       shelfGroup.position.set(Math.sin(ang) * r, 0, Math.cos(ang) * r);
       shelfGroup.lookAt(0, 0, 0);
@@ -995,6 +1021,137 @@ export class MageTowerLevel {
   }
 
   /**
+   * Builds a grounded two-tier stepped obsidian-stone dais flush with y = 0 plus twin
+   * vertical stone-and-crystal archway support pillars connecting the portal ring into the plinth.
+   */
+  private attachGroundedPortalPlinthAndPillars(
+    portalGroup: THREE.Group,
+    accentHex: number,
+    crystalMat: THREE.Material,
+    includeSidePillars: boolean,
+  ): void {
+    const plinthStoneMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.sanctumStone, {
+        emissive: PALETTE.obsidianTrim,
+        emissiveIntensity: 0.12,
+      }),
+    );
+    const pillarStoneMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.abyssalCloak, {
+        emissive: accentHex,
+        emissiveIntensity: 0.14,
+      }),
+    );
+    const accentTrimMat = this.trackMat(
+      new THREE.MeshBasicMaterial({ color: accentHex }),
+    );
+
+    const t1W = LOBBY_CONFIG.portalPlinthTier1Width;
+    const t1H = LOBBY_CONFIG.portalPlinthTier1Height;
+    const t1D = LOBBY_CONFIG.portalPlinthTier1Depth;
+    const t2W = LOBBY_CONFIG.portalPlinthTier2Width;
+    const t2H = LOBBY_CONFIG.portalPlinthTier2Height;
+    const t2D = LOBBY_CONFIG.portalPlinthTier2Depth;
+    const plinthTopY = t1H + t2H;
+
+    // Tier 1 (lower broad step flush at y = 0)
+    const tier1Geo = this.trackGeo(new THREE.BoxGeometry(t1W, t1H, t1D));
+    const { group: tier1Obj } = ToonAssets.createOutlinedMesh(
+      tier1Geo,
+      plinthStoneMat,
+      { x: 1.015, y: 1.01, z: 1.02 },
+      true,
+    );
+    tier1Obj.position.y = t1H * 0.5;
+    portalGroup.add(tier1Obj);
+
+    // Glowing front step rune strip where the carpet runner terminates flush
+    const stepTrimGeo = this.trackGeo(new THREE.BoxGeometry(t1W - 0.16, 0.045, 0.05));
+    const stepTrim = new THREE.Mesh(stepTrimGeo, accentTrimMat);
+    stepTrim.position.set(0, t1H - 0.02, t1D * 0.5 + 0.01);
+    portalGroup.add(stepTrim);
+
+    // Tier 2 (upper dais platform)
+    const tier2Geo = this.trackGeo(new THREE.BoxGeometry(t2W, t2H, t2D));
+    const { group: tier2Obj } = ToonAssets.createOutlinedMesh(
+      tier2Geo,
+      pillarStoneMat,
+      { x: 1.015, y: 1.01, z: 1.02 },
+      true,
+    );
+    tier2Obj.position.y = t1H + t2H * 0.5;
+    portalGroup.add(tier2Obj);
+
+    // Carved stone cradle socket physically seating the bottom of the portal ring into the plinth
+    const cradleGeo = this.trackGeo(new THREE.BoxGeometry(1.75, 0.34, 0.85));
+    const { group: cradleObj } = ToonAssets.createOutlinedMesh(
+      cradleGeo,
+      pillarStoneMat,
+      1.04,
+      true,
+    );
+    cradleObj.position.set(0, plinthTopY + 0.14, 0);
+    portalGroup.add(cradleObj);
+
+    if (!includeSidePillars) return;
+
+    // Twin vertical stone-and-crystal archway support pillars physically bracing the ring down to the plinth
+    const pOffsetX = LOBBY_CONFIG.portalSupportPillarOffsetX;
+    const pHeight = LOBBY_CONFIG.portalSupportPillarHeight;
+    const pRadius = LOBBY_CONFIG.portalSupportPillarRadius;
+    const pillarGeo = this.trackGeo(
+      new THREE.CylinderGeometry(pRadius * 0.86, pRadius * 1.08, pHeight, 6),
+    );
+    const capGeo = this.trackGeo(new THREE.ConeGeometry(pRadius * 0.95, 0.72, 6));
+    const braceGeo = this.trackGeo(new THREE.BoxGeometry(0.68, 0.28, 0.44));
+
+    const sides: readonly (-1 | 1)[] = [-1, 1];
+    sides.forEach((side) => {
+      const px = side * pOffsetX;
+
+      const { group: shaftObj } = ToonAssets.createOutlinedMesh(
+        pillarGeo,
+        pillarStoneMat,
+        { x: 1.06, y: 1.01, z: 1.06 },
+        true,
+      );
+      shaftObj.position.set(px, plinthTopY + pHeight * 0.5, 0);
+      portalGroup.add(shaftObj);
+
+      // Horizontal stone bracket locking the pillar directly into the portal ring equator
+      const { group: braceObj } = ToonAssets.createOutlinedMesh(
+        braceGeo,
+        pillarStoneMat,
+        1.05,
+        true,
+      );
+      braceObj.position.set(
+        side * (pOffsetX - 0.24),
+        LOBBY_CONFIG.portalCenterY,
+        0,
+      );
+      portalGroup.add(braceObj);
+
+      // Glowing accent band & crystal spire crowning each support pillar
+      const bandGeo = this.trackGeo(
+        new THREE.CylinderGeometry(pRadius * 0.98, pRadius * 0.98, 0.12, 6),
+      );
+      const band = new THREE.Mesh(bandGeo, accentTrimMat);
+      band.position.set(px, plinthTopY + pHeight - 0.22, 0);
+      portalGroup.add(band);
+
+      const { group: finialObj } = ToonAssets.createOutlinedMesh(
+        capGeo,
+        crystalMat,
+        1.06,
+        true,
+      );
+      finialObj.position.set(px, plinthTopY + pHeight + 0.36, 0);
+      portalGroup.add(finialObj);
+    });
+  }
+
+  /**
    * Builds the Three Realm Portals along the northern arc of the Sanctum:
    * - Center (Realm I — The Glacial Spire, Active)
    * - Left (Realm II — The Sunken Sanctuary, Sealed Coral/Teal Ward)
@@ -1004,6 +1161,9 @@ export class MageTowerLevel {
     const ringR = LOBBY_CONFIG.portalRingRadius;
     const tubeR = LOBBY_CONFIG.portalTubeRadius;
     const centerY = LOBBY_CONFIG.portalCenterY;
+    const plinthTopY =
+      LOBBY_CONFIG.portalPlinthTier1Height +
+      LOBBY_CONFIG.portalPlinthTier2Height;
 
     // -----------------------------------------------------------------------
     // 1. Center — Realm I: The Glacial Spire (Active Vortex & Falling Snow)
@@ -1022,6 +1182,13 @@ export class MageTowerLevel {
         emissiveIntensity: 0.35,
       }),
     );
+    this.attachGroundedPortalPlinthAndPillars(
+      r1Group,
+      PALETTE.frostRunes,
+      frostArchMat,
+      true,
+    );
+
     const r1ArchGeo = this.trackGeo(new THREE.TorusGeometry(ringR, tubeR, 8, 28));
     const { group: r1Arch } = ToonAssets.createOutlinedMesh(
       r1ArchGeo,
@@ -1120,9 +1287,22 @@ export class MageTowerLevel {
         emissiveIntensity: 0.16,
       }),
     );
+    const tealCrystalMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.sunkenTeal, {
+        emissive: PALETTE.sunkenTeal,
+        emissiveIntensity: 0.45,
+      }),
+    );
     const tealRuneMat = this.trackMat(
       new THREE.MeshBasicMaterial({ color: PALETTE.sunkenTeal }),
     );
+    this.attachGroundedPortalPlinthAndPillars(
+      r2Group,
+      PALETTE.sunkenTeal,
+      tealCrystalMat,
+      true,
+    );
+
     const { group: r2Arch } = ToonAssets.createOutlinedMesh(
       this.trackGeo(new THREE.TorusGeometry(ringR, tubeR, 8, 24)),
       seaStoneMat,
@@ -1179,7 +1359,7 @@ export class MageTowerLevel {
     this.root.add(r2Group);
 
     // -----------------------------------------------------------------------
-    // 3. Right — Realm III: The Harmonic Citadel (Monoliths & Tuning Crystals)
+    // 3. Right — Realm III: The Harmonic Citadel (Grounded Monoliths & Tuning Crystals)
     // -----------------------------------------------------------------------
     const r3Group = new THREE.Group();
     r3Group.position.set(
@@ -1201,23 +1381,41 @@ export class MageTowerLevel {
     const magentaMat = this.trackMat(
       new THREE.MeshBasicMaterial({ color: PALETTE.harmonicMagenta }),
     );
+    this.attachGroundedPortalPlinthAndPillars(
+      r3Group,
+      PALETTE.harmonicEmerald,
+      emeraldMat,
+      false,
+    );
 
-    const pillarGeo = this.trackGeo(new THREE.BoxGeometry(0.45, 4.4, 0.45));
-    const topBeamGeo = this.trackGeo(new THREE.BoxGeometry(4.2, 0.42, 0.52));
+    // Twin Grounded Geometric Monolith Pillars resting directly on the upper dais tier
+    const monolithH = 4.15;
+    const pillarGeo = this.trackGeo(new THREE.BoxGeometry(0.52, monolithH, 0.52));
+    const topBeamGeo = this.trackGeo(new THREE.BoxGeometry(4.65, 0.44, 0.56));
     const { group: mLeft } = ToonAssets.createOutlinedMesh(pillarGeo, monolithMat, 1.05, true);
-    mLeft.position.set(-ringR, 2.2, 0);
+    mLeft.position.set(-ringR - 0.12, plinthTopY + monolithH * 0.5, 0);
     const { group: mRight } = ToonAssets.createOutlinedMesh(pillarGeo, monolithMat, 1.05, true);
-    mRight.position.set(ringR, 2.2, 0);
+    mRight.position.set(ringR + 0.12, plinthTopY + monolithH * 0.5, 0);
     const { group: mTop } = ToonAssets.createOutlinedMesh(topBeamGeo, monolithMat, 1.05, true);
-    mTop.position.set(0, 4.4, 0);
+    mTop.position.set(0, plinthTopY + monolithH + 0.14, 0);
     r3Group.add(mLeft, mRight, mTop);
 
-    // Dormant Emerald & Magenta Tuning Crystals flanking the Monoliths
-    const tuningGeo = this.trackGeo(new THREE.OctahedronGeometry(0.24, 0));
+    // Grounded Portal Ring nested between the Monolith Pillars
+    const { group: r3Arch } = ToonAssets.createOutlinedMesh(
+      this.trackGeo(new THREE.TorusGeometry(ringR, tubeR * 0.85, 6, 24)),
+      monolithMat,
+      1.04,
+      true,
+    );
+    r3Arch.position.y = centerY;
+    r3Group.add(r3Arch);
+
+    // Dormant Emerald & Magenta Tuning Crystals crowning the Monolith Pillars
+    const tuningGeo = this.trackGeo(new THREE.OctahedronGeometry(0.26, 0));
     const tL = new THREE.Mesh(tuningGeo, emeraldMat);
-    tL.position.set(-ringR, 4.85, 0);
+    tL.position.set(-ringR - 0.12, plinthTopY + monolithH + 0.68, 0);
     const tR = new THREE.Mesh(tuningGeo, magentaMat);
-    tR.position.set(ringR, 4.85, 0);
+    tR.position.set(ringR + 0.12, plinthTopY + monolithH + 0.68, 0);
     r3Group.add(tL, tR);
 
     this.realm3WardGroup = new THREE.Group();
@@ -1233,7 +1431,7 @@ export class MageTowerLevel {
       }),
     );
     const r3Barrier = new THREE.Mesh(
-      this.trackGeo(new THREE.PlaneGeometry(ringR * 1.75, 3.8)),
+      this.trackGeo(new THREE.CircleGeometry(ringR - 0.16, 24)),
       this.realm3WardMat,
     );
     const r3Ring = new THREE.Mesh(

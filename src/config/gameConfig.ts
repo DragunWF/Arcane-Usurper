@@ -1260,7 +1260,7 @@ export const LOBBY_CONFIG = Object.freeze({
   titleOrbitSpeed: 0.22,
   enterGlideDuration: 0.95,
 
-  // 3 Northern Arc Realm Portals
+  // 3 Northern Arc Realm Portals & Grounded Plinths
   realm1PortalPos: Object.freeze({ x: 0, z: -9.8 }),
   realm2PortalPos: Object.freeze({ x: -6.8, z: -7.2 }),
   realm3PortalPos: Object.freeze({ x: 6.8, z: -7.2 }),
@@ -1270,6 +1270,31 @@ export const LOBBY_CONFIG = Object.freeze({
   portalTubeRadius: 0.22,
   portalPylonOffset: 2.45,
   portalPylonCollisionRadius: 0.6,
+  portalPlinthTier1Width: 5.6,
+  portalPlinthTier1Height: 0.2,
+  portalPlinthTier1Depth: 2.3,
+  portalPlinthTier2Width: 4.9,
+  portalPlinthTier2Height: 0.18,
+  portalPlinthTier2Depth: 1.75,
+  portalSupportPillarOffsetX: 2.2,
+  portalSupportPillarHeight: 3.35,
+  portalSupportPillarRadius: 0.28,
+
+  // Floor Summoning Circle, Non-Overlapping Runners & Southern/Side Bookshelves
+  summoningCircleRingRadiiPx: Object.freeze([62, 76, 128, 142] as const),
+  outerFloorRuneRingPx: 438,
+  runnerStartRadius: 3.95,
+  runnerWidth: 1.55,
+  runnerBorderWidth: 1.72,
+  bookshelfRadiusOffset: 0.95,
+  bookshelfBayAngles: Object.freeze([
+    -Math.PI * 0.4167,
+    -Math.PI * 0.25,
+    -Math.PI * 0.0833,
+    Math.PI * 0.0833,
+    Math.PI * 0.25,
+    Math.PI * 0.4167,
+  ] as const),
 
   // Stolen Trophy Pedestal & Abyssal Target Crystal
   trophyPedestalPos: Object.freeze({ x: -3.2, z: 1.5 }),
