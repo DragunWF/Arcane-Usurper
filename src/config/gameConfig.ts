@@ -143,6 +143,11 @@ export const PALETTE = Object.freeze({
   blindingFrost: 0xe0f2fe,
   warningRune: 0x38bdf8,
 
+  // Siphon Finisher FX Ribbons & Hearts
+  voidRibbon: 0xa855f7,
+  frostRibbon: 0x38bdf8,
+  roseHeart: 0xf472b6,
+
   // Facial Canvas & UI Semantic Accents
   pureBlack: 0x000000,
   pureWhite: 0xffffff,
@@ -192,6 +197,9 @@ export const PALETTE = Object.freeze({
     sovereignIndigo: '#6366F1',
     blindingFrost: '#E0F2FE',
     warningRune: '#38BDF8',
+    voidRibbon: '#A855F7',
+    frostRibbon: '#38BDF8',
+    roseHeart: '#F472B6',
     pureBlack: '#000000',
     pureWhite: '#FFFFFF',
     snowWhite: '#F1F5F9',
@@ -570,12 +578,17 @@ export const BOSS_CONFIG = Object.freeze({
 
 export const FINISHER_CONFIG = Object.freeze({
   // Stagger-to-Finisher Approach Blink
+  approachDuration: 0.85,
   approachArrivalDistance: 1.28,
   approachDashDuration: 0.28,
   approachInvulnDuration: 0.35,
   approachAfterimageInterval: 0.06,
 
   // Three-Tier Drain Throttle Rates (normalized 0.0 -> 1.0 per second)
+  savorRatePerSec: 0.015,
+  standardRatePerSec: 0.065,
+  surgeRatePerSec: 0.45,
+  surgeTapBoost: 0.06,
   drainRates: Object.freeze({
     SAVOR: 0.015,
     FLOW: 0.065,
@@ -583,12 +596,13 @@ export const FINISHER_CONFIG = Object.freeze({
   } as const),
 
   // Progressive Limpness & [F] Taunt
+  limpThreshold: 0.5,
   limpnessThreshold: 0.5,
   tauntDizzyDuration: 1.5,
-  tauntCooldown: 0.65,
+  tauntCooldown: 0.45,
   savorParticleMultiplier: 2.0,
   endlessSavorLockedProgress: 1.0,
-  spaceTapSurgeBoost: 0.035,
+  spaceTapSurgeBoost: 0.06,
 
   // Dominance Pose Alignment Constraints (Zero Air Gap on Pose [2])
   defaultRootSeparation: 0.56,
@@ -598,6 +612,12 @@ export const FINISHER_CONFIG = Object.freeze({
   reinsRootSeparation: 0.48,
   staffLeanRootSeparation: 0.54,
   poseBlendSpeed: 6.5,
+
+  // Energy Ribbon & Rim-Light FX
+  ribbonSegments: 22,
+  ribbonPulseSpeed: 5.5,
+  ribbonSurgeWaveAmp: 0.14,
+  ribbonNormalWaveAmp: 0.055,
 
   // Victory Collapse & Defeat "Forced Frost Puppet" Dioramas
   victoryCollapseBlendSpeed: 4.0,
@@ -728,14 +748,24 @@ export const CAMERA_CONFIG = Object.freeze({
   titleLookLerp: 8.0,
 
   // 360° Finisher & Diorama Orbit/Zoom
+  minDistance: 0.85,
+  maxDistance: 3.2,
+  defaultDistance: 1.55,
+  minElevation: 0.08,
+  maxElevation: 1.25,
   finisherMinDistance: 0.85,
   finisherMaxDistance: 3.2,
-  finisherDefaultDistance: 1.65,
+  finisherDefaultDistance: 1.55,
   finisherMinElevation: 0.08,
   finisherMaxElevation: 1.25,
   finisherDefaultElevation: 0.34,
   finisherZoomSpeed: 0.0018,
   finisherOrbitLerp: 10.0,
+  orbitRimVioletIntensity: 3.4,
+  orbitRimFrostIntensity: 3.0,
+  orbitRimDistance: 5.5,
+  orbitRimOffsetRadius: 1.45,
+  orbitRimOffsetY: 0.45,
 } as const);
 
 // ============================================================================

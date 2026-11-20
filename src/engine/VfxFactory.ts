@@ -875,15 +875,15 @@ export class VfxFactory implements IVfxSpawner {
     const isSavor = throttle === DRAIN_THROTTLE_MODES.SAVOR;
     const color = isSurge
       ? Math.random() > 0.4
-        ? PALETTE.glowViolet
-        : PALETTE.frostRunes
+        ? PALETTE.voidRibbon
+        : PALETTE.frostRibbon
       : isSavor
-        ? Math.random() > 0.5
-          ? PALETTE.roseMuted
+        ? Math.random() > 0.45
+          ? PALETTE.roseHeart
           : PALETTE.iceHighlights
         : Math.random() > 0.5
-          ? PALETTE.voidCoreFuchsia
-          : PALETTE.frostRunes;
+          ? PALETTE.roseHeart
+          : PALETTE.frostRibbon;
 
     const mat = new THREE.MeshBasicMaterial({
       color,

@@ -85,6 +85,7 @@ export interface PlayerIntentComponent {
   pulseRequested: boolean;
   finisherExecuteRequested: boolean;
   tauntRequested: boolean;
+  surgeTapRequested: boolean;
   requestedPose: FinisherPoseId | null;
   drainThrottle: DrainThrottleMode;
 }

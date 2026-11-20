@@ -104,6 +104,7 @@ export class GameEngine implements IGameController {
     this.world = new ECSWorld();
     this.sceneManager = new SceneManager(container);
     this.cameraRig = new CameraRig(this.sceneManager.domElement);
+    this.cameraRig.attachOrbitRimLights(this.sceneManager.scene);
     this.sound = new SoundEngine();
     this.vfx = new VfxFactory(this.sceneManager.scene);
 
@@ -210,6 +211,7 @@ export class GameEngine implements IGameController {
 
     this.finisherSystem = new FinisherSystem(
       this.world,
+      this.sceneManager.scene,
       this.mageRig,
       this.bossRig,
       this.sound,
@@ -316,6 +318,7 @@ export class GameEngine implements IGameController {
         pulseRequested: false,
         finisherExecuteRequested: false,
         tauntRequested: false,
+        surgeTapRequested: false,
         requestedPose: null,
         drainThrottle: DRAIN_THROTTLE_MODES.FLOW,
       },
@@ -450,6 +453,7 @@ export class GameEngine implements IGameController {
   public layDownFromEndlessSavor(): void {
     this.sound.unlock();
     if (this.state === GAME_STATES.ENDLESS_SAVOR) {
+      this.finisherSystem.hideVisuals();
       this.dioramaSystem.exitEndlessSavor();
     }
   }
@@ -751,6 +755,7 @@ export class GameEngine implements IGameController {
 
     window.removeEventListener('resize', this.handleResize);
     this.inputSystem.dispose();
+    this.finisherSystem.dispose();
     this.dioramaSystem.dispose();
     this.cameraRig.exitLock();
     this.cameraRig.dispose();

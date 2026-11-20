@@ -47,6 +47,7 @@ export class InputSystem implements ISystem {
   private queuedPulse = false;
   private queuedFinisherExecute = false;
   private queuedTaunt = false;
+  private queuedSurgeTap = false;
   private queuedPose: FinisherPoseId | null = null;
 
   private readonly handleKeyDown: (e: KeyboardEvent) => void;
@@ -92,7 +93,7 @@ export class InputSystem implements ISystem {
         return;
       }
 
-      // Interactive Finisher / Endless Savor pose switching [1-4] & [F] Taunt
+      // Interactive Finisher / Endless Savor pose switching [1-4], [F] Taunt, and Space tap surge boost
       if (
         state === GAME_STATES.SIPHON_FINISHER ||
         state === GAME_STATES.ENDLESS_SAVOR
@@ -105,6 +106,10 @@ export class InputSystem implements ISystem {
         else if (e.code === 'Digit4')
           this.queuedPose = FINISHER_POSE_IDS.STAFF_LEAN;
         else if (e.code === 'KeyF') this.queuedTaunt = true;
+        else if (e.code === 'Space') {
+          e.preventDefault();
+          if (!e.repeat) this.queuedSurgeTap = true;
+        }
         return;
       }
 
@@ -208,6 +213,7 @@ export class InputSystem implements ISystem {
     this.queuedPulse = false;
     this.queuedFinisherExecute = false;
     this.queuedTaunt = false;
+    this.queuedSurgeTap = false;
     this.queuedPose = null;
   }
 
@@ -245,6 +251,7 @@ export class InputSystem implements ISystem {
     intent.pulseRequested = this.queuedPulse;
     intent.finisherExecuteRequested = this.queuedFinisherExecute;
     intent.tauntRequested = this.queuedTaunt;
+    intent.surgeTapRequested = this.queuedSurgeTap;
     intent.requestedPose = this.queuedPose;
     intent.drainThrottle = this.resolveDrainThrottle();
 
@@ -254,6 +261,7 @@ export class InputSystem implements ISystem {
     this.queuedPulse = false;
     this.queuedFinisherExecute = false;
     this.queuedTaunt = false;
+    this.queuedSurgeTap = false;
     this.queuedPose = null;
   }
 

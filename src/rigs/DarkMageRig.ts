@@ -47,13 +47,15 @@ export class DarkMageRig {
   private staffFrostLight: THREE.PointLight | null = null;
   private encoreTier = 0;
 
-  // Defeat "Forced Frost Puppet" Diorama Accessories (hidden outside DEFEAT_DIORAMA)
+  // Defeat "Forced Frost Puppet" Diorama & Finisher Pose [3] Accessories
   private defeatBlushGroup: THREE.Group | null = null;
   private puppetCrystalLeft: THREE.Group | null = null;
   private puppetCrystalRight: THREE.Group | null = null;
+  private hairReinLoop: THREE.Group | null = null;
   private readonly leftHandAnchor = new THREE.Object3D();
   private readonly rightHandAnchor = new THREE.Object3D();
   private readonly headTopAnchor = new THREE.Object3D();
+  private readonly mouthAnchor = new THREE.Object3D();
 
   // Animation & Combat Feedback State
   public invulnTimer = 0;
@@ -521,9 +523,11 @@ export class DarkMageRig {
     }
     this.headGroup.add(this.defeatBlushGroup);
 
-    // Crown anchor for marionette control line
+    // Crown anchor for marionette control line & lip anchor for Siphon Kiss alignment
     this.headTopAnchor.position.set(0, 0.34, 0.01);
     this.headGroup.add(this.headTopAnchor);
+    this.mouthAnchor.position.set(0, 0.132, 0.118);
+    this.headGroup.add(this.mouthAnchor);
 
     // 4. Rounded Draped Cloth Cowl wrapping naturally around the head
     const cowlGroup = new THREE.Group();
@@ -726,6 +730,25 @@ export class DarkMageRig {
     this.leftElbowPivot.add(this.puppetCrystalLeft);
     this.puppetCrystalRight = buildPuppetCrystal();
     this.rightElbowPivot.add(this.puppetCrystalRight);
+
+    // Sculpted silver-white hair lock wrapped around left forearm for Pose [3] (Silver-Hair Reins)
+    this.hairReinLoop = new THREE.Group();
+    this.hairReinLoop.position.set(0, -0.21, 0.01);
+    this.hairReinLoop.visible = false;
+    const hairCoilMat = ToonAssets.createToonMaterial(PALETTE.marinaHair, {
+      emissive: PALETTE.frostRibbon,
+      emissiveIntensity: 0.14,
+    });
+    for (let c = 0; c < 2; c++) {
+      const coil = new THREE.Mesh(
+        new THREE.TorusGeometry(0.088, 0.016, 8, 20),
+        hairCoilMat,
+      );
+      coil.rotation.x = Math.PI / 2 + (c === 0 ? 0.14 : -0.14);
+      coil.position.y = c * -0.032;
+      this.hairReinLoop.add(coil);
+    }
+    this.leftElbowPivot.add(this.hairReinLoop);
 
     this.buildObsidianSiphonStaff(this.rightElbowPivot);
   }
@@ -962,6 +985,11 @@ export class DarkMageRig {
     return this.headTopAnchor.getWorldPosition(outVec);
   }
 
+  public getMouthWorldPosition(outVec: THREE.Vector3): THREE.Vector3 {
+    this.root.updateMatrixWorld(true);
+    return this.mouthAnchor.getWorldPosition(outVec);
+  }
+
   /**
    * Restores standard combat staff attachment & hides diorama-only props.
    */
@@ -969,6 +997,7 @@ export class DarkMageRig {
     if (this.defeatBlushGroup) this.defeatBlushGroup.visible = false;
     if (this.puppetCrystalLeft) this.puppetCrystalLeft.visible = false;
     if (this.puppetCrystalRight) this.puppetCrystalRight.visible = false;
+    if (this.hairReinLoop) this.hairReinLoop.visible = false;
     this.staffGroup.visible = true;
     this.staffGroup.position.set(0, -0.3, 0.04);
     this.staffGroup.rotation.set(Math.PI * 0.44, 0, 0);
@@ -989,6 +1018,9 @@ export class DarkMageRig {
     if (this.defeatBlushGroup) this.defeatBlushGroup.visible = false;
     if (this.puppetCrystalLeft) this.puppetCrystalLeft.visible = false;
     if (this.puppetCrystalRight) this.puppetCrystalRight.visible = false;
+    if (this.hairReinLoop) {
+      this.hairReinLoop.visible = poseId === FINISHER_POSE_IDS.HAIR_REINS;
+    }
     this.staffGroup.visible = true;
 
     const breathe = Math.sin(time * 2.4) * 0.012;
@@ -1014,7 +1046,7 @@ export class DarkMageRig {
       this.rightElbowPivot.rotation.x = -0.22;
       this.staffGroup.rotation.set(Math.PI * 0.14, 0, 0);
     } else if (poseId === FINISHER_POSE_IDS.HAIR_REINS) {
-      // Pose [3]: Silver-Hair Reins — leaning down with left forearm lifting silver hair lock
+      // Pose [3]: Silver-Hair Reins — leaning down with silver hair wrapped around left forearm
       this.bodyPivot.position.y = 0.72 + breathe;
       this.torsoGroup.rotation.set(0.56, 0, 0);
       this.headGroup.rotation.set(0.28, 0, 0);
@@ -1024,17 +1056,21 @@ export class DarkMageRig {
       this.rightElbowPivot.rotation.x = -0.35;
       this.staffGroup.rotation.set(Math.PI * 0.48, 0, 0);
     } else if (poseId === FINISHER_POSE_IDS.STAFF_LEAN) {
-      // Pose [4]: Staff-Prop Lean — leaning casually with right arm braced on planted staff
+      // Pose [4]: Staff-Prop Lean — leaning casually with elbow on upright staff & ankles crossed
       this.bodyPivot.position.y = 0.72 + breathe;
-      this.torsoGroup.rotation.set(0.52, 0, -0.09);
-      this.headGroup.rotation.set(0.3, 0, 0.08);
+      this.leftLegPivot.rotation.set(0.06, 0, 0.14);
+      this.rightLegPivot.rotation.set(-0.22, 0, -0.16);
+      this.leftKneePivot.rotation.x = 0.12;
+      this.rightKneePivot.rotation.x = 0.28;
+      this.torsoGroup.rotation.set(0.52, 0, -0.11);
+      this.headGroup.rotation.set(0.3, 0, 0.09);
       this.leftShoulderPivot.rotation.set(-0.74, 0, 0.12);
       this.leftElbowPivot.rotation.x = -0.58;
       this.rightShoulderPivot.rotation.set(-0.62, 0, -0.34);
       this.rightElbowPivot.rotation.x = -0.92;
       this.staffGroup.rotation.set(Math.PI * 0.04, 0, 0.12);
     } else {
-      // Pose [1]: Chin-Lift Tilt (Default)
+      // Pose [1]: Chin-Lift Tilt (Default) — gloved left hand tilting chin, staff planted in ice
       this.bodyPivot.position.y = 0.7 + breathe;
       this.torsoGroup.rotation.set(0.54, 0, 0);
       this.headGroup.rotation.set(0.32, 0, 0);

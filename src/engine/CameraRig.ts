@@ -4,6 +4,7 @@ import {
   BOSS_CONFIG,
   CAMERA_CONFIG,
   GAME_STATES,
+  PALETTE,
   type GameState,
 } from '../config/gameConfig';
 import type { IArenaGeometry } from './SceneManager';
@@ -30,11 +31,15 @@ export class CameraRig {
   // Spherical 360° Orbit & Zoom state for Finisher / Dioramas
   public orbitAzimuth = 0;
   public orbitElevation: number = CAMERA_CONFIG.finisherDefaultElevation;
-  public orbitDistance: number = CAMERA_CONFIG.finisherDefaultDistance;
+  public orbitDistance: number = CAMERA_CONFIG.defaultDistance;
 
   public onPointerLockChange: ((locked: boolean) => void) | null = null;
 
   private readonly domElement: HTMLElement;
+  private rimLightScene: THREE.Scene | null = null;
+  private readonly orbitRimGroup = new THREE.Group();
+  private readonly violetRimLight: THREE.PointLight;
+  private readonly frostRimLight: THREE.PointLight;
   private titleOrbitAngle: number = CAMERA_CONFIG.titleOrbitInitialAngle;
   private _isPointerLocked = false;
   private isDragging = false;
@@ -87,6 +92,36 @@ export class CameraRig {
       CAMERA_CONFIG.nearPlane,
       CAMERA_CONFIG.farPlane,
     );
+    this.camera.near = CAMERA_CONFIG.nearPlane;
+    this.camera.updateProjectionMatrix();
+
+    // Dual-tone subtle violet/ice-blue rim lights framing the focal target in 360° Finisher/Diorama orbit
+    this.violetRimLight = new THREE.PointLight(
+      PALETTE.voidRibbon,
+      CAMERA_CONFIG.orbitRimVioletIntensity,
+      CAMERA_CONFIG.orbitRimDistance,
+      1.8,
+    );
+    this.violetRimLight.position.set(
+      -CAMERA_CONFIG.orbitRimOffsetRadius,
+      CAMERA_CONFIG.orbitRimOffsetY,
+      CAMERA_CONFIG.orbitRimOffsetRadius * 0.6,
+    );
+
+    this.frostRimLight = new THREE.PointLight(
+      PALETTE.frostRibbon,
+      CAMERA_CONFIG.orbitRimFrostIntensity,
+      CAMERA_CONFIG.orbitRimDistance,
+      1.8,
+    );
+    this.frostRimLight.position.set(
+      CAMERA_CONFIG.orbitRimOffsetRadius,
+      CAMERA_CONFIG.orbitRimOffsetY,
+      -CAMERA_CONFIG.orbitRimOffsetRadius * 0.6,
+    );
+
+    this.orbitRimGroup.add(this.violetRimLight, this.frostRimLight);
+    this.orbitRimGroup.visible = false;
 
     this.handlePointerLockChange = () => {
       this._isPointerLocked = document.pointerLockElement === this.domElement;
@@ -144,8 +179,8 @@ export class CameraRig {
       e.preventDefault();
       this.orbitDistance = THREE.MathUtils.clamp(
         this.orbitDistance + e.deltaY * CAMERA_CONFIG.finisherZoomSpeed,
-        CAMERA_CONFIG.finisherMinDistance,
-        CAMERA_CONFIG.finisherMaxDistance,
+        CAMERA_CONFIG.minDistance,
+        CAMERA_CONFIG.maxDistance,
       );
     };
 
@@ -215,9 +250,20 @@ export class CameraRig {
   private clampOrbitElevation(): void {
     this.orbitElevation = THREE.MathUtils.clamp(
       this.orbitElevation,
-      CAMERA_CONFIG.finisherMinElevation,
-      CAMERA_CONFIG.finisherMaxElevation,
+      CAMERA_CONFIG.minElevation,
+      CAMERA_CONFIG.maxElevation,
     );
+  }
+
+  /**
+   * Attaches the subtle dual-tone violet/ice-blue rim lights to the scene so they
+   * frame the focal target automatically during Finisher and Diorama states.
+   */
+  public attachOrbitRimLights(scene: THREE.Scene): void {
+    this.rimLightScene = scene;
+    if (this.orbitRimGroup.parent !== scene) {
+      scene.add(this.orbitRimGroup);
+    }
   }
 
   public setCombatAngles(yaw: number, pitch: number): void {
@@ -229,14 +275,16 @@ export class CameraRig {
   public resetSphericalOrbit(
     azimuth = 0,
     elevation: number = CAMERA_CONFIG.finisherDefaultElevation,
-    distance: number = CAMERA_CONFIG.finisherDefaultDistance,
+    distance: number = CAMERA_CONFIG.defaultDistance,
   ): void {
+    this.camera.near = CAMERA_CONFIG.nearPlane;
+    this.camera.updateProjectionMatrix();
     this.orbitAzimuth = azimuth;
     this.orbitElevation = elevation;
     this.orbitDistance = THREE.MathUtils.clamp(
       distance,
-      CAMERA_CONFIG.finisherMinDistance,
-      CAMERA_CONFIG.finisherMaxDistance,
+      CAMERA_CONFIG.minDistance,
+      CAMERA_CONFIG.maxDistance,
     );
     this.clampOrbitElevation();
   }
@@ -395,6 +443,7 @@ export class CameraRig {
     const targetPos = followTarget.position;
 
     if (this.activeMode === 'TITLE') {
+      this.orbitRimGroup.visible = false;
       this.titleOrbitAngle += dt * CAMERA_CONFIG.titleOrbitSpeed;
       const r = CAMERA_CONFIG.titleOrbitRadius;
       this.desiredPos.set(
@@ -430,10 +479,15 @@ export class CameraRig {
         focus.position.z + Math.cos(this.orbitAzimuth) * horizR,
       );
 
+      this.orbitRimGroup.visible = true;
+      this.orbitRimGroup.position.set(focus.position.x, focusY, focus.position.z);
+      this.orbitRimGroup.rotation.y = this.orbitAzimuth;
+
       const smooth = Math.min(1, dt * CAMERA_CONFIG.finisherOrbitLerp);
       this.currentPosition.lerp(this.desiredPos, smooth);
       this.currentLookAt.lerp(this.desiredLookAt, smooth);
     } else {
+      this.orbitRimGroup.visible = false;
       const dist = CAMERA_CONFIG.followDistance;
       const heightOffset = CAMERA_CONFIG.followHeight;
 
@@ -498,5 +552,9 @@ export class CameraRig {
     this.domElement.removeEventListener('touchstart', this.handleTouchStart);
     this.domElement.removeEventListener('touchmove', this.handleTouchMove);
     this.domElement.removeEventListener('touchend', this.handleTouchEnd);
+    if (this.rimLightScene) {
+      this.rimLightScene.remove(this.orbitRimGroup);
+      this.rimLightScene = null;
+    }
   }
 }

@@ -28,7 +28,7 @@ const THROTTLE_OPTIONS: readonly {
 }[] = [
   { id: DRAIN_THROTTLE_MODES.SAVOR, label: 'SAVOR', keyHint: 'S / RMB' },
   { id: DRAIN_THROTTLE_MODES.FLOW, label: 'FLOW', keyHint: 'DEFAULT' },
-  { id: DRAIN_THROTTLE_MODES.SURGE, label: 'SURGE', keyHint: 'W / E' },
+  { id: DRAIN_THROTTLE_MODES.SURGE, label: 'SURGE', keyHint: 'W / E / SPACE' },
 ];
 
 /**
@@ -39,20 +39,20 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
   const gameState = useGameStore((s) => s.gameState);
   const siphonProgress = useGameStore((s) => s.siphonProgress);
   const finisherPose = useGameStore((s) => s.finisherPose);
-  const drainThrottle = useGameStore((s) => s.drainThrottle);
+  const throttleMode = useGameStore((s) => s.throttleMode);
   const isEndlessSavor = useGameStore((s) => s.isEndlessSavor);
-  const tauntPopToken = useGameStore((s) => s.tauntPopToken);
+  const tauntTriggerCount = useGameStore((s) => s.tauntTriggerCount);
   const bossDisplayName = useGameStore((s) => s.bossDisplayName);
   const audioMuted = useGameStore((s) => s.audioMuted);
 
   const [showTauntPop, setShowTauntPop] = useState(false);
 
   useEffect(() => {
-    if (tauntPopToken === 0) return;
+    if (tauntTriggerCount === 0) return;
     setShowTauntPop(true);
     const timer = window.setTimeout(() => setShowTauntPop(false), 1250);
     return () => window.clearTimeout(timer);
-  }, [tauntPopToken]);
+  }, [tauntTriggerCount]);
 
   const active =
     gameState === GAME_STATES.SIPHON_FINISHER ||
@@ -92,7 +92,7 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
           {!isEndlessSavor && (
             <div className="mt-2.5 flex items-center justify-center gap-2 pointer-events-auto">
               {THROTTLE_OPTIONS.map((opt) => {
-                const selected = drainThrottle === opt.id;
+                const selected = throttleMode === opt.id;
                 return (
                   <button
                     key={opt.id}

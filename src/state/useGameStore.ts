@@ -77,8 +77,10 @@ export interface GameStoreState {
   siphonProgress: number;
   finisherPose: FinisherPoseId;
   drainThrottle: DrainThrottleMode;
+  throttleMode: DrainThrottleMode;
   isEndlessSavor: boolean;
   tauntPopToken: number;
+  tauntTriggerCount: number;
   tauntDizzyTimer: number;
 
   // Audio & System Status
@@ -105,6 +107,7 @@ export interface GameStoreState {
   ) => void;
   setFinisherPose: (pose: FinisherPoseId) => void;
   setDrainThrottle: (mode: DrainThrottleMode) => void;
+  setThrottleMode: (mode: DrainThrottleMode) => void;
   setEndlessSavor: (active: boolean) => void;
   enterEndlessSavor: () => void;
   exitEndlessSavor: () => void;
@@ -159,8 +162,10 @@ const INITIAL_STATE = {
   siphonProgress: 0,
   finisherPose: FINISHER_POSE_IDS.CHIN_LIFT as FinisherPoseId,
   drainThrottle: DRAIN_THROTTLE_MODES.FLOW as DrainThrottleMode,
+  throttleMode: DRAIN_THROTTLE_MODES.FLOW as DrainThrottleMode,
   isEndlessSavor: false,
   tauntPopToken: 0,
+  tauntTriggerCount: 0,
   tauntDizzyTimer: 0,
 
   audioMuted: false,
@@ -219,7 +224,10 @@ export const useGameStore = create<GameStoreState>((set) => ({
     }),
 
   setFinisherPose: (finisherPose) => set({ finisherPose }),
-  setDrainThrottle: (drainThrottle) => set({ drainThrottle }),
+  setDrainThrottle: (drainThrottle) =>
+    set({ drainThrottle, throttleMode: drainThrottle }),
+  setThrottleMode: (throttleMode) =>
+    set({ throttleMode, drainThrottle: throttleMode }),
   setEndlessSavor: (isEndlessSavor) => set({ isEndlessSavor }),
   enterEndlessSavor: () =>
     set({
@@ -246,7 +254,10 @@ export const useGameStore = create<GameStoreState>((set) => ({
     set((state) => ({ reticlePulseToken: state.reticlePulseToken + 1 })),
 
   triggerTauntPop: () =>
-    set((state) => ({ tauntPopToken: state.tauntPopToken + 1 })),
+    set((state) => ({
+      tauntPopToken: state.tauntPopToken + 1,
+      tauntTriggerCount: state.tauntTriggerCount + 1,
+    })),
 
   syncCombatSnapshot: (snapshot) =>
     set((state) => ({
@@ -290,6 +301,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
         siphonProgress: 0,
         finisherPose: FINISHER_POSE_IDS.CHIN_LIFT,
         drainThrottle: DRAIN_THROTTLE_MODES.FLOW,
+        throttleMode: DRAIN_THROTTLE_MODES.FLOW,
         isEndlessSavor: false,
         tauntDizzyTimer: 0,
       };
