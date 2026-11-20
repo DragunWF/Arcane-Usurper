@@ -5,12 +5,14 @@ import {
   BOSS_EXPRESSIONS,
   BOSS_PHASES,
   DIORAMA_CONFIG,
+  DRAIN_THROTTLE_MODES,
   FINISHER_CONFIG,
   FINISHER_POSE_IDS,
   GAME_STATES,
   PALETTE,
   type BossExpression,
   type BossPhase,
+  type DrainThrottleMode,
   type FinisherPoseId,
   type GameState,
 } from '../../config/gameConfig';
@@ -41,6 +43,26 @@ interface PhaseAuroraHandles {
   innerRing: THREE.Mesh;
   outerMat: THREE.MeshBasicMaterial;
   innerMat: THREE.MeshBasicMaterial;
+}
+
+interface MarinaFinisherBoneState {
+  initialized: boolean;
+  bodyY: number;
+  torsoX: number;
+  torsoZ: number;
+  headX: number;
+  headZ: number;
+  leftHipX: number;
+  rightHipX: number;
+  leftKneeX: number;
+  rightKneeX: number;
+  leftShoulderX: number;
+  leftShoulderZ: number;
+  rightShoulderX: number;
+  rightShoulderZ: number;
+  leftElbowX: number;
+  rightElbowX: number;
+  skirtBasePitch: number;
 }
 
 /**
@@ -114,6 +136,25 @@ export class MarinaRig implements BossRigAdapter {
   private matFaceOverlay!: THREE.MeshToonMaterial;
   private readonly tiaraOriginalColor = new THREE.Color(PALETTE.frostRunes);
   private readonly drainedAshColor = new THREE.Color(PALETTE.drainedAshSilver);
+  private readonly finisherPoseState: MarinaFinisherBoneState = {
+    initialized: false,
+    bodyY: 0.48,
+    torsoX: 0.14,
+    torsoZ: 0,
+    headX: -0.38,
+    headZ: 0,
+    leftHipX: -0.18,
+    rightHipX: -0.18,
+    leftKneeX: 1.72,
+    rightKneeX: 1.72,
+    leftShoulderX: -0.28,
+    leftShoulderZ: 0.2,
+    rightShoulderX: -0.28,
+    rightShoulderZ: -0.2,
+    leftElbowX: -0.55,
+    rightElbowX: -0.55,
+    skirtBasePitch: -0.44,
+  };
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -1560,88 +1601,304 @@ export class MarinaRig implements BossRigAdapter {
   }
 
   /**
-   * Applies interactive Arcane Siphon Kiss poses [1-4] with progressive limpness past 50% drain.
-   * Pose [2] dips Marina's spine backward ~45° to lock lips with zero air gap.
+   * Applies interactive Arcane Siphon Kiss poses [1-4] with smooth ~0.25s bone
+   * interpolation, progressive breathing & trembling-to-limpness curves (0% -> 100%),
+   * throttle reactivity (SAVOR / FLOW / SURGE), and continuous hair & gown billowing
+   * while keeping her mouth (headAnchor) steady as the fixed lip-contact pivot.
    */
   public applyFinisherPose(
     poseId: FinisherPoseId,
     drainProgress: number,
     time: number,
+    dt = 1 / 60,
+    throttleMode: DrainThrottleMode = DRAIN_THROTTLE_MODES.FLOW,
   ): void {
     this.applyDrainBleach(drainProgress);
+
+    const safeDt = Math.max(0.001, Math.min(dt, 0.05));
+    const lerpAlpha =
+      1 -
+      Math.exp(
+        -safeDt / (FINISHER_CONFIG.poseTransitionDurationSec * 0.35),
+      );
+
+    // Progressive vitality (0% -> 50%) vs limpness (50% -> 100% & Endless Savor)
+    const half = FINISHER_CONFIG.limpThreshold;
+    const earlyResistance = 1 - THREE.MathUtils.clamp(drainProgress / half, 0, 1);
     const limpness = THREE.MathUtils.clamp(
-      (drainProgress - FINISHER_CONFIG.limpnessThreshold) /
-        (1 - FINISHER_CONFIG.limpnessThreshold),
+      (drainProgress - half) / (1 - half),
       0,
       1,
     );
-    const breathe = Math.sin(time * 3.4) * 0.012;
 
-    this.frostHalo.visible = false;
-    this.phaseAuroraRings.visible = false;
+    const isSurge = throttleMode === DRAIN_THROTTLE_MODES.SURGE;
+    const isSavor = throttleMode === DRAIN_THROTTLE_MODES.SAVOR;
+
+    // 1. Resolve Target Base Bone Rotations for Poses [1-4]
+    let targetBodyY = 0.48;
+    let targetTorsoX = THREE.MathUtils.lerp(0.14, 0.28, limpness);
+    let targetTorsoZ = 0;
+    let targetHeadX = -0.38;
+    let targetHeadZ = 0;
+    let targetLeftHipX = -0.18;
+    let targetRightHipX = -0.18;
+    let targetLeftKneeX = 1.72;
+    let targetRightKneeX = 1.72;
+    let targetSkirtPitch = -0.44;
 
     if (poseId === FINISHER_POSE_IDS.BALLROOM_DIP) {
       // Pose [2]: Glacial Ballroom Dip (~45° backward dip)
-      this.bodyPivot.position.y = 0.78 + breathe;
-      this.bodyPivot.rotation.set(0, 0, 0);
-      this.torsoGroup.rotation.x = -FINISHER_CONFIG.dipBossSpineAngleRad;
-      this.headGroup.rotation.x = -0.22;
-      this.leftLegPivot.rotation.x = 0.28;
-      this.rightLegPivot.rotation.x = -0.16;
-      this.leftKneePivot.rotation.x = 0.52;
-      this.rightKneePivot.rotation.x = 0.34;
+      targetBodyY = THREE.MathUtils.lerp(0.78, 0.74, limpness);
+      targetTorsoX =
+        -FINISHER_CONFIG.dipBossSpineAngleRad - limpness * 0.08;
+      targetHeadX = -0.22 - limpness * 0.04;
+      targetLeftHipX = 0.28;
+      targetRightHipX = -0.16;
+      targetLeftKneeX = 0.52;
+      targetRightKneeX = 0.34;
+      targetSkirtPitch = -0.18;
+    } else if (poseId === FINISHER_POSE_IDS.HAIR_REINS) {
+      targetBodyY = THREE.MathUtils.lerp(0.49, 0.46, limpness);
+      targetTorsoX = THREE.MathUtils.lerp(0.16, 0.3, limpness);
+      targetHeadX = -0.44;
+      targetHeadZ = 0.05;
+    } else if (poseId === FINISHER_POSE_IDS.STAFF_LEAN) {
+      targetBodyY = THREE.MathUtils.lerp(0.48, 0.45, limpness);
+      targetTorsoX = THREE.MathUtils.lerp(0.15, 0.29, limpness);
+      targetTorsoZ = 0.04;
+      targetHeadX = -0.39;
     } else {
-      // Poses [1], [3], [4]: Kneeling upright / tilted upward into the kiss
-      this.bodyPivot.position.y = 0.48 + breathe;
-      this.bodyPivot.rotation.set(0, 0, 0);
-      this.torsoGroup.rotation.x = THREE.MathUtils.lerp(0.14, 0.24, limpness);
-      this.headGroup.rotation.x =
-        poseId === FINISHER_POSE_IDS.HAIR_REINS ? -0.44 : -0.38;
-      this.leftLegPivot.rotation.x = -0.18;
-      this.rightLegPivot.rotation.x = -0.18;
-      this.leftKneePivot.rotation.x = 1.72;
-      this.rightKneePivot.rotation.x = 1.72;
+      // Pose [1]: Chin-Lift Tilt
+      targetBodyY = THREE.MathUtils.lerp(0.48, 0.45, limpness);
     }
 
-    // Progressive arm limpness past 50% drain
-    const armDroopX = THREE.MathUtils.lerp(-0.28, 0.06, limpness);
-    const armDroopZ = THREE.MathUtils.lerp(0.2, 0.08, limpness);
-    this.leftShoulderPivot.rotation.set(armDroopX, 0, armDroopZ);
-    this.rightShoulderPivot.rotation.set(armDroopX, 0, -armDroopZ);
-    this.leftElbowPivot.rotation.x = THREE.MathUtils.lerp(-0.55, -0.08, limpness);
-    this.rightElbowPivot.rotation.x = THREE.MathUtils.lerp(
-      -0.55,
-      -0.08,
-      limpness,
+    // Arms transition from clutching/resisting (-0.34) to deeply slumped & hanging limp (+0.12)
+    const targetShoulderX = THREE.MathUtils.lerp(-0.34, 0.12, limpness);
+    const targetShoulderZ = THREE.MathUtils.lerp(0.24, 0.06, limpness);
+    const targetElbowX = THREE.MathUtils.lerp(-0.68, -0.05, limpness);
+
+    // Initialize lerp cache from live bone state on first finisher frame (zero initial snap)
+    const st = this.finisherPoseState;
+    if (!st.initialized) {
+      st.initialized = true;
+      st.bodyY = this.bodyPivot.position.y;
+      st.torsoX = this.torsoGroup.rotation.x;
+      st.torsoZ = this.torsoGroup.rotation.z;
+      st.headX = this.headGroup.rotation.x;
+      st.headZ = this.headGroup.rotation.z;
+      st.leftHipX = this.leftLegPivot.rotation.x;
+      st.rightHipX = this.rightLegPivot.rotation.x;
+      st.leftKneeX = this.leftKneePivot.rotation.x;
+      st.rightKneeX = this.rightKneePivot.rotation.x;
+      st.leftShoulderX = this.leftShoulderPivot.rotation.x;
+      st.leftShoulderZ = this.leftShoulderPivot.rotation.z;
+      st.rightShoulderX = this.rightShoulderPivot.rotation.x;
+      st.rightShoulderZ = this.rightShoulderPivot.rotation.z;
+      st.leftElbowX = this.leftElbowPivot.rotation.x;
+      st.rightElbowX = this.rightElbowPivot.rotation.x;
+      st.skirtBasePitch = targetSkirtPitch;
+    }
+
+    // Smooth ~0.25s interpolation toward target pose
+    st.bodyY = THREE.MathUtils.lerp(st.bodyY, targetBodyY, lerpAlpha);
+    st.torsoX = THREE.MathUtils.lerp(st.torsoX, targetTorsoX, lerpAlpha);
+    st.torsoZ = THREE.MathUtils.lerp(st.torsoZ, targetTorsoZ, lerpAlpha);
+    st.headX = THREE.MathUtils.lerp(st.headX, targetHeadX, lerpAlpha);
+    st.headZ = THREE.MathUtils.lerp(st.headZ, targetHeadZ, lerpAlpha);
+    st.leftHipX = THREE.MathUtils.lerp(st.leftHipX, targetLeftHipX, lerpAlpha);
+    st.rightHipX = THREE.MathUtils.lerp(st.rightHipX, targetRightHipX, lerpAlpha);
+    st.leftKneeX = THREE.MathUtils.lerp(st.leftKneeX, targetLeftKneeX, lerpAlpha);
+    st.rightKneeX = THREE.MathUtils.lerp(
+      st.rightKneeX,
+      targetRightKneeX,
+      lerpAlpha,
+    );
+    st.leftShoulderX = THREE.MathUtils.lerp(
+      st.leftShoulderX,
+      targetShoulderX,
+      lerpAlpha,
+    );
+    st.leftShoulderZ = THREE.MathUtils.lerp(
+      st.leftShoulderZ,
+      targetShoulderZ,
+      lerpAlpha,
+    );
+    st.rightShoulderX = THREE.MathUtils.lerp(
+      st.rightShoulderX,
+      targetShoulderX,
+      lerpAlpha,
+    );
+    st.rightShoulderZ = THREE.MathUtils.lerp(
+      st.rightShoulderZ,
+      -targetShoulderZ,
+      lerpAlpha,
+    );
+    st.leftElbowX = THREE.MathUtils.lerp(
+      st.leftElbowX,
+      targetElbowX,
+      lerpAlpha,
+    );
+    st.rightElbowX = THREE.MathUtils.lerp(
+      st.rightElbowX,
+      targetElbowX,
+      lerpAlpha,
+    );
+    st.skirtBasePitch = THREE.MathUtils.lerp(
+      st.skirtBasePitch,
+      targetSkirtPitch,
+      lerpAlpha,
     );
 
-    // Skirt flare & hair drape during finisher kiss
+    // 2. Reactive Breathing & Trembling-to-Limpness Layers
+    // 0%->50%: rapid shallow chest breathing (5.5 rad/s) + forearm/wrist trembling
+    // 50%->100% (& Endless Savor): deep exhausted slow breathing + passive pendulum arm sway
+    const earlyWeight = 1 - limpness;
+    const earlyBreath = Math.sin(time * FINISHER_CONFIG.earlyBreathFreq);
+    const lateBreath = Math.sin(time * FINISHER_CONFIG.lateBreathFreq);
+
+    const chestBreathPitch =
+      earlyBreath * 0.032 * earlyWeight + lateBreath * 0.052 * limpness;
+    const chestBreathLift =
+      earlyBreath * 0.008 * earlyWeight + lateBreath * 0.014 * limpness;
+    const shoulderBreathHeave =
+      earlyBreath * 0.065 * earlyWeight + lateBreath * 0.04 * limpness;
+
+    // Throttle modulation: SURGE amplifies micro-shudder; SAVOR adds dreamy slow sway
+    const throttleTrembleScale = isSurge
+      ? FINISHER_CONFIG.surgeShudderMultiplier
+      : isSavor
+        ? FINISHER_CONFIG.savorSwayMultiplier
+        : 1.0;
+
+    // Active trembling curve peaks in 0%->50% and fades cleanly to 0 past 50%
+    const trembleEnvelope =
+      (0.35 + earlyResistance * 0.65) * earlyWeight * throttleTrembleScale;
+    const surgeShudder = isSurge
+      ? Math.sin(time * 34.0) * 0.018 * (1 - limpness * 0.55)
+      : 0;
+    const savorDreamySway = isSavor
+      ? Math.sin(time * FINISHER_CONFIG.savorSwayFreq) * 0.032
+      : Math.sin(time * 1.4) * 0.012;
+
+    const leftForearmTremble =
+      Math.sin(time * FINISHER_CONFIG.trembleFreq) * 0.048 * trembleEnvelope;
+    const rightForearmTremble =
+      Math.sin(time * FINISHER_CONFIG.trembleSecondaryFreq + 1.3) *
+      0.048 *
+      trembleEnvelope;
+    const wristRollTremble =
+      Math.cos(time * (FINISHER_CONFIG.trembleFreq + 4.5)) *
+      0.036 *
+      trembleEnvelope;
+
+    // Passive pendulum arm & wrist sway in 50%->100% drain and Endless Savor
+    const pendulumPrimary =
+      Math.sin(time * FINISHER_CONFIG.pendulumFreq) *
+      FINISHER_CONFIG.pendulumAmp *
+      limpness;
+    const pendulumSecondary =
+      Math.sin(time * FINISHER_CONFIG.pendulumFreq - 0.85) *
+      FINISHER_CONFIG.pendulumAmp *
+      0.95 *
+      limpness;
+    const pendulumCross =
+      Math.cos(time * FINISHER_CONFIG.pendulumFreq * 0.72) *
+      0.045 *
+      limpness;
+
+    // 3. Apply Pose to Skeleton — Head counter-stabilizes chest heave so mouth stays locked as fixed pivot
+    this.frostHalo.visible = false;
+    this.phaseAuroraRings.visible = false;
+
+    this.bodyPivot.position.y = st.bodyY + chestBreathLift;
+    this.bodyPivot.rotation.set(0, 0, savorDreamySway * 0.35);
+
+    this.torsoGroup.rotation.set(
+      st.torsoX + chestBreathPitch + surgeShudder * 0.5,
+      0,
+      st.torsoZ + savorDreamySway + surgeShudder,
+    );
+    // Counter-pitch/roll head to pin headAnchor (her lips) firmly at the contact pivot
+    this.headGroup.rotation.set(
+      st.headX - chestBreathPitch * 0.85,
+      0,
+      st.headZ - savorDreamySway * 0.85 - surgeShudder * 0.5,
+    );
+
+    this.leftLegPivot.rotation.set(st.leftHipX, 0, -0.08);
+    this.rightLegPivot.rotation.set(st.rightHipX, 0, 0.08);
+    this.leftKneePivot.rotation.x = st.leftKneeX;
+    this.rightKneePivot.rotation.x = st.rightKneeX;
+
+    this.leftShoulderPivot.rotation.set(
+      st.leftShoulderX - shoulderBreathHeave + pendulumPrimary + surgeShudder,
+      0,
+      st.leftShoulderZ + pendulumCross + leftForearmTremble * 0.45,
+    );
+    this.rightShoulderPivot.rotation.set(
+      st.rightShoulderX - shoulderBreathHeave - pendulumPrimary - surgeShudder,
+      0,
+      st.rightShoulderZ - pendulumCross - rightForearmTremble * 0.45,
+    );
+    this.leftElbowPivot.rotation.set(
+      st.leftElbowX + leftForearmTremble + pendulumSecondary,
+      0,
+      wristRollTremble + pendulumCross * 0.7,
+    );
+    this.rightElbowPivot.rotation.set(
+      st.rightElbowX + rightForearmTremble - pendulumSecondary,
+      0,
+      -wristRollTremble - pendulumCross * 0.7,
+    );
+
+    // 4. Continuous Gown Hem Billowing
+    const gownSpeed = isSurge ? 4.4 : isSavor ? 1.45 : 2.5;
+    const gownAmp = isSurge ? 0.062 : isSavor ? 0.032 : 0.044;
     for (let i = 0; i < this.skirtPanels.length; i++) {
       const sp = this.skirtPanels[i];
       if (!sp) continue;
-      sp.pivot.rotation.x =
-        poseId === FINISHER_POSE_IDS.BALLROOM_DIP ? -0.18 : -0.44;
+      const billow = Math.sin(time * gownSpeed + sp.angle * 2.0) * gownAmp;
+      sp.pivot.rotation.x = st.skirtBasePitch + billow;
     }
+
+    // 5. Continuous Volumetric Silver-White Hair Cascade Motion
+    const hairSpeed = isSurge ? 4.6 : isSavor ? 1.55 : 2.5;
+    const hairAmp = isSurge ? 0.11 : isSavor ? 0.055 : 0.075;
+    const isDip = poseId === FINISHER_POSE_IDS.BALLROOM_DIP;
+    const targetRootX = isDip ? 0.54 : 0.32;
+    const targetMidX = isDip ? 0.36 : 0.46;
+    const targetTipX = isDip ? 0.24 : 0.62;
 
     for (let i = 0; i < this.hairRibbons.length; i++) {
       const hr = this.hairRibbons[i];
       if (!hr) continue;
-      const sway = Math.sin(time * 2.1 + hr.phase) * 0.04;
-      if (poseId === FINISHER_POSE_IDS.BALLROOM_DIP) {
-        hr.rootSeg.rotation.x = 0.52 + sway;
-        hr.midSeg.rotation.x = 0.34 + sway;
-        hr.tipSeg.rotation.x = 0.22 + sway;
-      } else {
-        hr.rootSeg.rotation.x = 0.32 + sway;
-        hr.midSeg.rotation.x = 0.45 + sway;
-        hr.tipSeg.rotation.x = 0.62 + sway;
-      }
-      hr.rootSeg.rotation.z = hr.spread * 0.34;
+      const wave1 = Math.sin(time * hairSpeed + hr.phase) * hairAmp;
+      const wave2 = Math.sin(time * hairSpeed + hr.phase - 0.85) * hairAmp * 1.2;
+      const wave3 = Math.sin(time * hairSpeed + hr.phase - 1.65) * hairAmp * 1.35;
+
+      hr.rootSeg.rotation.x = THREE.MathUtils.lerp(
+        hr.rootSeg.rotation.x,
+        targetRootX + wave1,
+        lerpAlpha,
+      );
+      hr.midSeg.rotation.x = THREE.MathUtils.lerp(
+        hr.midSeg.rotation.x,
+        targetMidX + wave2,
+        lerpAlpha,
+      );
+      hr.tipSeg.rotation.x = THREE.MathUtils.lerp(
+        hr.tipSeg.rotation.x,
+        targetTipX + wave3,
+        lerpAlpha,
+      );
+      hr.rootSeg.rotation.z =
+        hr.spread * (0.34 + limpness * 0.1) +
+        Math.cos(time * (hairSpeed * 0.78) + hr.phase) * (hairAmp * 0.65);
     }
 
-    // Tiara spring-wobble decay on [F] flick taunt
+    // 6. Tiara spring-wobble decay on [F] flick taunt
     if (this.accessoryFlickTimer > 0) {
-      this.accessoryFlickTimer = Math.max(0, this.accessoryFlickTimer - 1 / 60);
+      this.accessoryFlickTimer = Math.max(0, this.accessoryFlickTimer - safeDt);
       const decay = this.accessoryFlickTimer / 0.55;
       this.headAccessory.rotation.z = Math.sin(time * 42) * 0.28 * decay;
       this.headAccessory.rotation.x = -0.16 + Math.cos(time * 36) * 0.14 * decay;
@@ -1660,6 +1917,7 @@ export class MarinaRig implements BossRigAdapter {
    * with cascading silver hair spread wide and tiara light dimmed).
    */
   public applyVictoryCollapsePose(time: number): void {
+    this.finisherPoseState.initialized = false;
     this.applyDrainBleach(1.0);
     this.frostHalo.visible = false;
     this.phaseAuroraRings.visible = false;
@@ -1758,6 +2016,7 @@ export class MarinaRig implements BossRigAdapter {
     this.matTiaraCrystal.color.copy(this.tiaraOriginalColor);
 
     this.staggerBlend = 0;
+    this.finisherPoseState.initialized = false;
     this.hitFlashTimer = 0;
     this.castAnimTimer = 0;
     this.accessoryFlickTimer = 0;

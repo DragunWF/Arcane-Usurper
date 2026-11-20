@@ -3,6 +3,7 @@ import {
   PALETTE,
   type BossExpression,
   type BossPhase,
+  type DrainThrottleMode,
   type FinisherPoseId,
   type GameState,
 } from '../../config/gameConfig';
@@ -44,6 +45,8 @@ export interface BossRigAdapter {
     poseId: FinisherPoseId,
     drainProgress: number,
     time: number,
+    dt?: number,
+    throttleMode?: DrainThrottleMode,
   ): void;
   applyVictoryCollapsePose(time: number): void;
   applyPuppetMasterPose(time: number): void;

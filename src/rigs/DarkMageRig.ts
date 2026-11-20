@@ -2,11 +2,13 @@ import * as THREE from 'three';
 import {
   ARENA_CONFIG,
   DIORAMA_CONFIG,
+  DRAIN_THROTTLE_MODES,
   FINISHER_CONFIG,
   FINISHER_POSE_IDS,
   NG_PLUS_CONFIG,
   PALETTE,
   PLAYER_CONFIG,
+  type DrainThrottleMode,
   type FinisherPoseId,
 } from '../config/gameConfig';
 import { ToonAssets } from '../engine/ToonAssets';
@@ -56,6 +58,33 @@ export class DarkMageRig {
   private readonly rightHandAnchor = new THREE.Object3D();
   private readonly headTopAnchor = new THREE.Object3D();
   private readonly mouthAnchor = new THREE.Object3D();
+  private readonly scratchMouthWorld = new THREE.Vector3();
+  private readonly scratchLipDelta = new THREE.Vector3();
+  private readonly scratchInvQuat = new THREE.Quaternion();
+  private readonly finisherPoseState = {
+    initialized: false,
+    bodyY: 0.7,
+    bodyOffsetX: 0,
+    bodyOffsetZ: 0,
+    torsoX: 0.54,
+    torsoZ: 0,
+    headX: 0.32,
+    headZ: 0,
+    leftHipX: 0.08,
+    leftHipZ: -0.06,
+    rightHipX: -0.14,
+    rightHipZ: 0.06,
+    leftKneeX: 0.22,
+    rightKneeX: 0.14,
+    leftShoulderX: -0.92,
+    leftShoulderZ: -0.22,
+    leftElbowX: -0.64,
+    rightShoulderX: -0.18,
+    rightShoulderZ: -0.18,
+    rightElbowX: -0.28,
+    staffRotX: Math.PI * 0.08,
+    staffRotZ: 0,
+  };
 
   // Animation & Combat Feedback State
   public invulnTimer = 0;
@@ -994,6 +1023,7 @@ export class DarkMageRig {
    * Restores standard combat staff attachment & hides diorama-only props.
    */
   public resetCombatPose(): void {
+    this.finisherPoseState.initialized = false;
     if (this.defeatBlushGroup) this.defeatBlushGroup.visible = false;
     if (this.puppetCrystalLeft) this.puppetCrystalLeft.visible = false;
     if (this.puppetCrystalRight) this.puppetCrystalRight.visible = false;
@@ -1001,19 +1031,24 @@ export class DarkMageRig {
     this.staffGroup.visible = true;
     this.staffGroup.position.set(0, -0.3, 0.04);
     this.staffGroup.rotation.set(Math.PI * 0.44, 0, 0);
+    this.bodyPivot.position.set(0, 0.96, 0);
     this.torsoGroup.rotation.set(0, 0, 0);
     this.bodyPivot.rotation.set(0, 0, 0);
     this.headGroup.rotation.set(0, 0, 0);
   }
 
   /**
-   * Poses the Dark Mage for interactive Arcane Siphon Kiss poses [1-4].
-   * Pose [2] pitches torso & head forward (+0.32 rad) for zero-air-gap lip lock.
+   * Poses the Dark Mage for interactive Arcane Siphon Kiss poses [1-4] with smooth ~0.25s
+   * bone interpolation, throttle-synced siphon-absorption torso/staff motion, continuous
+   * robe/hood billowing, and fixed-pivot lip alignment against bossLipWorldPos.
    */
   public applyFinisherPose(
     poseId: FinisherPoseId,
     drainProgress: number,
     time: number,
+    dt = 1 / 60,
+    throttleMode: DrainThrottleMode = DRAIN_THROTTLE_MODES.FLOW,
+    bossLipWorldPos: THREE.Vector3 | null = null,
   ): void {
     if (this.defeatBlushGroup) this.defeatBlushGroup.visible = false;
     if (this.puppetCrystalLeft) this.puppetCrystalLeft.visible = false;
@@ -1023,68 +1058,265 @@ export class DarkMageRig {
     }
     this.staffGroup.visible = true;
 
-    const breathe = Math.sin(time * 2.4) * 0.012;
-    this.bodyPivot.position.y = 0.94 + breathe;
-    this.bodyPivot.rotation.set(0, 0, 0);
-    this.leftLegPivot.rotation.set(0.08, 0, -0.06);
-    this.rightLegPivot.rotation.set(-0.14, 0, 0.06);
-    this.leftKneePivot.rotation.x = 0.22;
-    this.rightKneePivot.rotation.x = 0.14;
-    this.frontLeftRobe.rotation.x = -0.06;
-    this.frontRightRobe.rotation.x = -0.06;
-    this.backRobePivot.rotation.x = 0.1 + Math.sin(time * 2.2) * 0.03;
+    const safeDt = Math.max(0.001, Math.min(dt, 0.05));
+    const lerpAlpha =
+      1 -
+      Math.exp(
+        -safeDt / (FINISHER_CONFIG.poseTransitionDurationSec * 0.35),
+      );
+
+    const isSurge = throttleMode === DRAIN_THROTTLE_MODES.SURGE;
+    const isSavor = throttleMode === DRAIN_THROTTLE_MODES.SAVOR;
+
+    // 1. Target Base Stance for Poses [1-4]
+    let targetBodyY = 0.7;
+    let targetTorsoX = 0.54;
+    let targetTorsoZ = 0;
+    let targetHeadX = 0.32;
+    let targetHeadZ = 0;
+    let targetLeftHipX = 0.08;
+    let targetLeftHipZ = -0.06;
+    let targetRightHipX = -0.14;
+    let targetRightHipZ = 0.06;
+    let targetLeftKneeX = 0.22;
+    let targetRightKneeX = 0.14;
+    let targetLeftShoulderX = -0.92;
+    let targetLeftShoulderZ = -0.22;
+    let targetLeftElbowX = -0.64;
+    let targetRightShoulderX = -0.18;
+    let targetRightShoulderZ = -0.18;
+    let targetRightElbowX = -0.28;
+    let targetStaffRotX = Math.PI * 0.08;
+    let targetStaffRotZ = 0;
 
     if (poseId === FINISHER_POSE_IDS.BALLROOM_DIP) {
       // Pose [2]: Glacial Ballroom Dip — deep forward pitch locking lips against dipped Marina
-      this.bodyPivot.position.y = 0.86 + breathe;
-      this.torsoGroup.rotation.set(FINISHER_CONFIG.dipMageExtraPitch + 0.34, 0, 0);
-      this.headGroup.rotation.set(FINISHER_CONFIG.dipMageExtraPitch * 0.85, 0, 0);
-      this.leftShoulderPivot.rotation.set(-1.12, 0, -0.28);
-      this.leftElbowPivot.rotation.x = -0.78;
+      targetBodyY = 0.86;
+      targetTorsoX = FINISHER_CONFIG.dipMageExtraPitch + 0.34;
+      targetHeadX = FINISHER_CONFIG.dipMageExtraPitch * 0.85;
+      targetLeftShoulderX = -1.12;
+      targetLeftShoulderZ = -0.28;
+      targetLeftElbowX = -0.78;
       // Right arm raises Obsidian Siphon Staff aloft absorbing arcing frost ribbons
-      this.rightShoulderPivot.rotation.set(-2.35, 0, -0.26);
-      this.rightElbowPivot.rotation.x = -0.22;
-      this.staffGroup.rotation.set(Math.PI * 0.14, 0, 0);
+      targetRightShoulderX = -2.35;
+      targetRightShoulderZ = -0.26;
+      targetRightElbowX = -0.22;
+      targetStaffRotX = Math.PI * 0.14;
     } else if (poseId === FINISHER_POSE_IDS.HAIR_REINS) {
       // Pose [3]: Silver-Hair Reins — leaning down with silver hair wrapped around left forearm
-      this.bodyPivot.position.y = 0.72 + breathe;
-      this.torsoGroup.rotation.set(0.56, 0, 0);
-      this.headGroup.rotation.set(0.28, 0, 0);
-      this.leftShoulderPivot.rotation.set(-0.98, 0, -0.18);
-      this.leftElbowPivot.rotation.x = -0.95;
-      this.rightShoulderPivot.rotation.set(-0.24, 0, -0.22);
-      this.rightElbowPivot.rotation.x = -0.35;
-      this.staffGroup.rotation.set(Math.PI * 0.48, 0, 0);
+      targetBodyY = 0.72;
+      targetTorsoX = 0.56;
+      targetHeadX = 0.28;
+      targetLeftShoulderX = -0.98;
+      targetLeftShoulderZ = -0.18;
+      targetLeftElbowX = -0.95;
+      targetRightShoulderX = -0.24;
+      targetRightShoulderZ = -0.22;
+      targetRightElbowX = -0.35;
+      targetStaffRotX = Math.PI * 0.48;
     } else if (poseId === FINISHER_POSE_IDS.STAFF_LEAN) {
       // Pose [4]: Staff-Prop Lean — leaning casually with elbow on upright staff & ankles crossed
-      this.bodyPivot.position.y = 0.72 + breathe;
-      this.leftLegPivot.rotation.set(0.06, 0, 0.14);
-      this.rightLegPivot.rotation.set(-0.22, 0, -0.16);
-      this.leftKneePivot.rotation.x = 0.12;
-      this.rightKneePivot.rotation.x = 0.28;
-      this.torsoGroup.rotation.set(0.52, 0, -0.11);
-      this.headGroup.rotation.set(0.3, 0, 0.09);
-      this.leftShoulderPivot.rotation.set(-0.74, 0, 0.12);
-      this.leftElbowPivot.rotation.x = -0.58;
-      this.rightShoulderPivot.rotation.set(-0.62, 0, -0.34);
-      this.rightElbowPivot.rotation.x = -0.92;
-      this.staffGroup.rotation.set(Math.PI * 0.04, 0, 0.12);
-    } else {
-      // Pose [1]: Chin-Lift Tilt (Default) — gloved left hand tilting chin, staff planted in ice
-      this.bodyPivot.position.y = 0.7 + breathe;
-      this.torsoGroup.rotation.set(0.54, 0, 0);
-      this.headGroup.rotation.set(0.32, 0, 0);
-      this.leftShoulderPivot.rotation.set(-0.92, 0, -0.22);
-      this.leftElbowPivot.rotation.x = -0.64;
-      this.rightShoulderPivot.rotation.set(-0.18, 0, -0.18);
-      this.rightElbowPivot.rotation.x = -0.28;
-      this.staffGroup.rotation.set(Math.PI * 0.08, 0, 0);
+      targetBodyY = 0.72;
+      targetLeftHipX = 0.06;
+      targetLeftHipZ = 0.14;
+      targetRightHipX = -0.22;
+      targetRightHipZ = -0.16;
+      targetLeftKneeX = 0.12;
+      targetRightKneeX = 0.28;
+      targetTorsoX = 0.52;
+      targetTorsoZ = -0.11;
+      targetHeadX = 0.3;
+      targetHeadZ = 0.09;
+      targetLeftShoulderX = -0.74;
+      targetLeftShoulderZ = 0.12;
+      targetLeftElbowX = -0.58;
+      targetRightShoulderX = -0.62;
+      targetRightShoulderZ = -0.34;
+      targetRightElbowX = -0.92;
+      targetStaffRotX = Math.PI * 0.04;
+      targetStaffRotZ = 0.12;
     }
 
-    this.staffCrystal.rotation.y = time * (2.6 + drainProgress * 4.5);
-    this.staffRuneRing.rotation.y = -time * (2.2 + drainProgress * 3.5);
+    // Initialize lerp cache from live bone state on first frame (smooth entry from stagger blink)
+    const st = this.finisherPoseState;
+    if (!st.initialized) {
+      st.initialized = true;
+      st.bodyY = this.bodyPivot.position.y;
+      st.bodyOffsetX = 0;
+      st.bodyOffsetZ = 0;
+      st.torsoX = this.torsoGroup.rotation.x;
+      st.torsoZ = this.torsoGroup.rotation.z;
+      st.headX = this.headGroup.rotation.x;
+      st.headZ = this.headGroup.rotation.z;
+      st.leftHipX = this.leftLegPivot.rotation.x;
+      st.leftHipZ = this.leftLegPivot.rotation.z;
+      st.rightHipX = this.rightLegPivot.rotation.x;
+      st.rightHipZ = this.rightLegPivot.rotation.z;
+      st.leftKneeX = this.leftKneePivot.rotation.x;
+      st.rightKneeX = this.rightKneePivot.rotation.x;
+      st.leftShoulderX = this.leftShoulderPivot.rotation.x;
+      st.leftShoulderZ = this.leftShoulderPivot.rotation.z;
+      st.leftElbowX = this.leftElbowPivot.rotation.x;
+      st.rightShoulderX = this.rightShoulderPivot.rotation.x;
+      st.rightShoulderZ = this.rightShoulderPivot.rotation.z;
+      st.rightElbowX = this.rightElbowPivot.rotation.x;
+      st.staffRotX = this.staffGroup.rotation.x;
+      st.staffRotZ = this.staffGroup.rotation.z;
+    }
+
+    st.bodyY = THREE.MathUtils.lerp(st.bodyY, targetBodyY, lerpAlpha);
+    st.torsoX = THREE.MathUtils.lerp(st.torsoX, targetTorsoX, lerpAlpha);
+    st.torsoZ = THREE.MathUtils.lerp(st.torsoZ, targetTorsoZ, lerpAlpha);
+    st.headX = THREE.MathUtils.lerp(st.headX, targetHeadX, lerpAlpha);
+    st.headZ = THREE.MathUtils.lerp(st.headZ, targetHeadZ, lerpAlpha);
+    st.leftHipX = THREE.MathUtils.lerp(st.leftHipX, targetLeftHipX, lerpAlpha);
+    st.leftHipZ = THREE.MathUtils.lerp(st.leftHipZ, targetLeftHipZ, lerpAlpha);
+    st.rightHipX = THREE.MathUtils.lerp(st.rightHipX, targetRightHipX, lerpAlpha);
+    st.rightHipZ = THREE.MathUtils.lerp(st.rightHipZ, targetRightHipZ, lerpAlpha);
+    st.leftKneeX = THREE.MathUtils.lerp(st.leftKneeX, targetLeftKneeX, lerpAlpha);
+    st.rightKneeX = THREE.MathUtils.lerp(
+      st.rightKneeX,
+      targetRightKneeX,
+      lerpAlpha,
+    );
+    st.leftShoulderX = THREE.MathUtils.lerp(
+      st.leftShoulderX,
+      targetLeftShoulderX,
+      lerpAlpha,
+    );
+    st.leftShoulderZ = THREE.MathUtils.lerp(
+      st.leftShoulderZ,
+      targetLeftShoulderZ,
+      lerpAlpha,
+    );
+    st.leftElbowX = THREE.MathUtils.lerp(
+      st.leftElbowX,
+      targetLeftElbowX,
+      lerpAlpha,
+    );
+    st.rightShoulderX = THREE.MathUtils.lerp(
+      st.rightShoulderX,
+      targetRightShoulderX,
+      lerpAlpha,
+    );
+    st.rightShoulderZ = THREE.MathUtils.lerp(
+      st.rightShoulderZ,
+      targetRightShoulderZ,
+      lerpAlpha,
+    );
+    st.rightElbowX = THREE.MathUtils.lerp(
+      st.rightElbowX,
+      targetRightElbowX,
+      lerpAlpha,
+    );
+    st.staffRotX = THREE.MathUtils.lerp(st.staffRotX, targetStaffRotX, lerpAlpha);
+    st.staffRotZ = THREE.MathUtils.lerp(st.staffRotZ, targetStaffRotZ, lerpAlpha);
+
+    // 2. Siphon-Absorption Breathing, Torso Recoil & Staff-Hand Pulse Synced to Drain Rate
+    const siphonFreq = isSurge ? 5.2 : isSavor ? 1.4 : 2.5;
+    const siphonPulse = Math.sin(time * siphonFreq);
+    const siphonAmp = isSurge ? 1.65 : isSavor ? 0.55 : 1.0;
+
+    const breatheLift = siphonPulse * 0.011 * siphonAmp;
+    const torsoDrawPitch = siphonPulse * 0.026 * siphonAmp;
+    const staffHandRecoil = Math.cos(time * siphonFreq) * 0.048 * siphonAmp;
+    const holdHandCaress = Math.sin(time * (siphonFreq * 0.75)) * 0.032 * siphonAmp;
+
+    this.bodyPivot.position.set(
+      st.bodyOffsetX,
+      st.bodyY + breatheLift,
+      st.bodyOffsetZ,
+    );
+    this.bodyPivot.rotation.set(0, 0, 0);
+
+    this.leftLegPivot.rotation.set(st.leftHipX, 0, st.leftHipZ);
+    this.rightLegPivot.rotation.set(st.rightHipX, 0, st.rightHipZ);
+    this.leftKneePivot.rotation.x = st.leftKneeX;
+    this.rightKneePivot.rotation.x = st.rightKneeX;
+
+    // Continuous robe & hood-tail billowing synced to siphon turbulence
+    const robeSpeed = isSurge ? 4.8 : isSavor ? 1.6 : 2.6;
+    const robeAmp = isSurge ? 0.065 : isSavor ? 0.028 : 0.04;
+    this.frontLeftRobe.rotation.x = -0.06 + Math.sin(time * robeSpeed) * robeAmp;
+    this.frontRightRobe.rotation.x =
+      -0.06 + Math.cos(time * robeSpeed) * robeAmp;
+    this.backRobePivot.rotation.x =
+      0.12 +
+      (isSurge ? 0.08 : 0) +
+      Math.sin(time * (robeSpeed * 0.9)) * (robeAmp * 1.4);
+    this.hoodTailPivot.rotation.x =
+      -Math.PI * 0.72 + Math.sin(time * robeSpeed + 0.6) * (robeAmp * 1.6);
+    this.hoodTailPivot.rotation.z =
+      Math.cos(time * (robeSpeed * 0.72)) * (robeAmp * 1.2);
+
+    // Torso draws gently while head counter-pitches to keep lips locked on Marina's mouth
+    this.torsoGroup.rotation.set(
+      st.torsoX + torsoDrawPitch,
+      0,
+      st.torsoZ + Math.sin(time * (siphonFreq * 0.5)) * 0.015 * siphonAmp,
+    );
+    this.headGroup.rotation.set(
+      st.headX - torsoDrawPitch * 0.85,
+      0,
+      st.headZ,
+    );
+
+    this.leftShoulderPivot.rotation.set(
+      st.leftShoulderX + holdHandCaress,
+      0,
+      st.leftShoulderZ,
+    );
+    this.leftElbowPivot.rotation.x = st.leftElbowX - holdHandCaress * 0.6;
+
+    this.rightShoulderPivot.rotation.set(
+      st.rightShoulderX - staffHandRecoil,
+      0,
+      st.rightShoulderZ,
+    );
+    this.rightElbowPivot.rotation.x = st.rightElbowX + staffHandRecoil * 0.8;
+    this.staffGroup.rotation.set(st.staffRotX, 0, st.staffRotZ);
+
+    // 3. Fixed-Pivot Zero-Gap Lip-Contact Micro-Alignment against bossLipWorldPos
+    if (bossLipWorldPos) {
+      this.root.updateMatrixWorld(true);
+      this.mouthAnchor.getWorldPosition(this.scratchMouthWorld);
+      this.scratchLipDelta.subVectors(bossLipWorldPos, this.scratchMouthWorld);
+
+      // Convert world delta into Mage root local space so compensation is rotation-invariant
+      this.scratchInvQuat.copy(this.root.quaternion).invert();
+      this.scratchLipDelta.applyQuaternion(this.scratchInvQuat);
+
+      const maxCorr = FINISHER_CONFIG.lipLockMaxCorrection;
+      const corrX = THREE.MathUtils.clamp(
+        st.bodyOffsetX + this.scratchLipDelta.x,
+        -maxCorr,
+        maxCorr,
+      );
+      const corrY = THREE.MathUtils.clamp(
+        this.bodyPivot.position.y + this.scratchLipDelta.y,
+        0.52,
+        1.04,
+      );
+      const corrZ = THREE.MathUtils.clamp(
+        st.bodyOffsetZ + this.scratchLipDelta.z,
+        -maxCorr,
+        maxCorr,
+      );
+
+      st.bodyOffsetX = THREE.MathUtils.lerp(st.bodyOffsetX, corrX, 0.65);
+      st.bodyOffsetZ = THREE.MathUtils.lerp(st.bodyOffsetZ, corrZ, 0.65);
+      this.bodyPivot.position.set(st.bodyOffsetX, corrY, st.bodyOffsetZ);
+    }
+
+    // 4. Staff Crystal, Halo Ring & Luminance Synced to Drain Rate
+    const crystalSpeedMult = isSurge ? 2.4 : isSavor ? 0.65 : 1.0;
+    this.staffCrystal.rotation.y =
+      time * (2.6 + drainProgress * 4.5) * crystalSpeedMult;
+    this.staffRuneRing.rotation.y =
+      -time * (2.2 + drainProgress * 3.5) * crystalSpeedMult;
     this.staffLight.intensity =
-      ARENA_CONFIG.lighting.staffLightBaseIntensity * (1.0 + drainProgress * 0.9);
+      ARENA_CONFIG.lighting.staffLightBaseIntensity *
+      (1.0 + drainProgress * 0.9 + (isSurge ? 0.65 : 0) + siphonPulse * 0.14);
   }
 
   /**

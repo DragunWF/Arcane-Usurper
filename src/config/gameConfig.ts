@@ -604,7 +604,7 @@ export const FINISHER_CONFIG = Object.freeze({
   endlessSavorLockedProgress: 1.0,
   spaceTapSurgeBoost: 0.06,
 
-  // Dominance Pose Alignment Constraints (Zero Air Gap on Pose [2])
+  // Dominance Pose Alignment & Smooth Reactive Animation (Zero Air Gap across [1-4])
   defaultRootSeparation: 0.56,
   dipRootSeparation: 0.4,
   dipBossSpineAngleRad: Math.PI * 0.25,
@@ -612,6 +612,17 @@ export const FINISHER_CONFIG = Object.freeze({
   reinsRootSeparation: 0.48,
   staffLeanRootSeparation: 0.54,
   poseBlendSpeed: 6.5,
+  poseTransitionDurationSec: 0.25,
+  earlyBreathFreq: 5.5,
+  lateBreathFreq: 1.85,
+  trembleFreq: 24.0,
+  trembleSecondaryFreq: 31.5,
+  surgeShudderMultiplier: 2.35,
+  savorSwayMultiplier: 0.45,
+  savorSwayFreq: 1.2,
+  pendulumFreq: 1.55,
+  pendulumAmp: 0.085,
+  lipLockMaxCorrection: 0.14,
 
   // Energy Ribbon & Rim-Light FX
   ribbonSegments: 22,

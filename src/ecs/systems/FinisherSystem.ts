@@ -307,11 +307,19 @@ export class FinisherSystem implements ISystem {
       }
     }
 
-    // 6. Enforce Exact Root Separation & Face-to-Face Lip Alignment (Pose [2] = 0.40m)
+    // 6. Enforce Exact Root Separation & Face-to-Face Lip Alignment (~0.25s smooth blend)
     const targetSep = this.getTargetSeparationForPose(sb.finisherPose);
-    this.currentSeparation +=
-      (targetSep - this.currentSeparation) *
-      Math.min(1, dt * FINISHER_CONFIG.poseBlendSpeed);
+    const sepLerpAlpha =
+      1 -
+      Math.exp(
+        -Math.max(0.001, dt) /
+          (FINISHER_CONFIG.poseTransitionDurationSec * 0.35),
+      );
+    this.currentSeparation = THREE.MathUtils.lerp(
+      this.currentSeparation,
+      targetSep,
+      sepLerpAlpha,
+    );
 
     const bx = boss.transform.position.x;
     const bz = boss.transform.position.z;
@@ -326,22 +334,37 @@ export class FinisherSystem implements ISystem {
       bz - player.transform.position.z,
     );
 
+    // Pose Boss first so headAnchor defines the exact fixed lip-contact pivot in world space
     this.bossRig.root.position.set(bx, 0, bz);
     this.bossRig.root.rotation.y = boss.transform.rotationY;
-    this.bossRig.applyFinisherPose(sb.finisherPose, sb.siphonProgress, elapsed);
+    this.bossRig.applyFinisherPose(
+      sb.finisherPose,
+      sb.siphonProgress,
+      elapsed,
+      dt,
+      throttle,
+    );
+    this.bossRig.root.updateMatrixWorld(true);
+    this.bossRig.headAnchor.getWorldPosition(this.scratchBossHead);
 
+    // Pose Dark Mage with smooth interpolation + zero-gap lip lock onto boss headAnchor
     this.mageRig.root.position.set(
       player.transform.position.x,
       0,
       player.transform.position.z,
     );
     this.mageRig.root.rotation.y = player.transform.rotationY;
-    this.mageRig.applyFinisherPose(sb.finisherPose, sb.siphonProgress, elapsed);
+    this.mageRig.applyFinisherPose(
+      sb.finisherPose,
+      sb.siphonProgress,
+      elapsed,
+      dt,
+      throttle,
+      this.scratchBossHead,
+    );
 
     // 7. Update Lip-to-Lip Energy Ribbons, Pose [2] Aloft Staff Frost Ribbon, & Pose [3] Hair Strand
     this.fxGroup.visible = true;
-    this.bossRig.root.updateMatrixWorld(true);
-    this.bossRig.headAnchor.getWorldPosition(this.scratchBossHead);
     this.mageRig.getMouthWorldPosition(this.scratchMageMouth);
     this.mageRig.getStaffCrystalWorldPosition(this.scratchMageCrystal);
 
