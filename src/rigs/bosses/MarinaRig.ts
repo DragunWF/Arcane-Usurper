@@ -4,6 +4,7 @@ import {
   BOSS_CONFIG,
   BOSS_EXPRESSIONS,
   BOSS_PHASES,
+  DIORAMA_CONFIG,
   FINISHER_CONFIG,
   FINISHER_POSE_IDS,
   GAME_STATES,
@@ -76,6 +77,7 @@ export class MarinaRig implements BossRigAdapter {
 
   private hitFlashTimer = 0;
   private castAnimTimer = 0;
+  private accessoryFlickTimer = 0;
   private phaseLevel: BossPhase = BOSS_PHASES.PHASE_1;
   private targetAscendY = 0;
   private currentDrainProgress = 0;
@@ -90,6 +92,8 @@ export class MarinaRig implements BossRigAdapter {
   private rightShoulderPivot!: THREE.Group;
   private leftElbowPivot!: THREE.Group;
   private rightElbowPivot!: THREE.Group;
+  private readonly leftHandAnchor = new THREE.Object3D();
+  private readonly rightHandAnchor = new THREE.Object3D();
   private backHairRoot!: THREE.Group;
   private tiaraLight!: THREE.PointLight;
   private frostHalo!: THREE.Group;
@@ -556,6 +560,11 @@ export class MarinaRig implements BossRigAdapter {
     this.leftElbowPivot = left.elbowPivot;
     this.rightShoulderPivot = right.shoulderPivot;
     this.rightElbowPivot = right.elbowPivot;
+
+    this.leftHandAnchor.position.set(0, -0.295, 0.02);
+    this.leftElbowPivot.add(this.leftHandAnchor);
+    this.rightHandAnchor.position.set(0, -0.295, 0.02);
+    this.rightElbowPivot.add(this.rightHandAnchor);
   }
 
   private buildHeadFaceAndHair(): void {
@@ -864,6 +873,20 @@ export class MarinaRig implements BossRigAdapter {
     this.castAnimTimer = 0.55;
   }
 
+  public triggerAccessoryFlick(): void {
+    this.accessoryFlickTimer = 0.55;
+  }
+
+  public getLeftHandWorldPosition(outVec: THREE.Vector3): THREE.Vector3 {
+    this.root.updateMatrixWorld(true);
+    return this.leftHandAnchor.getWorldPosition(outVec);
+  }
+
+  public getRightHandWorldPosition(outVec: THREE.Vector3): THREE.Vector3 {
+    this.root.updateMatrixWorld(true);
+    return this.rightHandAnchor.getWorldPosition(outVec);
+  }
+
   /**
    * Builds a translucent glowing #38BDF8 holographic ice-clone silhouette for Phase 2 illusions.
    */
@@ -917,7 +940,7 @@ export class MarinaRig implements BossRigAdapter {
   /**
    * Renders crisp high-detail anime facial features onto the 512x512 CanvasTexture.
    */
-  public setExpression(expression: BossExpression): void {
+  public setExpression(expression: BossExpression, spiralPhase = 0): void {
     this.currentExpression = expression;
     const ctx = this.faceCtx;
     const size = ARENA_CONFIG.faceTextureSize;
@@ -1238,8 +1261,9 @@ export class MarinaRig implements BossRigAdapter {
         ctx.beginPath();
         for (let a = 0; a < Math.PI * 5.2; a += 0.2) {
           const rad = a * 1.65;
-          const px = cx + Math.cos(a * dir) * rad;
-          const py = cy + 6 + Math.sin(a * dir) * rad;
+          const angle = a * dir + spiralPhase * dir;
+          const px = cx + Math.cos(angle) * rad;
+          const py = cy + 6 + Math.sin(angle) * rad;
           if (a === 0) ctx.moveTo(px, py);
           else ctx.lineTo(px, py);
         }
@@ -1590,29 +1614,88 @@ export class MarinaRig implements BossRigAdapter {
       -0.08,
       limpness,
     );
+
+    // Skirt flare & hair drape during finisher kiss
+    for (let i = 0; i < this.skirtPanels.length; i++) {
+      const sp = this.skirtPanels[i];
+      if (!sp) continue;
+      sp.pivot.rotation.x =
+        poseId === FINISHER_POSE_IDS.BALLROOM_DIP ? -0.18 : -0.44;
+    }
+
+    for (let i = 0; i < this.hairRibbons.length; i++) {
+      const hr = this.hairRibbons[i];
+      if (!hr) continue;
+      const sway = Math.sin(time * 2.1 + hr.phase) * 0.04;
+      if (poseId === FINISHER_POSE_IDS.BALLROOM_DIP) {
+        hr.rootSeg.rotation.x = 0.52 + sway;
+        hr.midSeg.rotation.x = 0.34 + sway;
+        hr.tipSeg.rotation.x = 0.22 + sway;
+      } else {
+        hr.rootSeg.rotation.x = 0.32 + sway;
+        hr.midSeg.rotation.x = 0.45 + sway;
+        hr.tipSeg.rotation.x = 0.62 + sway;
+      }
+      hr.rootSeg.rotation.z = hr.spread * 0.34;
+    }
+
+    // Tiara spring-wobble decay on [F] flick taunt
+    if (this.accessoryFlickTimer > 0) {
+      this.accessoryFlickTimer = Math.max(0, this.accessoryFlickTimer - 1 / 60);
+      const decay = this.accessoryFlickTimer / 0.55;
+      this.headAccessory.rotation.z = Math.sin(time * 42) * 0.28 * decay;
+      this.headAccessory.rotation.x = -0.16 + Math.cos(time * 36) * 0.14 * decay;
+    } else {
+      this.headAccessory.rotation.z = 0;
+      this.headAccessory.rotation.x = -0.16;
+    }
+
+    this.tiaraLight.intensity =
+      ARENA_CONFIG.lighting.tiaraLightStaggerBase *
+      (1 - this.currentDrainProgress * 0.9);
   }
 
   /**
-   * Victory Diorama floor collapse pose (100% drained, resting on the reflective ice floor).
+   * Victory Diorama floor collapse pose (100% drained, sprawled exhausted on the ice floor
+   * with cascading silver hair spread wide and tiara light dimmed).
    */
   public applyVictoryCollapsePose(time: number): void {
     this.applyDrainBleach(1.0);
     this.frostHalo.visible = false;
     this.phaseAuroraRings.visible = false;
+    this.tiaraLight.intensity = 0.25;
+    this.headAccessory.rotation.set(-0.16, 0, 0.08);
 
-    const sigh = Math.sin(time * 2.1) * 0.01;
-    this.bodyPivot.position.y = 0.16 + sigh;
-    this.bodyPivot.rotation.set(-Math.PI * 0.46, 0, 0.14);
-    this.torsoGroup.rotation.x = 0.08;
-    this.headGroup.rotation.set(0.12, 0.24, 0.18);
-    this.leftLegPivot.rotation.set(0.12, 0, -0.16);
-    this.rightLegPivot.rotation.set(-0.08, 0, 0.22);
+    const sigh = Math.sin(time * 2.1) * 0.012;
+    this.bodyPivot.position.y = DIORAMA_CONFIG.collapseBodyY + sigh;
+    this.bodyPivot.rotation.set(-Math.PI * 0.46, 0, 0.16);
+    this.torsoGroup.rotation.x = 0.08 + sigh * 0.8;
+    this.headGroup.rotation.set(0.14, 0.26, 0.22);
+    this.leftLegPivot.rotation.set(0.14, 0, -0.18);
+    this.rightLegPivot.rotation.set(-0.08, 0, 0.24);
     this.leftKneePivot.rotation.x = 0.42;
-    this.rightKneePivot.rotation.x = 0.65;
-    this.leftShoulderPivot.rotation.set(0.18, 0, 0.42);
-    this.rightShoulderPivot.rotation.set(-0.1, 0, -0.52);
-    this.leftElbowPivot.rotation.x = -0.16;
-    this.rightElbowPivot.rotation.x = -0.22;
+    this.rightKneePivot.rotation.x = 0.68;
+    this.leftShoulderPivot.rotation.set(0.2, 0, 0.48);
+    this.rightShoulderPivot.rotation.set(-0.12, 0, -0.58);
+    this.leftElbowPivot.rotation.x = -0.18;
+    this.rightElbowPivot.rotation.x = -0.26;
+
+    // Fan silver-white hair ribbons wide across the reflective ice floor
+    for (let i = 0; i < this.hairRibbons.length; i++) {
+      const hr = this.hairRibbons[i];
+      if (!hr) continue;
+      hr.rootSeg.rotation.x = 0.14;
+      hr.midSeg.rotation.x = 0.08;
+      hr.tipSeg.rotation.x = 0.04;
+      hr.rootSeg.rotation.z =
+        hr.spread * 0.72 + Math.sin(time * 1.4 + hr.phase) * 0.025;
+    }
+
+    for (let i = 0; i < this.skirtPanels.length; i++) {
+      const sp = this.skirtPanels[i];
+      if (!sp) continue;
+      sp.pivot.rotation.x = -0.35;
+    }
   }
 
   /**
@@ -1624,20 +1707,42 @@ export class MarinaRig implements BossRigAdapter {
     this.frostHalo.scale.setScalar(1.0);
     this.frostHalo.rotation.z = time * 0.55;
     this.phaseAuroraRings.visible = false;
+    this.tiaraLight.intensity = ARENA_CONFIG.lighting.tiaraLightCombatBase;
+    this.headAccessory.rotation.set(-0.16, 0, 0);
 
-    const sway = Math.sin(time * FINISHER_CONFIG.puppetFloatFrequency);
-    this.bodyPivot.position.y = 0.96 + sway * 0.03;
+    const wave = Math.sin(time * DIORAMA_CONFIG.puppetWaveCadence);
+    const waveCos = Math.cos(time * DIORAMA_CONFIG.puppetWaveCadence);
+
+    this.bodyPivot.position.y = 0.96 + wave * 0.025;
     this.bodyPivot.rotation.set(0, 0, 0);
     this.torsoGroup.rotation.x = -0.04;
-    this.headGroup.rotation.set(0.16, Math.sin(time * 0.9) * 0.08, 0);
+    this.headGroup.rotation.set(0.2, waveCos * 0.07, wave * 0.04);
     this.leftLegPivot.rotation.set(0.06, 0, -0.05);
     this.rightLegPivot.rotation.set(-0.06, 0, 0.05);
     this.leftKneePivot.rotation.x = 0.08;
     this.rightKneePivot.rotation.x = 0.12;
-    this.leftShoulderPivot.rotation.set(-0.82 + sway * 0.14, 0, 0.28);
-    this.rightShoulderPivot.rotation.set(-0.82 - sway * 0.14, 0, -0.28);
-    this.leftElbowPivot.rotation.x = -0.45 + sway * 0.12;
-    this.rightElbowPivot.rotation.x = -0.45 - sway * 0.12;
+
+    // Hands raised gracefully conducting the marionette lines
+    this.leftShoulderPivot.rotation.set(-0.95 + wave * 0.16, 0, 0.24);
+    this.rightShoulderPivot.rotation.set(-0.95 - wave * 0.16, 0, -0.24);
+    this.leftElbowPivot.rotation.x = -0.42 + wave * 0.14;
+    this.rightElbowPivot.rotation.x = -0.42 - wave * 0.14;
+
+    for (let i = 0; i < this.hairRibbons.length; i++) {
+      const hr = this.hairRibbons[i];
+      if (!hr) continue;
+      const sway = Math.sin(time * 2.2 + hr.phase) * 0.065;
+      hr.rootSeg.rotation.x = 0.18 + sway;
+      hr.midSeg.rotation.x = 0.12 + sway;
+      hr.tipSeg.rotation.x = 0.08 + sway;
+      hr.rootSeg.rotation.z = hr.spread * 0.16;
+    }
+
+    for (let i = 0; i < this.skirtPanels.length; i++) {
+      const sp = this.skirtPanels[i];
+      if (!sp) continue;
+      sp.pivot.rotation.x = Math.sin(time * 2.0 + sp.angle * 2) * 0.03;
+    }
   }
 
   /**
@@ -1655,13 +1760,17 @@ export class MarinaRig implements BossRigAdapter {
     this.staggerBlend = 0;
     this.hitFlashTimer = 0;
     this.castAnimTimer = 0;
+    this.accessoryFlickTimer = 0;
     this.targetAscendY = 0;
     this.currentAscendY = 0;
+    this.headAccessory.rotation.set(-0.16, 0, 0);
+    this.tiaraLight.intensity = ARENA_CONFIG.lighting.tiaraLightCombatBase;
     this.setPhaseVisuals(BOSS_PHASES.PHASE_1);
     this.setExpression(BOSS_EXPRESSIONS.COMBAT);
 
     this.bodyPivot.position.set(0, 0.88 + BOSS_CONFIG.floatHeight, 0);
     this.bodyPivot.rotation.set(0, 0, 0);
+    this.headGroup.rotation.set(0, 0, 0);
     this.root.position.set(
       BOSS_CONFIG.spawnX,
       BOSS_CONFIG.spawnY,

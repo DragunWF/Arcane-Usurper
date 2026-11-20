@@ -1,4 +1,11 @@
-import { AUDIO_CONFIG, AUDIO_MODES, type AudioMode } from '../config/gameConfig';
+import {
+  AUDIO_CONFIG,
+  AUDIO_MODES,
+  DIORAMA_CONFIG,
+  DRAIN_THROTTLE_MODES,
+  type AudioMode,
+  type DrainThrottleMode,
+} from '../config/gameConfig';
 
 /**
  * Narrow service interface exposed to ECS systems (ISP & DIP).
@@ -11,6 +18,7 @@ export interface IAudioTrigger {
   unlock(): boolean;
   toggleMute(): boolean;
   setMode(mode: AudioMode): void;
+  setSiphonThrottle(mode: DrainThrottleMode): void;
   playVoidBolt(): void;
   playShadowBlink(): void;
   playUmbralPulse(): void;
@@ -19,6 +27,8 @@ export interface IAudioTrigger {
   stopLaserLoop(): void;
   playIceShatter(intensity?: number): void;
   playPlayerHit(): void;
+  playTiaraPing(): void;
+  playVictoryClimax(): void;
   dispose(): void;
 }
 
@@ -54,6 +64,7 @@ export class SoundEngine implements IAudioTrigger {
 
   // Dynamic Sequencer State
   private _mode: AudioMode = AUDIO_MODES.SILENT;
+  private siphonThrottle: DrainThrottleMode = DRAIN_THROTTLE_MODES.FLOW;
   private _isMuted = false;
   private _isUnlocked = false;
   private stepIndex = 0;
@@ -233,9 +244,22 @@ export class SoundEngine implements IAudioTrigger {
       return AUDIO_CONFIG.staggerStepDuration;
     }
     if (this._mode === AUDIO_MODES.SIPHON) {
+      if (this.siphonThrottle === DRAIN_THROTTLE_MODES.SAVOR) {
+        return AUDIO_CONFIG.siphonStepDuration * 1.45;
+      }
+      if (this.siphonThrottle === DRAIN_THROTTLE_MODES.SURGE) {
+        return AUDIO_CONFIG.siphonStepDuration * 0.52;
+      }
       return AUDIO_CONFIG.siphonStepDuration;
     }
+    if (this._mode === AUDIO_MODES.DEFEAT) {
+      return DIORAMA_CONFIG.defeatMusicBoxStepDuration;
+    }
     return AUDIO_CONFIG.defaultStepDuration;
+  }
+
+  public setSiphonThrottle(mode: DrainThrottleMode): void {
+    this.siphonThrottle = mode;
   }
 
   private startSequencerLoop(): void {
@@ -325,15 +349,39 @@ export class SoundEngine implements IAudioTrigger {
         }
       }
     } else if (this._mode === AUDIO_MODES.SIPHON) {
-      // Hypnotic amethyst shimmer & warm sub-pulse for Siphon Finisher
-      if (step % 4 === 0) {
+      // Hypnotic amethyst shimmer & warm sub-pulse modulated by SAVOR/FLOW/SURGE throttle
+      const stepDiv =
+        this.siphonThrottle === DRAIN_THROTTLE_MODES.SURGE ? 2 : 4;
+      if (step % stepDiv === 0) {
         const f =
           AUDIO_CONFIG.siphonNotes[
-            Math.floor(step / 4) % AUDIO_CONFIG.siphonNotes.length
+            Math.floor(step / stepDiv) % AUDIO_CONFIG.siphonNotes.length
           ];
         if (f !== undefined) {
-          this.synthCathedralBell(time, f * 2, 0.06, 1.1);
-          this.synthHeartbeatThump(time, 0.13, 60);
+          const pitchMult =
+            this.siphonThrottle === DRAIN_THROTTLE_MODES.SURGE
+              ? 2.5
+              : this.siphonThrottle === DRAIN_THROTTLE_MODES.SAVOR
+                ? 1.5
+                : 2.0;
+          const bellGain =
+            this.siphonThrottle === DRAIN_THROTTLE_MODES.SURGE ? 0.085 : 0.06;
+          this.synthCathedralBell(time, f * pitchMult, bellGain, 1.1);
+          this.synthHeartbeatThump(
+            time,
+            this.siphonThrottle === DRAIN_THROTTLE_MODES.SAVOR ? 0.1 : 0.14,
+            this.siphonThrottle === DRAIN_THROTTLE_MODES.SURGE ? 72 : 56,
+          );
+        }
+      }
+    } else if (this._mode === AUDIO_MODES.DEFEAT) {
+      // Delicate ethereal frost music-box loop for Forced Frost Puppet diorama
+      const notes = DIORAMA_CONFIG.defeatMusicBoxNotes;
+      const noteFreq = notes[step % notes.length];
+      if (noteFreq !== undefined) {
+        this.synthCathedralBell(time, noteFreq * 2.0, 0.055, 0.72);
+        if (step % 4 === 0) {
+          this.synthCathedralBell(time, noteFreq, 0.04, 1.35);
         }
       }
     }
@@ -829,6 +877,83 @@ export class SoundEngine implements IAudioTrigger {
       crack.start(now);
       crack.stop(now + 0.16);
     }
+  }
+
+  /**
+   * Bright crystalline *PING!* harmonic bell chime for [F] Tiara-Flick taunt.
+   */
+  public playTiaraPing(): void {
+    if (!this.ctx || !this.sfxGain || this.ctx.state !== 'running') return;
+    const now = this.ctx.currentTime;
+    const ctx = this.ctx;
+    const sfxGain = this.sfxGain;
+
+    [2637.02, 3951.07].forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const env = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + idx * 0.015);
+      osc.frequency.exponentialRampToValueAtTime(
+        freq * 1.012,
+        now + idx * 0.015 + 0.36,
+      );
+
+      env.gain.setValueAtTime(0.001, now + idx * 0.015);
+      env.gain.linearRampToValueAtTime(0.18 - idx * 0.06, now + idx * 0.015 + 0.006);
+      env.gain.exponentialRampToValueAtTime(
+        AUDIO_CONFIG.minGainFloor,
+        now + 0.42,
+      );
+
+      osc.connect(env);
+      env.connect(sfxGain);
+      osc.start(now + idx * 0.015);
+      osc.stop(now + 0.45);
+    });
+  }
+
+  /**
+   * Radiant arcane usurpation climax shimmer + sub-bass swell at 100% drain.
+   */
+  public playVictoryClimax(): void {
+    if (!this.ctx || !this.sfxGain || this.ctx.state !== 'running') return;
+    const now = this.ctx.currentTime;
+    const ctx = this.ctx;
+    const sfxGain = this.sfxGain;
+
+    const sub = ctx.createOscillator();
+    const subEnv = ctx.createGain();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(92, now);
+    sub.frequency.exponentialRampToValueAtTime(36, now + 0.65);
+
+    subEnv.gain.setValueAtTime(0.001, now);
+    subEnv.gain.linearRampToValueAtTime(0.36, now + 0.04);
+    subEnv.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      now + 0.72,
+    );
+    sub.connect(subEnv);
+    subEnv.connect(sfxGain);
+    sub.start(now);
+    sub.stop(now + 0.75);
+
+    AUDIO_CONFIG.victoryChord.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const env = ctx.createGain();
+      osc.type = 'triangle';
+      const t = now + i * 0.065;
+      osc.frequency.setValueAtTime(freq * 2.0, t);
+
+      env.gain.setValueAtTime(0.001, t);
+      env.gain.linearRampToValueAtTime(0.14, t + 0.02);
+      env.gain.exponentialRampToValueAtTime(AUDIO_CONFIG.minGainFloor, t + 1.4);
+
+      osc.connect(env);
+      env.connect(sfxGain);
+      osc.start(t);
+      osc.stop(t + 1.45);
+    });
   }
 
   /**

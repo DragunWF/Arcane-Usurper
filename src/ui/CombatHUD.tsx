@@ -36,6 +36,7 @@ export function CombatHUD({ controller }: CombatHUDProps) {
   const bossPhaseSubtitle = useGameStore((s) => s.bossPhaseSubtitle);
   const isBossStaggered = useGameStore((s) => s.isBossStaggered);
   const canExecuteFinisher = useGameStore((s) => s.canExecuteFinisher);
+  const encoreTier = useGameStore((s) => s.encoreTier);
 
   const audioMuted = useGameStore((s) => s.audioMuted);
   const errorMessage = useGameStore((s) => s.errorMessage);
@@ -149,7 +150,9 @@ export function CombatHUD({ controller }: CombatHUDProps) {
                       ABYSSAL DARK MAGE
                     </div>
                     <div className="text-[10px] tracking-[0.2em] uppercase text-purple-300/85 font-semibold">
-                      Frostbound Usurper
+                      {encoreTier > 0
+                        ? `Encore Usurper • NG+${encoreTier}`
+                        : 'Frostbound Usurper'}
                     </div>
                   </div>
                 </div>
@@ -410,57 +413,6 @@ export function CombatHUD({ controller }: CombatHUDProps) {
               </button>
             </div>
           )}
-        </div>
-      )}
-
-      {/* DEFEAT OVERLAY (Phase 1 Retry — Upgraded to Forced Frost Puppet in Phase 2) */}
-      {gameState === GAME_STATES.DEFEAT_DIORAMA && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-6">
-          <div className="frost-panel rounded-2xl max-w-md w-full p-7 text-center border-sky-400/45 shadow-[0_0_45px_rgba(56,189,248,0.3)]">
-            <div className="text-[11px] tracking-[0.28em] uppercase text-sky-300 font-semibold mb-2">
-              Frozen Upon the Summit
-            </div>
-            <h2 className="font-display text-2xl sm:text-3xl font-extrabold tracking-[0.16em] text-sky-50 mb-3">
-              DEFEATED BY THE EMPRESS
-            </h2>
-            <p className="text-xs sm:text-sm text-sky-200/80 leading-relaxed mb-6">
-              Marina&apos;s glacial magic overwhelmed your defenses. Use{' '}
-              <span className="text-purple-300 font-semibold">SPACE</span>{' '}
-              Shadow Blink i-frames to phase through her ice waves.
-            </p>
-            <button
-              type="button"
-              onClick={() => controller?.resetDuel()}
-              className="ascend-btn px-7 py-3 rounded-xl font-display text-xs sm:text-sm font-bold tracking-[0.2em] text-sky-50 uppercase cursor-pointer"
-            >
-              [R] RETRY DUEL
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* PHASE 1 FINISHER HOOK OVERLAY (Upgraded by FinisherHUD in Phase 2) */}
-      {gameState === GAME_STATES.SIPHON_FINISHER && (
-        <div className="fixed inset-0 z-40 flex items-end justify-center pb-10 px-6 pointer-events-none">
-          <div className="frost-panel rounded-2xl max-w-lg w-full p-5 sm:p-6 text-center border-purple-400/55 shadow-[0_0_45px_rgba(168,85,247,0.42)] pointer-events-auto">
-            <div className="text-[10px] sm:text-[11px] tracking-[0.26em] uppercase text-purple-300 font-semibold mb-1">
-              Arcane Siphon Finisher Engaged
-            </div>
-            <h2 className="font-display text-lg sm:text-2xl font-bold tracking-[0.14em] text-sky-50 mb-2">
-              THE GLACIAL EMPRESS YIELDS
-            </h2>
-            <p className="text-xs text-sky-200/80 leading-relaxed mb-4">
-              Drag to orbit 360&deg; &bull; Scroll to zoom. Full interactive
-              Siphon Kiss sequence &amp; poses ready for Phase 2.
-            </p>
-            <button
-              type="button"
-              onClick={() => controller?.resetDuel()}
-              className="ascend-btn px-6 py-2.5 rounded-xl font-display text-xs font-bold tracking-[0.18em] text-sky-50 uppercase cursor-pointer"
-            >
-              [R] RESET SUMMIT DUEL
-            </button>
-          </div>
         </div>
       )}
 

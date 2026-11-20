@@ -5,6 +5,7 @@ import {
   BOSS_EXPRESSIONS,
   BOSS_PHASES,
   GAME_STATES,
+  NG_PLUS_CONFIG,
   type BossPhase,
   type GameState,
 } from '../../config/gameConfig';
@@ -321,6 +322,17 @@ export class BossAISystem implements ISystem {
             Math.random() *
               (BOSS_CONFIG.phase1.attackCooldownMax -
                 BOSS_CONFIG.phase1.attackCooldownMin);
+        }
+
+        const encoreTier =
+          this.world.queryFirst('playerTag', 'playerCombat')?.playerCombat
+            .encoreTier ?? 0;
+        if (encoreTier > 0) {
+          const cdScale = Math.max(
+            NG_PLUS_CONFIG.minCooldownScale,
+            Math.pow(NG_PLUS_CONFIG.bossCooldownReductionPerTier, encoreTier),
+          );
+          bp.attackCooldown *= cdScale;
         }
       }
       return;

@@ -2,9 +2,13 @@ import * as THREE from 'three';
 import {
   BOSS_CONFIG,
   BOSS_PHASES,
+  DIORAMA_CONFIG,
+  DRAIN_THROTTLE_MODES,
+  NG_PLUS_CONFIG,
   PALETTE,
   PLAYER_CONFIG,
   type BossPhase,
+  type DrainThrottleMode,
 } from '../config/gameConfig';
 import type { DarkMageRig } from '../rigs/DarkMageRig';
 import { ToonAssets } from './ToonAssets';
@@ -52,6 +56,10 @@ export interface IcePillarMeshHandles {
  */
 export interface IVfxSpawner {
   createVoidBoltGroup(origin: THREE.Vector3, direction: THREE.Vector3): THREE.Group;
+  createUsurpedFrostBeamGroup(
+    origin: THREE.Vector3,
+    direction: THREE.Vector3,
+  ): THREE.Group;
   createIceLanceGroup(): THREE.Group;
   createCrescentBladeGroup(origin: THREE.Vector3, yaw: number): THREE.Group;
   createSpiralOrbGroup(origin: THREE.Vector3): THREE.Group;
@@ -70,6 +78,9 @@ export interface IVfxSpawner {
   spawnFrostShatterBurst(origin: THREE.Vector3, count?: number, maxSpeed?: number): void;
   spawnTelegraphRing(origin: THREE.Vector3): void;
   spawnAfterimage(mageRig: DarkMageRig): void;
+  spawnVaporWisp(origin: THREE.Vector3): void;
+  spawnFinisherParticle(origin: THREE.Vector3, throttle: DrainThrottleMode): void;
+  spawnTiaraFlickSparks(origin: THREE.Vector3): void;
   attachToScene(obj: THREE.Object3D): void;
   detachAndDispose(obj: THREE.Object3D): void;
   updateTransientVfx(dt: number): void;
@@ -218,6 +229,55 @@ export class VfxFactory implements IVfxSpawner {
     glowSprite.scale.set(0.95, 0.95, 1);
     group.add(glowSprite);
 
+    this.scene.add(group);
+    return group;
+  }
+
+  /**
+   * Encore NG+ piercing Usurped Glacial Spear-Beam combining stolen frost cyan & void amethyst.
+   */
+  public createUsurpedFrostBeamGroup(
+    origin: THREE.Vector3,
+    direction: THREE.Vector3,
+  ): THREE.Group {
+    const group = new THREE.Group();
+    group.position.copy(origin);
+    this.scratchLookTarget.copy(origin).add(direction);
+    group.lookAt(this.scratchLookTarget);
+
+    const len = NG_PLUS_CONFIG.frostBeamLength;
+    const coreGeo = new THREE.CylinderGeometry(0.05, 0.08, len, 6);
+    coreGeo.rotateX(Math.PI / 2);
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.blindingFrost,
+    });
+    group.add(new THREE.Mesh(coreGeo, coreMat));
+
+    const auraGeo = new THREE.ConeGeometry(0.22, len * 1.15, 6);
+    auraGeo.rotateX(Math.PI / 2);
+    const auraMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.frostRunes,
+      transparent: true,
+      opacity: 0.72,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    group.add(new THREE.Mesh(auraGeo, auraMat));
+
+    const voidRingGeo = new THREE.TorusGeometry(0.18, 0.025, 6, 16);
+    const voidRingMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.glowViolet,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const ring = new THREE.Mesh(voidRingGeo, voidRingMat);
+    ring.position.z = -len * 0.25;
+    group.add(ring);
+
+    group.userData.ownedMaterials = [coreMat, auraMat, voidRingMat];
+    group.userData.ownedGeometries = [coreGeo, auraGeo, voidRingGeo];
     this.scene.add(group);
     return group;
   }
@@ -764,6 +824,107 @@ export class VfxFactory implements IVfxSpawner {
       life: PLAYER_CONFIG.afterimageLife,
       maxLife: PLAYER_CONFIG.afterimageLife,
     });
+  }
+
+  /**
+   * Spawns a gentle rising pale-silver/frost exhaustion vapor wisp above collapsed Marina.
+   */
+  public spawnVaporWisp(origin: THREE.Vector3): void {
+    const mat = new THREE.MeshBasicMaterial({
+      color: PALETTE.iceHighlights,
+      transparent: true,
+      opacity: 0.42,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(this.orbCoreGeo, mat);
+    mesh.position.set(
+      origin.x + (Math.random() - 0.5) * 0.26,
+      origin.y + 0.08,
+      origin.z + (Math.random() - 0.5) * 0.26,
+    );
+    const baseScale = 0.35 + Math.random() * 0.25;
+    mesh.scale.setScalar(baseScale);
+    this.scene.add(mesh);
+
+    this.particles.push({
+      mesh,
+      mat,
+      velocity: new THREE.Vector3(
+        (Math.random() - 0.5) * DIORAMA_CONFIG.vaporDriftSpeed,
+        DIORAMA_CONFIG.vaporRiseSpeed + Math.random() * 0.25,
+        (Math.random() - 0.5) * DIORAMA_CONFIG.vaporDriftSpeed,
+      ),
+      gravity: 0,
+      spinX: 1.5,
+      spinY: 2.0,
+      life: DIORAMA_CONFIG.vaporLife,
+      maxLife: DIORAMA_CONFIG.vaporLife,
+      baseScale,
+    });
+  }
+
+  /**
+   * Spawns floating Siphon Kiss / Endless Savor particles (pink/frost hearts & surge sparks).
+   */
+  public spawnFinisherParticle(
+    origin: THREE.Vector3,
+    throttle: DrainThrottleMode,
+  ): void {
+    const isSurge = throttle === DRAIN_THROTTLE_MODES.SURGE;
+    const isSavor = throttle === DRAIN_THROTTLE_MODES.SAVOR;
+    const color = isSurge
+      ? Math.random() > 0.4
+        ? PALETTE.glowViolet
+        : PALETTE.frostRunes
+      : isSavor
+        ? Math.random() > 0.5
+          ? PALETTE.roseMuted
+          : PALETTE.iceHighlights
+        : Math.random() > 0.5
+          ? PALETTE.voidCoreFuchsia
+          : PALETTE.frostRunes;
+
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.88,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(this.sparkGeo, mat);
+    mesh.position.set(
+      origin.x + (Math.random() - 0.5) * 0.55,
+      origin.y + (Math.random() - 0.5) * 0.35,
+      origin.z + (Math.random() - 0.5) * 0.55,
+    );
+    const baseScale = (isSurge ? 1.15 : 0.72) + Math.random() * 0.45;
+    mesh.scale.setScalar(baseScale);
+    this.scene.add(mesh);
+
+    const speedMult = isSurge ? 2.4 : isSavor ? 0.55 : 1.0;
+    this.particles.push({
+      mesh,
+      mat,
+      velocity: new THREE.Vector3(
+        (Math.random() - 0.5) * 0.8 * speedMult,
+        (0.65 + Math.random() * 0.6) * speedMult,
+        (Math.random() - 0.5) * 0.8 * speedMult,
+      ),
+      gravity: 0,
+      spinX: 4,
+      spinY: 6,
+      life: isSavor ? 1.1 : 0.68,
+      maxLife: isSavor ? 1.1 : 0.68,
+      baseScale,
+    });
+  }
+
+  /**
+   * Spawns crisp crystalline frost star sparks when flicking the boss's tiara ([F] taunt).
+   */
+  public spawnTiaraFlickSparks(origin: THREE.Vector3): void {
+    this.spawnFrostShatterBurst(origin, 14, 4.2);
   }
 
   public attachToScene(obj: THREE.Object3D): void {

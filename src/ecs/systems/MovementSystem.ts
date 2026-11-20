@@ -5,6 +5,7 @@ import {
   BOSS_PHASES,
   FINISHER_CONFIG,
   GAME_STATES,
+  NG_PLUS_CONFIG,
   PLAYER_CONFIG,
   type GameState,
 } from '../../config/gameConfig';
@@ -441,7 +442,14 @@ export class MovementSystem implements ISystem {
         : bossPhase.phase === BOSS_PHASES.PHASE_2
           ? BOSS_CONFIG.phase2.moveSpeedMultiplier
           : 1.0;
-    const effectiveSpeed = BOSS_CONFIG.moveSpeed * speedMult;
+    const playerCombat = this.world.queryFirst('playerTag', 'playerCombat')
+      ?.playerCombat;
+    const encoreTier = playerCombat ? playerCombat.encoreTier : 0;
+    const encoreSpeedMult = Math.pow(
+      NG_PLUS_CONFIG.bossSpeedMultiplierPerTier,
+      encoreTier,
+    );
+    const effectiveSpeed = BOSS_CONFIG.moveSpeed * speedMult * encoreSpeedMult;
 
     const angularRate =
       (effectiveSpeed / BOSS_CONFIG.orbitRadius) *

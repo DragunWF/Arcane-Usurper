@@ -26,11 +26,14 @@ export interface BossRigAdapter {
   /** Cached initial material diffuse colors aligned 1:1 with drainableMaterials. */
   readonly originalColors: THREE.Color[];
 
-  setExpression(expression: BossExpression): void;
+  setExpression(expression: BossExpression, spiralPhase?: number): void;
   setPhaseVisuals(phase: BossPhase): void;
   setAscendHeight(extraY: number): void;
   triggerHitFlash(): void;
   triggerCastFlourish(): void;
+  triggerAccessoryFlick(): void;
+  getLeftHandWorldPosition(outVec: THREE.Vector3): THREE.Vector3;
+  getRightHandWorldPosition(outVec: THREE.Vector3): THREE.Vector3;
   updateCombatPose(
     dt: number,
     state: GameState,

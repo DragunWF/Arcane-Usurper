@@ -80,12 +80,8 @@ export class InputSystem implements ISystem {
 
       const state = this.callbacks.getGameState();
 
-      // Quick Retry ([R]) on Defeat or Finisher Hook Preview
-      if (
-        e.code === 'KeyR' &&
-        (state === GAME_STATES.DEFEAT_DIORAMA ||
-          state === GAME_STATES.SIPHON_FINISHER)
-      ) {
+      // Quick Retry ([R]) on Defeat Diorama
+      if (e.code === 'KeyR' && state === GAME_STATES.DEFEAT_DIORAMA) {
         this.callbacks.onQuickRetry();
         return;
       }

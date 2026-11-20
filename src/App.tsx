@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { GameEngine, type IGameController } from './engine/GameEngine';
 import { useGameStore } from './state/useGameStore';
 import { CombatHUD } from './ui/CombatHUD';
+import { DioramaHUD } from './ui/DioramaHUD';
+import { FinisherHUD } from './ui/FinisherHUD';
 
 /**
  * Root React shell mounting the imperative WebGL canvas container and 2D HUD overlay.
@@ -42,6 +44,8 @@ export function App() {
         className="fixed inset-0 w-full h-full overflow-hidden"
       />
       <CombatHUD controller={controller} />
+      <FinisherHUD controller={controller} />
+      <DioramaHUD controller={controller} />
     </div>
   );
 }

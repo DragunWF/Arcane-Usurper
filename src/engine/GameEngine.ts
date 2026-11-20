@@ -9,12 +9,17 @@ import {
   DRAIN_THROTTLE_MODES,
   FINISHER_POSE_IDS,
   GAME_STATES,
+  NG_PLUS_CONFIG,
   PLAYER_CONFIG,
   type BossPhase,
+  type DrainThrottleMode,
+  type FinisherPoseId,
   type GameState,
 } from '../config/gameConfig';
 import { BossAISystem } from '../ecs/systems/BossAISystem';
 import { CombatSystem } from '../ecs/systems/CombatSystem';
+import { DioramaSystem } from '../ecs/systems/DioramaSystem';
+import { FinisherSystem } from '../ecs/systems/FinisherSystem';
 import { InputSystem } from '../ecs/systems/InputSystem';
 import { MovementSystem } from '../ecs/systems/MovementSystem';
 import { RenderSyncSystem } from '../ecs/systems/RenderSyncSystem';
@@ -37,6 +42,13 @@ export interface IGameController {
   resetDuel(encoreTier?: number): void;
   toggleAudioMute(): void;
   triggerFinisher(): void;
+  setFinisherPose(pose: FinisherPoseId): void;
+  setDrainThrottle(mode: DrainThrottleMode | null): void;
+  triggerTaunt(): void;
+  pullUpForEndlessSavor(): void;
+  layDownFromEndlessSavor(): void;
+  enterEncoreStage(): void;
+  retryStage(): void;
   triggerTouchBolt(): void;
   triggerTouchBlink(): void;
   triggerTouchPulse(): void;
@@ -61,6 +73,8 @@ export class GameEngine implements IGameController {
   private readonly movementSystem: MovementSystem;
   private readonly bossAISystem: BossAISystem;
   private readonly combatSystem: CombatSystem;
+  private readonly finisherSystem: FinisherSystem;
+  private readonly dioramaSystem: DioramaSystem;
   private readonly renderSyncSystem: RenderSyncSystem;
 
   private readonly clock = new THREE.Clock();
@@ -191,6 +205,42 @@ export class GameEngine implements IGameController {
           this.bossAISystem.evaluateHealthThresholds();
           this.renderSyncSystem.flushHudSnapshot();
         },
+      },
+    );
+
+    this.finisherSystem = new FinisherSystem(
+      this.world,
+      this.mageRig,
+      this.bossRig,
+      this.sound,
+      this.vfx,
+      {
+        getGameState: () => this.state,
+        onSiphonClimax: () => this.dioramaSystem.enterVictoryDiorama(true),
+      },
+    );
+
+    this.dioramaSystem = new DioramaSystem(
+      this.world,
+      this.sceneManager.scene,
+      this.mageRig,
+      this.bossRig,
+      this.sound,
+      this.vfx,
+      {
+        getGameState: () => this.state,
+        setGameState: (next) => {
+          this.state = next;
+        },
+        exitPointerLock: () => this.cameraRig.exitLock(),
+        addCameraShake: (amount) => this.cameraRig.addShake(amount),
+        resetSphericalOrbit: (azimuth, elevation, distance) =>
+          this.cameraRig.resetSphericalOrbit(azimuth, elevation, distance),
+        clearAllCombatEntities: () => this.clearAllCombatEntities(),
+        setAtmosphereStagger: () =>
+          this.sceneManager.setPhaseAtmosphere('STAGGER'),
+        setAtmosphereCombatP1: () =>
+          this.sceneManager.setPhaseAtmosphere(BOSS_PHASES.PHASE_1),
       },
     );
 
@@ -375,6 +425,56 @@ export class GameEngine implements IGameController {
     }
   }
 
+  public setFinisherPose(pose: FinisherPoseId): void {
+    this.sound.unlock();
+    this.finisherSystem.setPose(pose);
+  }
+
+  public setDrainThrottle(mode: DrainThrottleMode | null): void {
+    this.sound.unlock();
+    this.finisherSystem.setUiDrainThrottle(mode);
+  }
+
+  public triggerTaunt(): void {
+    this.sound.unlock();
+    this.finisherSystem.triggerTaunt();
+  }
+
+  public pullUpForEndlessSavor(): void {
+    this.sound.unlock();
+    if (this.state === GAME_STATES.VICTORY_DIORAMA) {
+      this.dioramaSystem.enterEndlessSavor();
+    }
+  }
+
+  public layDownFromEndlessSavor(): void {
+    this.sound.unlock();
+    if (this.state === GAME_STATES.ENDLESS_SAVOR) {
+      this.dioramaSystem.exitEndlessSavor();
+    }
+  }
+
+  public enterEncoreStage(): void {
+    this.sound.unlock();
+    const nextTier = useGameStore.getState().encoreTier + 1;
+    this.resetDuel(nextTier);
+  }
+
+  public retryStage(): void {
+    this.sound.unlock();
+    this.resetDuel(useGameStore.getState().encoreTier);
+  }
+
+  private clearAllCombatEntities(): void {
+    this.bossAISystem.clearAllBossHazards();
+    const playerProjectiles = this.world.query('projectile');
+    const pIds = playerProjectiles.map((e) => e.id);
+    pIds.forEach((id) => this.world.destroyEntity(id));
+    const playerHazards = this.world.query('hazardZone');
+    const hIds = playerHazards.map((e) => e.id);
+    hIds.forEach((id) => this.world.destroyEntity(id));
+  }
+
   public triggerTouchBolt(): void {
     this.sound.unlock();
     if (
@@ -410,14 +510,10 @@ export class GameEngine implements IGameController {
     this.sound.unlock();
     this.state = GAME_STATES.BOSS_COMBAT;
 
-    // Clear all active projectiles, hazards, clones, and transient particles
-    this.bossAISystem.clearAllBossHazards();
-    const playerProjectiles = this.world.query('projectile');
-    const pIds = playerProjectiles.map((e) => e.id);
-    pIds.forEach((id) => this.world.destroyEntity(id));
-    const playerHazards = this.world.query('hazardZone');
-    const hIds = playerHazards.map((e) => e.id);
-    hIds.forEach((id) => this.world.destroyEntity(id));
+    // Clear all active projectiles, hazards, clones, diorama props & transient particles
+    this.clearAllCombatEntities();
+    this.dioramaSystem.cleanupPuppetVisuals();
+    this.finisherSystem.resetState();
     this.vfx.clearTransientVfx();
 
     this.inputSystem.resetTransientInputs();
@@ -425,7 +521,8 @@ export class GameEngine implements IGameController {
 
     const nextTier = encoreTier ?? useGameStore.getState().encoreTier;
     const scaledBossMaxHp = Math.round(
-      BOSS_CONFIG.maxHp * Math.pow(BOSS_CONFIG.encoreHpMultiplier, nextTier),
+      BOSS_CONFIG.maxHp *
+        Math.pow(NG_PLUS_CONFIG.bossHpMultiplierPerTier, nextTier),
     );
 
     const player = this.world.queryFirst(
@@ -487,7 +584,8 @@ export class GameEngine implements IGameController {
       boss.siphonableBoss.finisherPose = FINISHER_POSE_IDS.CHIN_LIFT;
     }
 
-    this.mageRig.setEncoreFrostWings(nextTier > 0);
+    this.mageRig.resetCombatPose();
+    this.mageRig.setEncoreTier(nextTier);
     this.bossRig.resetForEncounter(nextTier);
     this.cameraRig.setCombatAngles(
       CAMERA_CONFIG.combatInitialYaw,
@@ -531,25 +629,28 @@ export class GameEngine implements IGameController {
   }
 
   private handlePlayerDefeated(): void {
-    this.state = GAME_STATES.DEFEAT_DIORAMA;
     this.inputSystem.resetTransientInputs();
-    this.bossAISystem.clearAllBossHazards();
-    this.cameraRig.exitLock();
-    this.sound.setMode(AUDIO_MODES.DEFEAT);
-
-    const store = useGameStore.getState();
-    store.setGameState(GAME_STATES.DEFEAT_DIORAMA);
-    store.setAudioMode(AUDIO_MODES.DEFEAT);
+    this.finisherSystem.resetState();
+    this.dioramaSystem.enterDefeatDiorama();
   }
 
   /**
-   * Phase 1 Finisher Hook invoked once the Mage blinks before kneeling Marina.
-   * Upgraded to full interactive Siphon Kiss in Phase 2 (FinisherSystem).
+   * Starts the full interactive Arcane Siphon Kiss sequence (Block 4).
    */
   public startSiphonFinisher(): void {
     this.state = GAME_STATES.SIPHON_FINISHER;
     this.inputSystem.resetTransientInputs();
+    this.finisherSystem.resetState();
     this.cameraRig.exitLock();
+
+    const boss = this.world.queryFirst('siphonableBoss');
+    if (boss) {
+      boss.siphonableBoss.siphonProgress = 0;
+      boss.siphonableBoss.isEndlessSavor = false;
+      boss.siphonableBoss.finisherPose = FINISHER_POSE_IDS.CHIN_LIFT;
+      boss.siphonableBoss.drainThrottle = DRAIN_THROTTLE_MODES.FLOW;
+      boss.siphonableBoss.tauntDizzyTimer = 0;
+    }
 
     this.bossRig.setExpression(BOSS_EXPRESSIONS.SIPHON_KISS);
     this.sound.setMode(AUDIO_MODES.SIPHON);
@@ -557,8 +658,12 @@ export class GameEngine implements IGameController {
     const store = useGameStore.getState();
     store.setGameState(GAME_STATES.SIPHON_FINISHER);
     store.setCanExecuteFinisher(false);
+    store.setFinisherPose(FINISHER_POSE_IDS.CHIN_LIFT);
+    store.setDrainThrottle(DRAIN_THROTTLE_MODES.FLOW);
+    store.setEndlessSavor(false);
     store.setBossExpression(BOSS_EXPRESSIONS.SIPHON_KISS);
     store.setAudioMode(AUDIO_MODES.SIPHON);
+    store.syncCombatSnapshot({ siphonProgress: 0, tauntDizzyTimer: 0 });
 
     this.bossRig.root.updateMatrixWorld(true);
     this.bossRig.headAnchor.getWorldPosition(this.orbitCameraTarget.position);
@@ -584,6 +689,8 @@ export class GameEngine implements IGameController {
       this.movementSystem.update(dt, this.elapsed);
       this.bossAISystem.update(dt, this.elapsed);
       this.combatSystem.update(dt, this.elapsed);
+      this.finisherSystem.update(dt, this.elapsed);
+      this.dioramaSystem.update(dt, this.elapsed);
       this.renderSyncSystem.update(dt, this.elapsed);
 
       // Update Camera
@@ -598,11 +705,24 @@ export class GameEngine implements IGameController {
         this.cameraRig.update(dt, this.state, this.titleCameraTarget);
       } else if (
         this.state === GAME_STATES.SIPHON_FINISHER ||
+        this.state === GAME_STATES.ENDLESS_SAVOR
+      ) {
+        this.bossRig.root.updateMatrixWorld(true);
+        this.bossRig.headAnchor.getWorldPosition(
+          this.orbitCameraTarget.position,
+        );
+        this.cameraRig.update(
+          dt,
+          this.state,
+          this.playerCameraTarget,
+          this.orbitCameraTarget,
+        );
+      } else if (
         this.state === GAME_STATES.VICTORY_DIORAMA ||
-        this.state === GAME_STATES.ENDLESS_SAVOR ||
         this.state === GAME_STATES.DEFEAT_DIORAMA
       ) {
-        this.bossRig.headAnchor.getWorldPosition(
+        this.dioramaSystem.getOrbitFocusTarget(
+          this.state,
           this.orbitCameraTarget.position,
         );
         this.cameraRig.update(
@@ -631,6 +751,7 @@ export class GameEngine implements IGameController {
 
     window.removeEventListener('resize', this.handleResize);
     this.inputSystem.dispose();
+    this.dioramaSystem.dispose();
     this.cameraRig.exitLock();
     this.cameraRig.dispose();
     this.sound.dispose();

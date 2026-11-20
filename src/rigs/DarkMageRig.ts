@@ -1,5 +1,14 @@
 import * as THREE from 'three';
-import { ARENA_CONFIG, PALETTE, PLAYER_CONFIG } from '../config/gameConfig';
+import {
+  ARENA_CONFIG,
+  DIORAMA_CONFIG,
+  FINISHER_CONFIG,
+  FINISHER_POSE_IDS,
+  NG_PLUS_CONFIG,
+  PALETTE,
+  PLAYER_CONFIG,
+  type FinisherPoseId,
+} from '../config/gameConfig';
 import { ToonAssets } from '../engine/ToonAssets';
 
 /**
@@ -32,8 +41,19 @@ export class DarkMageRig {
   public staffRuneRing!: THREE.Mesh;
   public staffLight!: THREE.PointLight;
 
-  // Optional Encore NG+ Stolen Frost-Wing Aura Group
+  // Optional Encore NG+ Stolen Frost-Wing Aura & Dual Staff Cyan Infusions
   private frostWingGroup: THREE.Group | null = null;
+  private staffFrostRing: THREE.Mesh | null = null;
+  private staffFrostLight: THREE.PointLight | null = null;
+  private encoreTier = 0;
+
+  // Defeat "Forced Frost Puppet" Diorama Accessories (hidden outside DEFEAT_DIORAMA)
+  private defeatBlushGroup: THREE.Group | null = null;
+  private puppetCrystalLeft: THREE.Group | null = null;
+  private puppetCrystalRight: THREE.Group | null = null;
+  private readonly leftHandAnchor = new THREE.Object3D();
+  private readonly rightHandAnchor = new THREE.Object3D();
+  private readonly headTopAnchor = new THREE.Object3D();
 
   // Animation & Combat Feedback State
   public invulnTimer = 0;
@@ -478,6 +498,33 @@ export class DarkMageRig {
     buildAnimeEye(-1);
     buildAnimeEye(1);
 
+    // Subtle crimson cheek blush glow shown only in DEFEAT_DIORAMA ("Forced Frost Puppet")
+    this.defeatBlushGroup = new THREE.Group();
+    this.defeatBlushGroup.visible = false;
+    const blushMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.blushCrimson,
+      transparent: true,
+      opacity: 0.72,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    for (const side of [-1, 1] as const) {
+      const cheek = new THREE.Mesh(
+        new THREE.CircleGeometry(0.022, 12),
+        blushMat,
+      );
+      cheek.scale.set(1.35, 0.72, 1);
+      cheek.position.set(side * 0.044, 0.145, 0.116);
+      cheek.rotation.y = side * 0.28;
+      this.defeatBlushGroup.add(cheek);
+    }
+    this.headGroup.add(this.defeatBlushGroup);
+
+    // Crown anchor for marionette control line
+    this.headTopAnchor.position.set(0, 0.34, 0.01);
+    this.headGroup.add(this.headTopAnchor);
+
     // 4. Rounded Draped Cloth Cowl wrapping naturally around the head
     const cowlGroup = new THREE.Group();
     cowlGroup.position.set(0, 0.175, 0.0);
@@ -642,6 +689,44 @@ export class DarkMageRig {
     this.leftShoulderPivot.rotation.z = 0.14;
     this.leftElbowPivot.rotation.x = -0.22;
 
+    this.leftHandAnchor.position.set(0, -0.295, 0.02);
+    this.leftElbowPivot.add(this.leftHandAnchor);
+    this.rightHandAnchor.position.set(0, -0.295, 0.02);
+    this.rightElbowPivot.add(this.rightHandAnchor);
+
+    // Miniature glowing frost-crystals waved in Forced Frost Puppet Defeat Diorama
+    const buildPuppetCrystal = (): THREE.Group => {
+      const grp = new THREE.Group();
+      grp.position.set(0, -0.32, 0.06);
+      grp.visible = false;
+
+      const core = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.075, 0),
+        new THREE.MeshBasicMaterial({ color: PALETTE.iceHighlights }),
+      );
+      core.scale.set(0.7, 1.45, 0.7);
+      grp.add(core);
+
+      const glow = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.11, 0),
+        new THREE.MeshBasicMaterial({
+          color: PALETTE.frostRunes,
+          transparent: true,
+          opacity: 0.55,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      );
+      glow.scale.set(0.7, 1.45, 0.7);
+      grp.add(glow);
+      return grp;
+    };
+
+    this.puppetCrystalLeft = buildPuppetCrystal();
+    this.leftElbowPivot.add(this.puppetCrystalLeft);
+    this.puppetCrystalRight = buildPuppetCrystal();
+    this.rightElbowPivot.add(this.puppetCrystalRight);
+
     this.buildObsidianSiphonStaff(this.rightElbowPivot);
   }
 
@@ -747,10 +832,33 @@ export class DarkMageRig {
     );
     this.staffLight.position.set(0, 0, 0);
     this.staffCrystal.add(this.staffLight);
+
+    // Encore NG+ Cyan Frost Ring & Secondary Frost PointLight (hidden until encoreTier >= 1)
+    this.staffFrostRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.24, 0.01, 6, 28),
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.frostRunes,
+        transparent: true,
+        opacity: 0.85,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.staffFrostRing.position.y = headBaseY + 0.26;
+    this.staffFrostRing.visible = false;
+    this.staffGroup.add(this.staffFrostRing);
+
+    this.staffFrostLight = new THREE.PointLight(
+      PALETTE.frostRunes,
+      0,
+      L.staffLightDistance,
+      L.staffLightDecay,
+    );
+    this.staffCrystal.add(this.staffFrostLight);
   }
 
   /**
-   * Pre-builds the stolen crystalline frost-wing aura activated in Encore NG+ (hidden by default).
+   * Pre-builds the stolen crystalline frost-wing aura & ribbons activated in Encore NG+.
    */
   private buildEncoreFrostWings(): void {
     this.frostWingGroup = new THREE.Group();
@@ -760,33 +868,269 @@ export class DarkMageRig {
     const wingMat = new THREE.MeshBasicMaterial({
       color: PALETTE.frostRunes,
       transparent: true,
-      opacity: 0.65,
+      opacity: 0.68,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+
+    const ribbonMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.iceHighlights,
+      transparent: true,
+      opacity: 0.52,
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
 
     for (const side of [-1, 1] as const) {
-      for (let f = 0; f < 3; f++) {
+      for (let f = 0; f < 4; f++) {
         const feather = new THREE.Mesh(
-          new THREE.ConeGeometry(0.065 - f * 0.01, 0.68 - f * 0.12, 4),
+          new THREE.ConeGeometry(0.072 - f * 0.01, 0.78 - f * 0.11, 4),
           wingMat,
         );
         feather.scale.set(0.45, 1.0, 0.25);
-        feather.position.set(side * (0.28 + f * 0.15), 0.16 - f * 0.11, -0.08);
-        feather.rotation.z = -side * (0.65 + f * 0.28);
+        feather.position.set(side * (0.28 + f * 0.15), 0.22 - f * 0.12, -0.08);
+        feather.rotation.z = -side * (0.58 + f * 0.26);
         feather.rotation.y = side * 0.28;
         this.frostWingGroup.add(feather);
       }
+
+      const frostRibbon = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.11, 0.92),
+        ribbonMat,
+      );
+      frostRibbon.position.set(side * 0.34, -0.22, -0.14);
+      frostRibbon.rotation.z = side * 0.18;
+      frostRibbon.rotation.y = side * 0.22;
+      this.frostWingGroup.add(frostRibbon);
     }
 
     this.torsoGroup.add(this.frostWingGroup);
   }
 
   public setEncoreFrostWings(enabled: boolean): void {
+    this.setEncoreTier(enabled ? Math.max(1, this.encoreTier) : 0);
+  }
+
+  /**
+   * Equips or upgrades stolen crystalline frost-wings and dual amethyst-and-cyan staff luminance.
+   */
+  public setEncoreTier(tier: number): void {
+    this.encoreTier = Math.max(0, Math.floor(tier));
+    const active = this.encoreTier >= 1;
+
     if (this.frostWingGroup) {
-      this.frostWingGroup.visible = enabled;
+      this.frostWingGroup.visible = active;
+      if (active) {
+        const wingScale = Math.min(
+          NG_PLUS_CONFIG.frostWingMaxScale,
+          NG_PLUS_CONFIG.frostWingScaleBase +
+            (this.encoreTier - 1) * NG_PLUS_CONFIG.frostWingScalePerTier,
+        );
+        this.frostWingGroup.scale.setScalar(wingScale);
+      }
     }
+
+    if (this.staffFrostRing) {
+      this.staffFrostRing.visible = active;
+    }
+
+    if (this.staffFrostLight) {
+      this.staffFrostLight.intensity = active
+        ? ARENA_CONFIG.lighting.staffLightBaseIntensity * 0.75
+        : 0;
+    }
+
+    this.matCrystalAura.color.setHex(
+      active ? PALETTE.frostRunes : PALETTE.pulseLavender,
+    );
+  }
+
+  public getLeftHandWorldPosition(outVec: THREE.Vector3): THREE.Vector3 {
+    this.root.updateMatrixWorld(true);
+    return this.leftHandAnchor.getWorldPosition(outVec);
+  }
+
+  public getRightHandWorldPosition(outVec: THREE.Vector3): THREE.Vector3 {
+    this.root.updateMatrixWorld(true);
+    return this.rightHandAnchor.getWorldPosition(outVec);
+  }
+
+  public getHeadTopWorldPosition(outVec: THREE.Vector3): THREE.Vector3 {
+    this.root.updateMatrixWorld(true);
+    return this.headTopAnchor.getWorldPosition(outVec);
+  }
+
+  /**
+   * Restores standard combat staff attachment & hides diorama-only props.
+   */
+  public resetCombatPose(): void {
+    if (this.defeatBlushGroup) this.defeatBlushGroup.visible = false;
+    if (this.puppetCrystalLeft) this.puppetCrystalLeft.visible = false;
+    if (this.puppetCrystalRight) this.puppetCrystalRight.visible = false;
+    this.staffGroup.visible = true;
+    this.staffGroup.position.set(0, -0.3, 0.04);
+    this.staffGroup.rotation.set(Math.PI * 0.44, 0, 0);
+    this.torsoGroup.rotation.set(0, 0, 0);
+    this.bodyPivot.rotation.set(0, 0, 0);
+    this.headGroup.rotation.set(0, 0, 0);
+  }
+
+  /**
+   * Poses the Dark Mage for interactive Arcane Siphon Kiss poses [1-4].
+   * Pose [2] pitches torso & head forward (+0.32 rad) for zero-air-gap lip lock.
+   */
+  public applyFinisherPose(
+    poseId: FinisherPoseId,
+    drainProgress: number,
+    time: number,
+  ): void {
+    if (this.defeatBlushGroup) this.defeatBlushGroup.visible = false;
+    if (this.puppetCrystalLeft) this.puppetCrystalLeft.visible = false;
+    if (this.puppetCrystalRight) this.puppetCrystalRight.visible = false;
+    this.staffGroup.visible = true;
+
+    const breathe = Math.sin(time * 2.4) * 0.012;
+    this.bodyPivot.position.y = 0.94 + breathe;
+    this.bodyPivot.rotation.set(0, 0, 0);
+    this.leftLegPivot.rotation.set(0.08, 0, -0.06);
+    this.rightLegPivot.rotation.set(-0.14, 0, 0.06);
+    this.leftKneePivot.rotation.x = 0.22;
+    this.rightKneePivot.rotation.x = 0.14;
+    this.frontLeftRobe.rotation.x = -0.06;
+    this.frontRightRobe.rotation.x = -0.06;
+    this.backRobePivot.rotation.x = 0.1 + Math.sin(time * 2.2) * 0.03;
+
+    if (poseId === FINISHER_POSE_IDS.BALLROOM_DIP) {
+      // Pose [2]: Glacial Ballroom Dip — deep forward pitch locking lips against dipped Marina
+      this.bodyPivot.position.y = 0.86 + breathe;
+      this.torsoGroup.rotation.set(FINISHER_CONFIG.dipMageExtraPitch + 0.34, 0, 0);
+      this.headGroup.rotation.set(FINISHER_CONFIG.dipMageExtraPitch * 0.85, 0, 0);
+      this.leftShoulderPivot.rotation.set(-1.12, 0, -0.28);
+      this.leftElbowPivot.rotation.x = -0.78;
+      // Right arm raises Obsidian Siphon Staff aloft absorbing arcing frost ribbons
+      this.rightShoulderPivot.rotation.set(-2.35, 0, -0.26);
+      this.rightElbowPivot.rotation.x = -0.22;
+      this.staffGroup.rotation.set(Math.PI * 0.14, 0, 0);
+    } else if (poseId === FINISHER_POSE_IDS.HAIR_REINS) {
+      // Pose [3]: Silver-Hair Reins — leaning down with left forearm lifting silver hair lock
+      this.bodyPivot.position.y = 0.72 + breathe;
+      this.torsoGroup.rotation.set(0.56, 0, 0);
+      this.headGroup.rotation.set(0.28, 0, 0);
+      this.leftShoulderPivot.rotation.set(-0.98, 0, -0.18);
+      this.leftElbowPivot.rotation.x = -0.95;
+      this.rightShoulderPivot.rotation.set(-0.24, 0, -0.22);
+      this.rightElbowPivot.rotation.x = -0.35;
+      this.staffGroup.rotation.set(Math.PI * 0.48, 0, 0);
+    } else if (poseId === FINISHER_POSE_IDS.STAFF_LEAN) {
+      // Pose [4]: Staff-Prop Lean — leaning casually with right arm braced on planted staff
+      this.bodyPivot.position.y = 0.72 + breathe;
+      this.torsoGroup.rotation.set(0.52, 0, -0.09);
+      this.headGroup.rotation.set(0.3, 0, 0.08);
+      this.leftShoulderPivot.rotation.set(-0.74, 0, 0.12);
+      this.leftElbowPivot.rotation.x = -0.58;
+      this.rightShoulderPivot.rotation.set(-0.62, 0, -0.34);
+      this.rightElbowPivot.rotation.x = -0.92;
+      this.staffGroup.rotation.set(Math.PI * 0.04, 0, 0.12);
+    } else {
+      // Pose [1]: Chin-Lift Tilt (Default)
+      this.bodyPivot.position.y = 0.7 + breathe;
+      this.torsoGroup.rotation.set(0.54, 0, 0);
+      this.headGroup.rotation.set(0.32, 0, 0);
+      this.leftShoulderPivot.rotation.set(-0.92, 0, -0.22);
+      this.leftElbowPivot.rotation.x = -0.64;
+      this.rightShoulderPivot.rotation.set(-0.18, 0, -0.18);
+      this.rightElbowPivot.rotation.x = -0.28;
+      this.staffGroup.rotation.set(Math.PI * 0.08, 0, 0);
+    }
+
+    this.staffCrystal.rotation.y = time * (2.6 + drainProgress * 4.5);
+    this.staffRuneRing.rotation.y = -time * (2.2 + drainProgress * 3.5);
+    this.staffLight.intensity =
+      ARENA_CONFIG.lighting.staffLightBaseIntensity * (1.0 + drainProgress * 0.9);
+  }
+
+  /**
+   * Victory Diorama triumphant standing pose gazing down at collapsed Marina.
+   */
+  public applyVictoryStandPose(time: number): void {
+    this.resetCombatPose();
+    const breathe = Math.sin(time * 2.0) * 0.016;
+    this.bodyPivot.position.y = 0.96 + breathe;
+    this.torsoGroup.rotation.x = 0.04;
+    this.headGroup.rotation.set(0.28, -0.14, 0);
+    this.leftLegPivot.rotation.set(0.04, 0, -0.05);
+    this.rightLegPivot.rotation.set(-0.04, 0, 0.05);
+    this.leftKneePivot.rotation.x = 0.05;
+    this.rightKneePivot.rotation.x = 0.05;
+    this.leftShoulderPivot.rotation.set(-0.12, 0, 0.16);
+    this.leftElbowPivot.rotation.x = -0.26;
+    this.rightShoulderPivot.rotation.set(-0.26, 0, -0.18);
+    this.rightElbowPivot.rotation.x = -0.45;
+    this.staffGroup.rotation.set(Math.PI * 0.16, 0, 0);
+    this.staffCrystal.rotation.y = time * 2.5;
+    this.staffRuneRing.rotation.y = -time * 1.9;
+    this.staffLight.intensity =
+      ARENA_CONFIG.lighting.staffLightBaseIntensity * 1.35;
+  }
+
+  /**
+   * Defeat Diorama "Forced Frost Puppet" pose: slumped seated on the ice beside his
+   * dimmed staff, blushing beneath his cowl, waving glowing frost-crystals in rhythm.
+   */
+  public applyDefeatedPuppetPose(time: number): void {
+    if (this.defeatBlushGroup) this.defeatBlushGroup.visible = true;
+    if (this.puppetCrystalLeft) this.puppetCrystalLeft.visible = true;
+    if (this.puppetCrystalRight) this.puppetCrystalRight.visible = true;
+
+    const wave = Math.sin(time * DIORAMA_CONFIG.puppetWaveCadence);
+    const waveOpp = Math.cos(time * DIORAMA_CONFIG.puppetWaveCadence);
+
+    // Seated slumped cleanly on the reflective ice floor
+    this.bodyPivot.position.y = DIORAMA_CONFIG.puppetMageBodyY;
+    this.bodyPivot.rotation.set(-0.1, 0, wave * 0.03);
+    this.torsoGroup.rotation.set(0.14, 0, 0);
+    this.headGroup.rotation.set(0.18 + waveOpp * 0.06, wave * 0.14, wave * 0.12);
+
+    // Legs splayed seated forward on the ice
+    this.leftLegPivot.rotation.set(-1.38, 0, -0.26);
+    this.rightLegPivot.rotation.set(-1.38, 0, 0.26);
+    this.leftKneePivot.rotation.x = 0.28;
+    this.rightKneePivot.rotation.x = 0.28;
+    this.frontLeftRobe.rotation.x = -0.82;
+    this.frontRightRobe.rotation.x = -0.82;
+    this.backRobePivot.rotation.x = 0.42;
+
+    // Marionette-jerked arms waving glowing miniature frost-crystals
+    this.leftShoulderPivot.rotation.set(
+      -1.28 + wave * DIORAMA_CONFIG.puppetWaveAmp,
+      0,
+      0.34 + waveOpp * 0.14,
+    );
+    this.rightShoulderPivot.rotation.set(
+      -1.28 - wave * DIORAMA_CONFIG.puppetWaveAmp,
+      0,
+      -0.34 - waveOpp * 0.14,
+    );
+    this.leftElbowPivot.rotation.x = -0.58 + wave * 0.22;
+    this.rightElbowPivot.rotation.x = -0.58 - wave * 0.22;
+
+    if (this.puppetCrystalLeft) {
+      this.puppetCrystalLeft.rotation.y = time * 2.8;
+      this.puppetCrystalLeft.position.y =
+        -0.32 + Math.sin(time * 3.5) * DIORAMA_CONFIG.puppetCrystalBobAmp * 0.3;
+    }
+    if (this.puppetCrystalRight) {
+      this.puppetCrystalRight.rotation.y = -time * 2.8;
+      this.puppetCrystalRight.position.y =
+        -0.32 + Math.cos(time * 3.5) * DIORAMA_CONFIG.puppetCrystalBobAmp * 0.3;
+    }
+
+    // Dimmed Obsidian Staff resting aside (hidden in hand, resting visual dimness)
+    this.staffGroup.visible = false;
+    this.staffLight.intensity = 0.15;
+    if (this.staffFrostLight) this.staffFrostLight.intensity = 0;
   }
 
   /**
@@ -928,9 +1272,22 @@ export class DarkMageRig {
       Math.PI * 0.35 + Math.sin(elapsed * 1.5) * 0.25;
     this.staffRuneRing.rotation.y = -elapsed * 1.8;
 
+    if (this.staffFrostRing && this.staffFrostRing.visible) {
+      this.staffFrostRing.rotation.x =
+        -Math.PI * 0.32 + Math.cos(elapsed * 1.9) * 0.22;
+      this.staffFrostRing.rotation.y = elapsed * 2.4;
+    }
+
     // Subtle Encore Frost-Wing Breath
     if (this.frostWingGroup && this.frostWingGroup.visible) {
-      this.frostWingGroup.scale.setScalar(1.0 + Math.sin(elapsed * 3.2) * 0.04);
+      const baseScale = Math.min(
+        NG_PLUS_CONFIG.frostWingMaxScale,
+        NG_PLUS_CONFIG.frostWingScaleBase +
+          Math.max(0, this.encoreTier - 1) * NG_PLUS_CONFIG.frostWingScalePerTier,
+      );
+      this.frostWingGroup.scale.setScalar(
+        baseScale * (1.0 + Math.sin(elapsed * 3.2) * 0.045),
+      );
     }
 
     // Calibrated Crystal PointLight Intensity Surge on Cast / Pulse

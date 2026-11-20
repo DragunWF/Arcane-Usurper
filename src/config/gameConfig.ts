@@ -609,6 +609,75 @@ export const FINISHER_CONFIG = Object.freeze({
 } as const);
 
 // ============================================================================
+// VICTORY / ENDLESS SAVOR / DEFEAT PUPPET DIORAMA CONFIGURATION (BLOCK 5)
+// ============================================================================
+
+export const DIORAMA_CONFIG = Object.freeze({
+  // Victory Floor Collapse
+  collapseLerpSpeed: 4.0,
+  collapseBodyY: 0.15,
+  collapseMageOffsetX: 0.78,
+  collapseMageOffsetZ: 0.62,
+  collapseCameraFocusY: 0.25,
+  collapseCameraDistance: 2.05,
+  collapseCameraElevation: 0.42,
+  collapseSpiralRefreshInterval: 0.08,
+  collapseSpiralSpeed: 3.8,
+
+  // Rising Exhaustion Vapor Wisps
+  vaporSpawnInterval: 0.22,
+  vaporRiseSpeed: 0.62,
+  vaporDriftSpeed: 0.18,
+  vaporLife: 1.35,
+  vaporStartRadius: 0.08,
+  vaporEndScale: 2.2,
+
+  // Siphon Climax Shockwave
+  victoryShockwaveRadius: 15.0,
+  victoryShockwaveDuration: 0.95,
+  victoryShockwaveShake: 0.34,
+
+  // Forced Frost Puppet Defeat Diorama
+  puppetSeatDistance: 1.65,
+  puppetMageBodyY: 0.34,
+  puppetWaveCadence: 2.2,
+  puppetWaveAmp: 0.36,
+  puppetCrystalBobAmp: 0.08,
+  puppetMarionetteThreadCount: 4,
+  puppetThreadOpacity: 0.72,
+  puppetCameraFocusY: 0.82,
+  puppetCameraDistance: 2.35,
+  puppetCameraElevation: 0.28,
+  defeatMusicBoxStepDuration: 0.36,
+  defeatMusicBoxNotes: Object.freeze([
+    659.25, 587.33, 523.25, 440.0, 523.25, 587.33, 659.25, 880.0,
+  ] as const),
+} as const);
+
+// ============================================================================
+// ENCORE (NEW GAME+) SCALING & USURPED FROST POWER CONFIGURATION
+// ============================================================================
+
+export const NG_PLUS_CONFIG = Object.freeze({
+  bossHpMultiplierPerTier: 1.35,
+  bossSpeedMultiplierPerTier: 1.12,
+  bossCooldownReductionPerTier: 0.92,
+  minCooldownScale: 0.65,
+
+  // Usurped Glacial Spear-Beam Upgrades (Encore Tier >= 1)
+  frostBeamDamageBase: 32,
+  frostBeamDamagePerTier: 6,
+  frostBeamPierceCount: 3,
+  frostBeamSpeed: 54.0,
+  frostBeamRadius: 0.28,
+  frostBeamLength: 2.2,
+  frostBeamMaxLife: 2.0,
+  frostWingScaleBase: 1.0,
+  frostWingScalePerTier: 0.12,
+  frostWingMaxScale: 1.5,
+} as const);
+
+// ============================================================================
 // CAMERA & RETICLE CONFIGURATION
 // ============================================================================
 

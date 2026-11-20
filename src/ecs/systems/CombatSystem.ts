@@ -3,6 +3,7 @@ import {
   ARENA_CONFIG,
   BOSS_CONFIG,
   GAME_STATES,
+  NG_PLUS_CONFIG,
   PLAYER_CONFIG,
   type GameState,
 } from '../../config/gameConfig';
@@ -124,17 +125,23 @@ export class CombatSystem implements ISystem {
         this.vBoltDir.normalize();
       }
 
-      const boltGroup = this.vfx.createVoidBoltGroup(
-        this.vCrystalPos,
-        this.vBoltDir,
-      );
-      const damage =
-        playerCombat.encoreTier > 0
-          ? Math.round(
-              PLAYER_CONFIG.boltDamage *
-                PLAYER_CONFIG.encoreBoltDamageMultiplier,
-            )
-          : PLAYER_CONFIG.boltDamage;
+      const isEncoreBeam = playerCombat.encoreTier >= 1;
+      const boltGroup = isEncoreBeam
+        ? this.vfx.createUsurpedFrostBeamGroup(this.vCrystalPos, this.vBoltDir)
+        : this.vfx.createVoidBoltGroup(this.vCrystalPos, this.vBoltDir);
+      const damage = isEncoreBeam
+        ? NG_PLUS_CONFIG.frostBeamDamageBase +
+          (playerCombat.encoreTier - 1) * NG_PLUS_CONFIG.frostBeamDamagePerTier
+        : PLAYER_CONFIG.boltDamage;
+      const speed = isEncoreBeam
+        ? NG_PLUS_CONFIG.frostBeamSpeed
+        : PLAYER_CONFIG.boltSpeed;
+      const radius = isEncoreBeam
+        ? NG_PLUS_CONFIG.frostBeamRadius
+        : PLAYER_CONFIG.boltRadius;
+      const maxLife = isEncoreBeam
+        ? NG_PLUS_CONFIG.frostBeamMaxLife
+        : PLAYER_CONFIG.boltMaxLife;
 
       this.world.createEntity({
         transform: {
@@ -147,22 +154,21 @@ export class CombatSystem implements ISystem {
           scale: 1,
         },
         velocity: {
-          vx: this.vBoltDir.x * PLAYER_CONFIG.boltSpeed,
-          vy: this.vBoltDir.y * PLAYER_CONFIG.boltSpeed,
-          vz: this.vBoltDir.z * PLAYER_CONFIG.boltSpeed,
-          maxSpeed: PLAYER_CONFIG.boltSpeed,
+          vx: this.vBoltDir.x * speed,
+          vy: this.vBoltDir.y * speed,
+          vz: this.vBoltDir.z * speed,
+          maxSpeed: speed,
         },
         projectile: {
           faction: 'PLAYER',
-          kind: playerCombat.encoreTier > 0 ? 'USURPED_BEAM' : 'VOID_BOLT',
+          kind: isEncoreBeam ? 'USURPED_BEAM' : 'VOID_BOLT',
           damage,
-          radius: PLAYER_CONFIG.boltRadius,
-          life: PLAYER_CONFIG.boltMaxLife,
-          maxLife: PLAYER_CONFIG.boltMaxLife,
+          radius,
+          life: maxLife,
+          maxLife,
           trailTimer: 0,
           spinSpeed: PLAYER_CONFIG.boltSpinSpeed,
-          pierceRemaining:
-            playerCombat.encoreTier > 0 ? PLAYER_CONFIG.encoreBeamPierceCount : 0,
+          pierceRemaining: isEncoreBeam ? NG_PLUS_CONFIG.frostBeamPierceCount : 0,
           hitEntityIds: [],
           state: 'FLY',
           fireDelay: 0,

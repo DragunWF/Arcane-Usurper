@@ -5,8 +5,10 @@ import {
   BOSS_EXPRESSIONS,
   BOSS_PHASES,
   DRAIN_THROTTLE_MODES,
+  FINISHER_CONFIG,
   FINISHER_POSE_IDS,
   GAME_STATES,
+  NG_PLUS_CONFIG,
   PLAYER_CONFIG,
   REALM_IDS,
   type AudioMode,
@@ -88,6 +90,7 @@ export interface GameStoreState {
   setGameState: (gameState: GameState) => void;
   setRealmId: (realmId: RealmId) => void;
   setEncoreTier: (encoreTier: number) => void;
+  incrementEncoreTier: () => void;
   setPointerLocked: (locked: boolean) => void;
   setBossIdentity: (id: string, displayName: string, title: string, maxHp: number) => void;
   setBossPhase: (phase: BossPhase, subtitle?: string) => void;
@@ -103,6 +106,8 @@ export interface GameStoreState {
   setFinisherPose: (pose: FinisherPoseId) => void;
   setDrainThrottle: (mode: DrainThrottleMode) => void;
   setEndlessSavor: (active: boolean) => void;
+  enterEndlessSavor: () => void;
+  exitEndlessSavor: () => void;
   setAudioMuted: (muted: boolean) => void;
   setAudioMode: (mode: AudioMode) => void;
   setErrorMessage: (message: string | null) => void;
@@ -169,6 +174,8 @@ export const useGameStore = create<GameStoreState>((set) => ({
   setGameState: (gameState) => set({ gameState }),
   setRealmId: (realmId) => set({ realmId }),
   setEncoreTier: (encoreTier) => set({ encoreTier }),
+  incrementEncoreTier: () =>
+    set((state) => ({ encoreTier: state.encoreTier + 1 })),
   setPointerLocked: (isPointerLocked) => set({ isPointerLocked }),
 
   setBossIdentity: (bossId, bossDisplayName, bossTitle, bossMaxHp) =>
@@ -214,6 +221,20 @@ export const useGameStore = create<GameStoreState>((set) => ({
   setFinisherPose: (finisherPose) => set({ finisherPose }),
   setDrainThrottle: (drainThrottle) => set({ drainThrottle }),
   setEndlessSavor: (isEndlessSavor) => set({ isEndlessSavor }),
+  enterEndlessSavor: () =>
+    set({
+      gameState: GAME_STATES.ENDLESS_SAVOR,
+      isEndlessSavor: true,
+      siphonProgress: FINISHER_CONFIG.endlessSavorLockedProgress,
+      bossExpression: BOSS_EXPRESSIONS.SIPHON_KISS,
+    }),
+  exitEndlessSavor: () =>
+    set({
+      gameState: GAME_STATES.VICTORY_DIORAMA,
+      isEndlessSavor: false,
+      siphonProgress: FINISHER_CONFIG.endlessSavorLockedProgress,
+      bossExpression: BOSS_EXPRESSIONS.DRAINED_FAINT,
+    }),
   setAudioMuted: (audioMuted) => set({ audioMuted }),
   setAudioMode: (audioMode) => set({ audioMode }),
   setErrorMessage: (errorMessage) => set({ errorMessage }),
@@ -247,7 +268,8 @@ export const useGameStore = create<GameStoreState>((set) => ({
     set((state) => {
       const nextTier = encoreTier ?? state.encoreTier;
       const scaledBossMaxHp = Math.round(
-        BOSS_CONFIG.maxHp * Math.pow(BOSS_CONFIG.encoreHpMultiplier, nextTier),
+        BOSS_CONFIG.maxHp *
+          Math.pow(NG_PLUS_CONFIG.bossHpMultiplierPerTier, nextTier),
       );
       return {
         gameState: GAME_STATES.BOSS_COMBAT,

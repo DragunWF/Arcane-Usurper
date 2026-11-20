@@ -63,14 +63,20 @@ export class RenderSyncSystem implements ISystem {
     // 1. Update Glacial Spire atmosphere (snow, aurora ribbons, floor rune rings)
     this.sceneManager.update(dt, elapsed);
 
-    // 2. Sync Player Rig Transform & Stride / Staff Animation
+    const isDioramaOrFinisher =
+      state === GAME_STATES.SIPHON_FINISHER ||
+      state === GAME_STATES.VICTORY_DIORAMA ||
+      state === GAME_STATES.ENDLESS_SAVOR ||
+      state === GAME_STATES.DEFEAT_DIORAMA;
+
+    // 2. Sync Player Rig Transform & Stride / Staff Animation (yields to Finisher/Diorama poses)
     const player = this.world.queryFirst(
       'playerTag',
       'transform',
       'velocity',
       'playerCombat',
     );
-    if (player) {
+    if (player && !isDioramaOrFinisher) {
       const pPos = player.transform.position;
       this.mageRig.root.position.set(pPos.x, pPos.y, pPos.z);
       this.mageRig.root.rotation.y = player.transform.rotationY;
@@ -93,9 +99,9 @@ export class RenderSyncSystem implements ISystem {
       }
     }
 
-    // 3. Sync Boss Rig Transform & Procedural Pose
+    // 3. Sync Boss Rig Transform & Procedural Pose (yields to Finisher/Diorama poses)
     const boss = this.world.queryFirst('bossPhase', 'transform');
-    if (boss) {
+    if (boss && !isDioramaOrFinisher) {
       const bPos = boss.transform.position;
       this.bossRig.root.position.set(bPos.x, bPos.y, bPos.z);
       this.bossRig.root.rotation.y = boss.transform.rotationY;
@@ -288,7 +294,7 @@ export class RenderSyncSystem implements ISystem {
       'stamina',
       'playerCombat',
     );
-    const boss = this.world.queryFirst('bossPhase', 'health');
+    const boss = this.world.queryFirst('bossPhase', 'health', 'siphonableBoss');
 
     useGameStore.getState().syncCombatSnapshot({
       playerHp: player?.health.current,
@@ -299,6 +305,8 @@ export class RenderSyncSystem implements ISystem {
       pulseCooldown: player?.playerCombat.pulseCooldown,
       bossHp: boss?.health.current,
       bossMaxHp: boss?.health.max,
+      siphonProgress: boss?.siphonableBoss.siphonProgress,
+      tauntDizzyTimer: boss?.siphonableBoss.tauntDizzyTimer,
     });
   }
 }
