@@ -2425,37 +2425,50 @@ export class MageTowerLevel {
     time: number,
     dt: number,
   ): void {
-    const cfg = SIPHON_GALLERY_CONFIG;
     const clamped = THREE.MathUtils.clamp(charge, 0, 1);
 
     // 1. Update Captive Marina kneeling posture, breathing & bleach/restoration
     if (this._captiveMarinaRig && this.galleryUnlocked) {
       this._captiveMarinaRig.applyCaptiveDaisPose(clamped, time, dt);
+    }
 
-      // Keep wrist energy tether strands locked tightly between her cuffs and twin crystal conduits
-      if (
-        this.leftConduitTip &&
-        this.rightConduitTip &&
-        this.leftTetherMesh &&
-        this.rightTetherMesh
-      ) {
-        this.root.updateMatrixWorld(true);
-        this._captiveMarinaRig.getLeftWristWorldPosition(this.scratchWristL);
-        this._captiveMarinaRig.getRightWristWorldPosition(this.scratchWristR);
-        this.leftConduitTip.getWorldPosition(this.scratchTipL);
-        this.rightConduitTip.getWorldPosition(this.scratchTipR);
+    // 2. Update wrist energy tethers, Cryo Core Reservoir Crystal & 12-segment floor rune ring
+    this.updateLobbySiphonBackdrop(clamped, time);
+  }
 
-        this.alignTetherCylinder(
-          this.leftTetherMesh,
-          this.scratchWristL,
-          this.scratchTipL,
-        );
-        this.alignTetherCylinder(
-          this.rightTetherMesh,
-          this.scratchWristR,
-          this.scratchTipR,
-        );
-      }
+  /**
+   * Updates only the diegetic gallery peripherals (pulsing wrist tether strands, Cryo Core
+   * Reservoir fill height/emissive, and 12-segment dais floor rune ring) without overriding
+   * captive Marina's active FinisherSystem kiss pose during `LOBBY_SIPHON`.
+   */
+  public updateLobbySiphonBackdrop(charge: number, time: number): void {
+    const cfg = SIPHON_GALLERY_CONFIG;
+    const clamped = THREE.MathUtils.clamp(charge, 0, 1);
+
+    if (
+      this._captiveMarinaRig &&
+      this.galleryUnlocked &&
+      this.leftConduitTip &&
+      this.rightConduitTip &&
+      this.leftTetherMesh &&
+      this.rightTetherMesh
+    ) {
+      this.root.updateMatrixWorld(true);
+      this._captiveMarinaRig.getLeftWristWorldPosition(this.scratchWristL);
+      this._captiveMarinaRig.getRightWristWorldPosition(this.scratchWristR);
+      this.leftConduitTip.getWorldPosition(this.scratchTipL);
+      this.rightConduitTip.getWorldPosition(this.scratchTipR);
+
+      this.alignTetherCylinder(
+        this.leftTetherMesh,
+        this.scratchWristL,
+        this.scratchTipL,
+      );
+      this.alignTetherCylinder(
+        this.rightTetherMesh,
+        this.scratchWristR,
+        this.scratchTipR,
+      );
     }
 
     // Pulse the arcane rune-cuffs & tether energy opacity
@@ -2464,7 +2477,7 @@ export class MageTowerLevel {
       this.tetherMat.opacity = pulse;
     }
 
-    // 2. Update Cryo Core Reservoir Crystal fill height, color & point light
+    // Update Cryo Core Reservoir Crystal fill height, color & point light
     if (this.reservoirCoreMesh && this.reservoirCoreMat) {
       const fillScale = Math.max(cfg.reservoirMinFillScale, clamped);
       this.reservoirCoreMesh.scale.set(1, fillScale, 1);
@@ -2483,7 +2496,7 @@ export class MageTowerLevel {
         : 0;
     }
 
-    // 3. Update 12-segment diegetic floor rune ring around Marina's dais
+    // Update 12-segment diegetic floor rune ring around Marina's dais
     const segCount = this.daisRuneSegments.length;
     for (let i = 0; i < segCount; i++) {
       const segMat = this.daisRuneSegments[i];

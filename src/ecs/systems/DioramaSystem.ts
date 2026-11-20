@@ -8,6 +8,7 @@ import {
   FINISHER_CONFIG,
   GAME_STATES,
   PALETTE,
+  SIPHON_GALLERY_CONFIG,
   type GameState,
 } from '../../config/gameConfig';
 import type { IAudioTrigger } from '../../engine/SoundEngine';
@@ -218,6 +219,7 @@ export class DioramaSystem implements ISystem {
 
     const store = useGameStore.getState();
     store.setMarinaDefeated(true);
+    store.setMarinaCoreCharge(SIPHON_GALLERY_CONFIG.bossDefeatRechargeBonus);
     store.exitEndlessSavor();
     store.setAudioMode(AUDIO_MODES.VICTORY);
 

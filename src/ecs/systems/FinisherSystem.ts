@@ -7,6 +7,7 @@ import {
   FINISHER_POSE_IDS,
   GAME_STATES,
   PALETTE,
+  SIPHON_GALLERY_CONFIG,
   type DrainThrottleMode,
   type FinisherPoseId,
   type GameState,
@@ -24,6 +25,7 @@ import type { ECSWorld, ISystem } from '../World';
 export interface IFinisherCallbacks {
   getGameState: () => GameState;
   onSiphonClimax: () => void;
+  onLobbySiphonTick?: (charge: number, elapsed: number) => void;
 }
 
 interface DynamicRibbon {
@@ -43,6 +45,7 @@ export class FinisherSystem implements ISystem {
   private readonly scene: THREE.Scene;
   private readonly mageRig: DarkMageRig;
   private readonly bossRig: BossRigAdapter;
+  private lobbyBossRig: BossRigAdapter | null = null;
   private readonly audio: IAudioTrigger;
   private readonly vfx: IVfxSpawner;
   private readonly callbacks: IFinisherCallbacks;
@@ -52,6 +55,9 @@ export class FinisherSystem implements ISystem {
   private spiralRefreshAccum = 0;
   private spiralPhase = 0;
   private currentSeparation: number = FINISHER_CONFIG.defaultRootSeparation;
+  private lobbyCharge: number = SIPHON_GALLERY_CONFIG.defaultCoreCharge;
+  private lobbyDepleted = false;
+  private lobbyChargeSyncAccum = 0;
 
   // Live 3D Finisher Energy Ribbons & Pose [3] Silver Hair Rein Strand
   private readonly fxGroup = new THREE.Group();
@@ -136,24 +142,54 @@ export class FinisherSystem implements ISystem {
     useGameStore.getState().setThrottleMode(effective);
   }
 
+  public setLobbyBossRig(rig: BossRigAdapter | null): void {
+    this.lobbyBossRig = rig;
+  }
+
+  public getLobbyCharge(): number {
+    return this.lobbyCharge;
+  }
+
+  public beginLobbySiphonSession(initialCharge: number): void {
+    this.resetState();
+    const clamped = THREE.MathUtils.clamp(initialCharge, 0, 1);
+    if (clamped <= SIPHON_GALLERY_CONFIG.minDrainableCharge) {
+      this.lobbyCharge = 0;
+      this.lobbyDepleted = true;
+    } else {
+      this.lobbyCharge = clamped;
+      this.lobbyDepleted = false;
+    }
+    this.lobbyChargeSyncAccum = 0;
+  }
+
+  private getActiveBossRig(state: GameState): BossRigAdapter {
+    if (state === GAME_STATES.LOBBY_SIPHON && this.lobbyBossRig) {
+      return this.lobbyBossRig;
+    }
+    return this.bossRig;
+  }
+
   public triggerTaunt(): void {
     const state = this.callbacks.getGameState();
     if (
       state !== GAME_STATES.SIPHON_FINISHER &&
-      state !== GAME_STATES.ENDLESS_SAVOR
+      state !== GAME_STATES.ENDLESS_SAVOR &&
+      state !== GAME_STATES.LOBBY_SIPHON
     ) {
       return;
     }
     const boss = this.world.queryFirst('siphonableBoss');
     if (!boss || boss.siphonableBoss.tauntCooldown > 0) return;
 
+    const activeRig = this.getActiveBossRig(state);
     boss.siphonableBoss.tauntCooldown = FINISHER_CONFIG.tauntCooldown;
     boss.siphonableBoss.tauntDizzyTimer = FINISHER_CONFIG.tauntDizzyDuration;
 
-    this.bossRig.triggerAccessoryFlick();
-    this.bossRig.setExpression(BOSS_EXPRESSIONS.DRAINED_FAINT, this.spiralPhase);
-    this.bossRig.root.updateMatrixWorld(true);
-    this.bossRig.headAccessory.getWorldPosition(this.scratchAccessoryPos);
+    activeRig.triggerAccessoryFlick();
+    activeRig.setExpression(BOSS_EXPRESSIONS.DRAINED_FAINT, this.spiralPhase);
+    activeRig.root.updateMatrixWorld(true);
+    activeRig.headAccessory.getWorldPosition(this.scratchAccessoryPos);
     this.vfx.spawnTiaraFlickSparks(this.scratchAccessoryPos);
     this.audio.playTiaraPing();
 
@@ -241,7 +277,8 @@ export class FinisherSystem implements ISystem {
     const state = this.callbacks.getGameState();
     const isFinisher = state === GAME_STATES.SIPHON_FINISHER;
     const isEndlessSavor = state === GAME_STATES.ENDLESS_SAVOR;
-    if (!isFinisher && !isEndlessSavor) {
+    const isLobbySiphon = state === GAME_STATES.LOBBY_SIPHON;
+    if (!isFinisher && !isEndlessSavor && !isLobbySiphon) {
       this.fxGroup.visible = false;
       return;
     }
@@ -250,6 +287,7 @@ export class FinisherSystem implements ISystem {
     const boss = this.world.queryFirst('bossPhase', 'siphonableBoss', 'transform');
     if (!player || !boss) return;
 
+    const activeRig = this.getActiveBossRig(state);
     const sb = boss.siphonableBoss;
     const intent = player.playerIntent;
 
@@ -276,10 +314,47 @@ export class FinisherSystem implements ISystem {
       useGameStore.getState().setThrottleMode(throttle);
     }
 
-    // 4. Advance Siphon Progress (Locked at 1.0 in Endless Savor; Space tap gives +6% burst)
+    // 4. Advance Siphon Progress (Boss Finisher: 0->1; Lobby Siphon: Charge X%->0% then Endless Savor)
     if (isEndlessSavor) {
       sb.isEndlessSavor = true;
       sb.siphonProgress = FINISHER_CONFIG.endlessSavorLockedProgress;
+    } else if (isLobbySiphon) {
+      if (!this.lobbyDepleted) {
+        const rate = this.getDrainRateForThrottle(throttle);
+        const tapBoost = intent.surgeTapRequested
+          ? FINISHER_CONFIG.surgeTapBoost
+          : 0;
+        this.lobbyCharge = Math.max(0, this.lobbyCharge - (rate * dt + tapBoost));
+
+        if (tapBoost > 0) {
+          activeRig.root.updateMatrixWorld(true);
+          activeRig.headAnchor.getWorldPosition(this.scratchBossHead);
+          this.vfx.spawnImpactBurst(this.scratchBossHead, 10);
+        }
+
+        if (this.lobbyCharge <= 0) {
+          this.lobbyCharge = 0;
+          this.lobbyDepleted = true;
+          const store = useGameStore.getState();
+          store.setMarinaCoreCharge(0);
+          store.setEndlessSavor(true);
+        } else {
+          this.lobbyChargeSyncAccum += dt;
+          if (
+            this.lobbyChargeSyncAccum >=
+              SIPHON_GALLERY_CONFIG.chargeStoreSyncIntervalSec * 0.5 ||
+            tapBoost > 0
+          ) {
+            this.lobbyChargeSyncAccum = 0;
+            useGameStore.getState().setMarinaCoreCharge(this.lobbyCharge);
+          }
+        }
+      }
+
+      sb.isEndlessSavor = this.lobbyDepleted;
+      sb.siphonProgress = this.lobbyDepleted
+        ? FINISHER_CONFIG.endlessSavorLockedProgress
+        : 1.0 - this.lobbyCharge;
     } else {
       sb.isEndlessSavor = false;
       const rate = this.getDrainRateForThrottle(throttle);
@@ -288,8 +363,8 @@ export class FinisherSystem implements ISystem {
         : 0;
       sb.siphonProgress = Math.min(1.0, sb.siphonProgress + rate * dt + tapBoost);
       if (tapBoost > 0) {
-        this.bossRig.root.updateMatrixWorld(true);
-        this.bossRig.headAnchor.getWorldPosition(this.scratchBossHead);
+        activeRig.root.updateMatrixWorld(true);
+        activeRig.headAnchor.getWorldPosition(this.scratchBossHead);
         this.vfx.spawnImpactBurst(this.scratchBossHead, 10);
       }
     }
@@ -301,13 +376,13 @@ export class FinisherSystem implements ISystem {
       this.spiralRefreshAccum += dt;
       if (this.spiralRefreshAccum >= DIORAMA_CONFIG.collapseSpiralRefreshInterval) {
         this.spiralRefreshAccum = 0;
-        this.bossRig.setExpression(
+        activeRig.setExpression(
           BOSS_EXPRESSIONS.DRAINED_FAINT,
           this.spiralPhase,
         );
       }
       if (sb.tauntDizzyTimer <= 0) {
-        this.bossRig.setExpression(BOSS_EXPRESSIONS.SIPHON_KISS);
+        activeRig.setExpression(BOSS_EXPRESSIONS.SIPHON_KISS);
         useGameStore.getState().setBossExpression(BOSS_EXPRESSIONS.SIPHON_KISS);
       }
     }
@@ -319,14 +394,28 @@ export class FinisherSystem implements ISystem {
       throttle,
     );
 
-    const bx = boss.transform.position.x;
-    const bz = boss.transform.position.z;
-    const dirX = Math.sin(boss.transform.rotationY);
-    const dirZ = Math.cos(boss.transform.rotationY);
+    let bx = boss.transform.position.x;
+    let by = 0;
+    let bz = boss.transform.position.z;
+    let bossYaw = boss.transform.rotationY;
 
-    this.bossRig.root.position.set(bx, 0, bz);
-    this.bossRig.root.rotation.y = boss.transform.rotationY;
-    this.bossRig.applyFinisherPose(
+    if (isLobbySiphon) {
+      bx = SIPHON_GALLERY_CONFIG.marinaDaisPos.x;
+      by = SIPHON_GALLERY_CONFIG.daisHeight;
+      bz = SIPHON_GALLERY_CONFIG.marinaDaisPos.z;
+      bossYaw = SIPHON_GALLERY_CONFIG.marinaFacingYaw;
+      // Captive Marina stays mounted on her velvet dais local origin (0, daisHeight, 0)
+      activeRig.root.position.set(0, by, 0);
+      activeRig.root.rotation.set(0, bossYaw, 0);
+    } else {
+      activeRig.root.position.set(bx, 0, bz);
+      activeRig.root.rotation.y = bossYaw;
+    }
+
+    const dirX = Math.sin(bossYaw);
+    const dirZ = Math.cos(bossYaw);
+
+    activeRig.applyFinisherPose(
       sb.finisherPose,
       sb.siphonProgress,
       elapsed,
@@ -334,15 +423,20 @@ export class FinisherSystem implements ISystem {
       throttle,
       headChoreography,
     );
-    this.bossRig.root.updateMatrixWorld(true);
-    this.bossRig.headAnchor.getWorldPosition(this.scratchBossHead);
+    activeRig.root.updateMatrixWorld(true);
+    activeRig.headAnchor.getWorldPosition(this.scratchBossHead);
     // Extract Marina's live world-space face-outward normal (+Z of headAnchor),
     // automatically following her dipped head angle in Pose [2] and tilted chin in [1/3/4]
-    this.bossRig.headAnchor.getWorldQuaternion(this.scratchBossHeadQuat);
+    activeRig.headAnchor.getWorldQuaternion(this.scratchBossHeadQuat);
     this.scratchBossFaceNormal
       .set(0, 0, 1)
       .applyQuaternion(this.scratchBossHeadQuat)
       .normalize();
+
+    // Update Siphon Gallery wrist tether strands, reservoir crystal, and dais rune ring live
+    if (isLobbySiphon && this.callbacks.onLobbySiphonTick) {
+      this.callbacks.onLobbySiphonTick(this.lobbyCharge, elapsed);
+    }
 
     // Compute exact world-space root placement relative to Boss root (and dipped headAnchor in Pose [2])
     const targetSep = this.getTargetSeparationForPose(sb.finisherPose);
@@ -370,7 +464,7 @@ export class FinisherSystem implements ISystem {
     const effectiveSep = Math.max(0.28, this.currentSeparation + dipShift);
 
     player.transform.position.x = bx + dirX * effectiveSep;
-    player.transform.position.y = 0;
+    player.transform.position.y = by;
     player.transform.position.z = bz + dirZ * effectiveSep;
     player.transform.rotationY = Math.atan2(
       bx - player.transform.position.x,
@@ -380,7 +474,7 @@ export class FinisherSystem implements ISystem {
     // Pose Dark Mage with synchronized -> <- press-and-ease motion along Marina's world face normal
     this.mageRig.root.position.set(
       player.transform.position.x,
-      0,
+      by,
       player.transform.position.z,
     );
     this.mageRig.root.rotation.y = player.transform.rotationY;
@@ -444,7 +538,7 @@ export class FinisherSystem implements ISystem {
     this.hairReinStrand.line.visible = isReins;
     if (isReins) {
       this.mageRig.getLeftHandWorldPosition(this.scratchMageLeftHand);
-      this.bossRig.headAccessory.getWorldPosition(this.scratchAccessoryPos);
+      activeRig.headAccessory.getWorldPosition(this.scratchAccessoryPos);
       this.updateCurvedRibbon(
         this.hairReinStrand,
         this.scratchAccessoryPos,
@@ -469,7 +563,7 @@ export class FinisherSystem implements ISystem {
       this.vfx.spawnFinisherParticle(this.scratchBossHead, throttle);
     }
 
-    // 9. Trigger 100% Siphon Climax -> Victory Floor Collapse Diorama (never fires in Endless Savor)
+    // 9. Trigger 100% Siphon Climax -> Victory Floor Collapse Diorama (never fires in Endless Savor or Lobby Siphon)
     if (isFinisher && sb.siphonProgress >= 1.0) {
       this.fxGroup.visible = false;
       this.callbacks.onSiphonClimax();

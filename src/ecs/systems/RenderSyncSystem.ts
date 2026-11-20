@@ -65,6 +65,7 @@ export class RenderSyncSystem implements ISystem {
 
     const isDioramaOrFinisher =
       state === GAME_STATES.SIPHON_FINISHER ||
+      state === GAME_STATES.LOBBY_SIPHON ||
       state === GAME_STATES.VICTORY_DIORAMA ||
       state === GAME_STATES.ENDLESS_SAVOR ||
       state === GAME_STATES.DEFEAT_DIORAMA;
@@ -100,10 +101,11 @@ export class RenderSyncSystem implements ISystem {
       }
     }
 
-    // 3. Sync Boss Rig Transform & Procedural Pose (hidden in Title/Lobby/Chambers, yields to Finisher/Diorama)
+    // 3. Sync Boss Rig Transform & Procedural Pose (hidden in Title/Lobby/LobbySiphon/Chambers, yields to Finisher/Diorama)
     const isBossHiddenState =
       state === GAME_STATES.TITLE ||
       state === GAME_STATES.LOBBY ||
+      state === GAME_STATES.LOBBY_SIPHON ||
       state === GAME_STATES.CHAMBER_COMBAT ||
       state === GAME_STATES.PORTAL_TRANSITION;
     this.bossRig.root.visible = !isBossHiddenState;

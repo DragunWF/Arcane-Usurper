@@ -38,6 +38,7 @@ const THROTTLE_OPTIONS: readonly {
 export function FinisherHUD({ controller }: FinisherHUDProps) {
   const gameState = useGameStore((s) => s.gameState);
   const siphonProgress = useGameStore((s) => s.siphonProgress);
+  const marinaCoreCharge = useGameStore((s) => s.marinaCoreCharge);
   const finisherPose = useGameStore((s) => s.finisherPose);
   const throttleMode = useGameStore((s) => s.throttleMode);
   const isEndlessSavor = useGameStore((s) => s.isEndlessSavor);
@@ -54,42 +55,59 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
     return () => window.clearTimeout(timer);
   }, [tauntTriggerCount]);
 
+  const isLobbySiphon = gameState === GAME_STATES.LOBBY_SIPHON;
   const active =
     gameState === GAME_STATES.SIPHON_FINISHER ||
-    gameState === GAME_STATES.ENDLESS_SAVOR;
+    gameState === GAME_STATES.ENDLESS_SAVOR ||
+    isLobbySiphon;
   if (!active) return null;
 
   const drainPct = Math.round(Math.max(0, Math.min(1, siphonProgress)) * 100);
+  const chargePct = Math.round(
+    Math.max(0, Math.min(1, marinaCoreCharge)) * 100,
+  );
+  const isLobbyDepleted = isLobbySiphon && (isEndlessSavor || chargePct <= 0);
+  const showEndlessBanner = isEndlessSavor || isLobbyDepleted;
+  const displayPct = isLobbySiphon ? chargePct : drainPct;
+  const barWidthPct = isLobbySiphon
+    ? isLobbyDepleted
+      ? 100
+      : chargePct
+    : drainPct;
 
   return (
     <div className="fixed inset-0 z-30 pointer-events-none">
-      {/* Top-Center Arcane Siphon Drain Gauge */}
+      {/* Top-Center Arcane Siphon Drain / Cryo Core Charge Gauge */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 w-[320px] sm:w-[480px] max-w-[calc(100vw-2rem)]">
         <div className="frost-panel rounded-2xl px-4 py-3 border-purple-400/45 shadow-[0_0_32px_rgba(168,85,247,0.28)]">
           <div className="flex items-center justify-between gap-2 mb-1.5">
             <div className="font-display text-xs sm:text-sm font-bold tracking-[0.18em] text-fuchsia-100 uppercase">
-              {isEndlessSavor
+              {showEndlessBanner
                 ? 'CORE DEPLETED — ENDLESS SAVOR'
-                : `ARCANE SIPHON KISS • ${bossDisplayName}`}
+                : isLobbySiphon
+                  ? `CRYO CORE CHARGE • ${bossDisplayName}`
+                  : `ARCANE SIPHON KISS • ${bossDisplayName}`}
             </div>
             <span className="text-xs font-mono font-bold text-purple-200">
-              {drainPct}%
+              {displayPct}%
             </span>
           </div>
 
           <div className="h-3 w-full rounded-full bg-slate-950/90 border border-purple-400/35 overflow-hidden p-[1px]">
             <div
               className={
-                isEndlessSavor
+                showEndlessBanner
                   ? 'bar-fill h-full rounded-full bg-gradient-to-r from-slate-400 via-purple-400 to-fuchsia-300 shadow-[0_0_12px_rgba(168,85,247,0.85)]'
-                  : 'bar-fill h-full rounded-full bg-gradient-to-r from-sky-400 via-purple-500 to-fuchsia-400 shadow-[0_0_14px_rgba(168,85,247,0.9)]'
+                  : isLobbySiphon
+                    ? 'bar-fill h-full rounded-full bg-gradient-to-r from-cyan-400 via-sky-400 to-purple-400 shadow-[0_0_14px_rgba(56,189,248,0.9)]'
+                    : 'bar-fill h-full rounded-full bg-gradient-to-r from-sky-400 via-purple-500 to-fuchsia-400 shadow-[0_0_14px_rgba(168,85,247,0.9)]'
               }
-              style={{ width: `${drainPct}%` }}
+              style={{ width: `${barWidthPct}%` }}
             />
           </div>
 
-          {/* Three-Tier Drain Throttle Pills (hidden/informational in Endless Savor) */}
-          {!isEndlessSavor && (
+          {/* Three-Tier Drain Throttle Pills (hidden once Core is Depleted in Endless Savor) */}
+          {!showEndlessBanner && (
             <div className="mt-2.5 flex items-center justify-center gap-2 pointer-events-auto">
               {THROTTLE_OPTIONS.map((opt) => {
                 const selected = throttleMode === opt.id;
@@ -180,6 +198,27 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
           Drag to Orbit 360&deg; &bull; Scroll to Zoom
         </div>
       </div>
+
+      {/* Bottom-Right Release Button in Siphon Gallery (LOBBY_SIPHON) */}
+      {isLobbySiphon && (
+        <div className="absolute bottom-5 right-4 sm:right-6 pointer-events-auto">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              controller?.releaseLobbySiphon();
+            }}
+            className="frost-panel rounded-2xl px-5 py-3 border border-purple-300/70 bg-slate-950/85 hover:bg-purple-950/75 hover:border-sky-300/85 shadow-[0_0_24px_rgba(139,92,246,0.42)] transition-all cursor-pointer text-right"
+          >
+            <div className="font-display text-xs sm:text-sm font-bold tracking-[0.18em] text-sky-50 uppercase">
+              [RELEASE &amp; STEP BACK]
+            </div>
+            <div className="mt-0.5 text-[10px] font-semibold tracking-[0.16em] text-purple-200/80 uppercase">
+              ESC &bull; RETURN TO SIPHON GALLERY
+            </div>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

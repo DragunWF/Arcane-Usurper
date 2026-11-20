@@ -8,6 +8,7 @@ import {
   SERVANT_ANIM_STATES,
   SERVANT_ARCHETYPES,
   SERVANT_CONFIG,
+  SIPHON_GALLERY_CONFIG,
   SOUL_WISP_KINDS,
   type GameState,
   type PortalState,
@@ -297,7 +298,7 @@ export class ChamberSystem implements ISystem {
 
     const nextWave = this.currentWaveIndex + 1;
     if (nextWave < totalWaves) {
-      // Wave 1 cleared -> fill portal to 50%, chime & raise summoning glyphs for Wave 2
+      // Wave 1 cleared -> fill portal to 50%, chime, raise summoning glyphs, & recharge Marina's gallery core
       this.portalTargetCharge = Math.max(
         this.portalTargetCharge,
         (this.currentWaveIndex + 1) / totalWaves,
@@ -306,8 +307,11 @@ export class ChamberSystem implements ISystem {
       this.waveEscalationTimer = CHAMBER_CONFIG.waveEscalationDelay;
       this.audio.playSummonGlyphChime();
       this.spawnWaveSummonGlyphs(nextWave);
+      useGameStore
+        .getState()
+        .addMarinaCoreCharge(SIPHON_GALLERY_CONFIG.chamberWaveRechargeBonus);
     } else if (this.portalState !== PORTAL_STATES.IGNITED) {
-      // Wave 2 cleared -> ignite Astral Portal at 100% charge & shatter frost seal!
+      // Wave 2 cleared -> ignite Astral Portal at 100% charge, shatter frost seal, & recharge Marina's gallery core!
       this.portalTargetCharge = 1.0;
       this.portalCharge = 1.0;
       this.portalState = PORTAL_STATES.IGNITED;
@@ -315,7 +319,9 @@ export class ChamberSystem implements ISystem {
       this.callbacks.addCameraShake(0.24);
       this.vfx.spawnFrostShatterBurst(this.icePalace.portalPosition, 26, 8.5);
       this.icePalace.setPortalCharge(1.0, true, 0);
-      useGameStore.getState().setPortalState(PORTAL_STATES.IGNITED);
+      const store = useGameStore.getState();
+      store.setPortalState(PORTAL_STATES.IGNITED);
+      store.addMarinaCoreCharge(SIPHON_GALLERY_CONFIG.chamberWaveRechargeBonus);
     }
   }
 

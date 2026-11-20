@@ -18,6 +18,7 @@ export interface IInputCallbacks {
   onTogglePause: () => void;
   onToggleAudioMute: () => void;
   onQuickRetry: () => void;
+  onReleaseLobbySiphon: () => void;
 }
 
 /**
@@ -89,6 +90,15 @@ export class InputSystem implements ISystem {
       }
 
       if (
+        e.code === 'Escape' &&
+        state === GAME_STATES.LOBBY_SIPHON &&
+        !e.repeat
+      ) {
+        this.callbacks.onReleaseLobbySiphon();
+        return;
+      }
+
+      if (
         (e.code === 'KeyP' ||
           (e.code === 'Escape' && state === GAME_STATES.LOBBY)) &&
         !e.repeat
@@ -124,10 +134,11 @@ export class InputSystem implements ISystem {
         return;
       }
 
-      // Interactive Finisher / Endless Savor pose switching [1-4], [F] Taunt, and Space tap surge boost
+      // Interactive Finisher / Endless Savor / Lobby Siphon pose switching [1-4], [F] Taunt, and Space tap surge boost
       if (
         state === GAME_STATES.SIPHON_FINISHER ||
-        state === GAME_STATES.ENDLESS_SAVOR
+        state === GAME_STATES.ENDLESS_SAVOR ||
+        state === GAME_STATES.LOBBY_SIPHON
       ) {
         if (e.code === 'Digit1') this.queuedPose = FINISHER_POSE_IDS.CHIN_LIFT;
         else if (e.code === 'Digit2')

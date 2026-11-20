@@ -3,6 +3,7 @@ import {
   GAME_STATES,
   LOBBY_CONFIG,
   LOBBY_PROMPT_KINDS,
+  SIPHON_GALLERY_CONFIG,
   type GameState,
 } from '../../config/gameConfig';
 import type { IAudioTrigger } from '../../engine/SoundEngine';
@@ -18,6 +19,7 @@ import type { ECSWorld, ISystem } from '../World';
 export interface ILobbyCallbacks {
   getGameState: () => GameState;
   onEnterRealm1: () => void;
+  onEnterLobbySiphon: () => void;
   onEncoreTierToggled: (nextTier: number) => void;
   onSyncGalleryUnlocked: (unlocked: boolean) => void;
 }
@@ -38,6 +40,9 @@ export class LobbySystem implements ISystem {
   private readonly callbacks: ILobbyCallbacks;
 
   private activePrompt: LobbyPromptState | null = null;
+  private liveMarinaCharge: number = SIPHON_GALLERY_CONFIG.defaultCoreCharge;
+  private lastSyncedStoreCharge = -1;
+  private chargeSyncAccum = 0;
   private readonly scratchBurst = new THREE.Vector3();
 
   constructor(
@@ -61,9 +66,12 @@ export class LobbySystem implements ISystem {
    */
   public syncSanctumState(): void {
     const store = useGameStore.getState();
+    this.liveMarinaCharge = store.marinaCoreCharge;
+    this.lastSyncedStoreCharge = store.marinaCoreCharge;
+    this.chargeSyncAccum = 0;
     this.mageTower.setTrophyVisible(store.marinaDefeated, store.encoreTier);
     this.callbacks.onSyncGalleryUnlocked(store.marinaDefeated);
-    this.mageTower.updateMarinaCaptiveState(store.marinaCoreCharge, 0, 0.016);
+    this.mageTower.updateMarinaCaptiveState(this.liveMarinaCharge, 0, 0.016);
     this.mageRig.setEncoreTier(store.encoreTier);
     this.setPromptIfChanged(null);
   }
@@ -132,6 +140,22 @@ export class LobbySystem implements ISystem {
       return;
     }
 
+    if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.SIPHON_GALLERY_WARD) {
+      this.mageTower.triggerGalleryWardRipple();
+      this.audio.playSunkenWardChime();
+      return;
+    }
+
+    if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.MARINA_DAIS) {
+      const store = useGameStore.getState();
+      if (!store.marinaDefeated) return;
+      store.setMarinaCoreCharge(this.liveMarinaCharge);
+      this.lastSyncedStoreCharge = this.liveMarinaCharge;
+      this.setPromptIfChanged(null);
+      this.callbacks.onEnterLobbySiphon();
+      return;
+    }
+
     if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.TROPHY_PEDESTAL) {
       const store = useGameStore.getState();
       if (!store.marinaDefeated) return;
@@ -163,10 +187,12 @@ export class LobbySystem implements ISystem {
     const store = useGameStore.getState();
 
     if (state === GAME_STATES.TITLE) {
+      this.liveMarinaCharge = store.marinaCoreCharge;
+      this.lastSyncedStoreCharge = store.marinaCoreCharge;
       this.mageTower.setTrophyVisible(store.marinaDefeated, store.encoreTier);
       this.callbacks.onSyncGalleryUnlocked(store.marinaDefeated);
       this.mageTower.updateMarinaCaptiveState(
-        store.marinaCoreCharge,
+        this.liveMarinaCharge,
         elapsed,
         dt,
       );
@@ -183,10 +209,35 @@ export class LobbySystem implements ISystem {
       return;
     }
 
+    // Adopt external charge mutations (e.g. after returning from Chambers, Boss Victory, or Lobby Siphon)
+    if (Math.abs(store.marinaCoreCharge - this.lastSyncedStoreCharge) > 0.0005) {
+      this.liveMarinaCharge = store.marinaCoreCharge;
+      this.lastSyncedStoreCharge = store.marinaCoreCharge;
+    }
+
+    // Passive cryogenic core recharge while exploring the Sanctum after defeating Marina
+    if (store.marinaDefeated && this.liveMarinaCharge < 1.0) {
+      this.liveMarinaCharge = Math.min(
+        1.0,
+        this.liveMarinaCharge +
+          SIPHON_GALLERY_CONFIG.passiveRechargePerSec * dt,
+      );
+      this.chargeSyncAccum += dt;
+      if (
+        this.chargeSyncAccum >=
+          SIPHON_GALLERY_CONFIG.chargeStoreSyncIntervalSec ||
+        this.liveMarinaCharge >= 1.0
+      ) {
+        this.chargeSyncAccum = 0;
+        this.lastSyncedStoreCharge = this.liveMarinaCharge;
+        store.setMarinaCoreCharge(this.liveMarinaCharge);
+      }
+    }
+
     this.mageTower.setTrophyVisible(store.marinaDefeated, store.encoreTier);
     this.callbacks.onSyncGalleryUnlocked(store.marinaDefeated);
     this.mageTower.updateMarinaCaptiveState(
-      store.marinaCoreCharge,
+      this.liveMarinaCharge,
       elapsed,
       dt,
     );
@@ -266,6 +317,29 @@ export class LobbySystem implements ISystem {
             encoreTier > 0
               ? `ENCORE USURPER: ACTIVE (NG+${encoreTier})`
               : 'ENCORE USURPER: OFF (STANDARD)',
+        };
+      }
+
+      const dMarina = Math.hypot(
+        px - SIPHON_GALLERY_CONFIG.marinaDaisPos.x,
+        pz - SIPHON_GALLERY_CONFIG.marinaDaisPos.z,
+      );
+      if (dMarina <= SIPHON_GALLERY_CONFIG.interactRadius && dMarina < bestDist) {
+        bestDist = dMarina;
+        bestPrompt = {
+          kind: LOBBY_PROMPT_KINDS.MARINA_DAIS,
+          title: '[E] SIPHON CAPTIVE SOVEREIGN',
+          subtitle: `CRYO CORE CHARGE: ${Math.round(this.liveMarinaCharge * 100)}%`,
+        };
+      }
+    } else {
+      const dWard = Math.hypot(px, pz - SIPHON_GALLERY_CONFIG.southArchwayZ);
+      if (dWard <= SIPHON_GALLERY_CONFIG.wardInteractRadius && dWard < bestDist) {
+        bestDist = dWard;
+        bestPrompt = {
+          kind: LOBBY_PROMPT_KINDS.SIPHON_GALLERY_WARD,
+          title: 'SIPHON GALLERY — SEALED',
+          subtitle: 'Defeat the Glacial Sovereign in Realm I to unlock',
         };
       }
     }

@@ -15,6 +15,7 @@ import {
   LOBBY_CONFIG,
   NG_PLUS_CONFIG,
   PLAYER_CONFIG,
+  SIPHON_GALLERY_CONFIG,
   type BossPhase,
   type DrainThrottleMode,
   type FinisherPoseId,
@@ -48,6 +49,7 @@ export interface IGameController {
   enterSanctum(): void;
   returnToSanctum(): void;
   triggerLobbyInteract(): void;
+  releaseLobbySiphon(): void;
   resetDuel(encoreTier?: number): void;
   setPaused(paused: boolean): void;
   resumeGame(): void;
@@ -194,6 +196,7 @@ export class GameEngine implements IGameController {
         onTogglePause: () => this.togglePause(),
         onToggleAudioMute: () => this.toggleAudioMute(),
         onQuickRetry: () => this.retryStage(),
+        onReleaseLobbySiphon: () => this.releaseLobbySiphon(),
       },
     );
 
@@ -229,6 +232,9 @@ export class GameEngine implements IGameController {
         onEnterRealm1: () => {
           this.enterChambersRun(useGameStore.getState().encoreTier);
           this.cameraRig.requestLock();
+        },
+        onEnterLobbySiphon: () => {
+          this.enterLobbySiphon();
         },
         onEncoreTierToggled: () => {
           this.renderSyncSystem.flushHudSnapshot();
@@ -329,7 +335,15 @@ export class GameEngine implements IGameController {
       {
         getGameState: () => this.state,
         onSiphonClimax: () => this.dioramaSystem.enterVictoryDiorama(true),
+        onLobbySiphonTick: (charge, elapsed) =>
+          this.sceneManager.mageTowerLevel.updateLobbySiphonBackdrop(
+            charge,
+            elapsed,
+          ),
       },
+    );
+    this.finisherSystem.setLobbyBossRig(
+      this.sceneManager.mageTowerLevel.captiveMarinaRig,
     );
 
     this.dioramaSystem = new DioramaSystem(
@@ -1092,6 +1106,119 @@ export class GameEngine implements IGameController {
     );
   }
 
+  /**
+   * Transitions from the Siphon Gallery dais in LOBBY into interactive `LOBBY_SIPHON`
+   * against the bound captive Marina rig with all 4 poses, 3-tier drain throttle,
+   * [F] tiara-flick taunt, and 360° spherical orbit/zoom.
+   */
+  public enterLobbySiphon(): void {
+    const captiveRig = this.sceneManager.mageTowerLevel.captiveMarinaRig;
+    if (!captiveRig) return;
+
+    const store = useGameStore.getState();
+    const initialCharge = store.marinaCoreCharge;
+    const startsDepleted =
+      initialCharge <= SIPHON_GALLERY_CONFIG.minDrainableCharge;
+
+    this.state = GAME_STATES.LOBBY_SIPHON;
+    this.inputSystem.resetTransientInputs();
+    this.cameraRig.exitLock();
+    this.finisherSystem.setLobbyBossRig(captiveRig);
+    this.finisherSystem.beginLobbySiphonSession(initialCharge);
+
+    const boss = this.world.queryFirst('siphonableBoss');
+    if (boss) {
+      boss.siphonableBoss.siphonProgress = startsDepleted
+        ? 1.0
+        : 1.0 - initialCharge;
+      boss.siphonableBoss.isEndlessSavor = startsDepleted;
+      boss.siphonableBoss.finisherPose = FINISHER_POSE_IDS.CHIN_LIFT;
+      boss.siphonableBoss.drainThrottle = DRAIN_THROTTLE_MODES.FLOW;
+      boss.siphonableBoss.tauntDizzyTimer = 0;
+    }
+
+    captiveRig.setExpression(BOSS_EXPRESSIONS.SIPHON_KISS);
+    this.sound.setMode(AUDIO_MODES.SIPHON);
+
+    store.setGameState(GAME_STATES.LOBBY_SIPHON);
+    store.setLobbyPrompt(null);
+    store.setFinisherPose(FINISHER_POSE_IDS.CHIN_LIFT);
+    store.setDrainThrottle(DRAIN_THROTTLE_MODES.FLOW);
+    store.setEndlessSavor(startsDepleted);
+    if (startsDepleted) {
+      store.setMarinaCoreCharge(0);
+    }
+    store.setBossExpression(BOSS_EXPRESSIONS.SIPHON_KISS);
+    store.setAudioMode(AUDIO_MODES.SIPHON);
+    store.syncCombatSnapshot({
+      siphonProgress: startsDepleted ? 1.0 : 1.0 - initialCharge,
+      tauntDizzyTimer: 0,
+    });
+
+    captiveRig.root.updateMatrixWorld(true);
+    captiveRig.headAnchor.getWorldPosition(this.orbitCameraTarget.position);
+    this.cameraRig.resetSphericalOrbit(
+      SIPHON_GALLERY_CONFIG.siphonInitialAzimuth,
+      CAMERA_CONFIG.finisherDefaultElevation,
+      CAMERA_CONFIG.finisherDefaultDistance,
+    );
+  }
+
+  /**
+   * Releases captive Marina back onto her bound velvet dais posture at her remaining
+   * `marinaCoreCharge`, returns the Dark Mage standing beside the dais, re-engages
+   * PointerLock, and transitions cleanly back to `LOBBY`.
+   */
+  public releaseLobbySiphon(): void {
+    if (this.state !== GAME_STATES.LOBBY_SIPHON) return;
+
+    const remainingCharge = this.finisherSystem.getLobbyCharge();
+    this.finisherSystem.hideVisuals();
+    this.finisherSystem.resetState();
+    this.inputSystem.resetTransientInputs();
+
+    const store = useGameStore.getState();
+    store.setMarinaCoreCharge(remainingCharge);
+    store.setEndlessSavor(false);
+
+    const standX = SIPHON_GALLERY_CONFIG.marinaDaisPos.x;
+    const standZ =
+      SIPHON_GALLERY_CONFIG.marinaDaisPos.z -
+      SIPHON_GALLERY_CONFIG.releaseStandOffsetZ;
+
+    const player = this.world.queryFirst('playerTag', 'transform', 'velocity');
+    if (player) {
+      player.transform.position.x = standX;
+      player.transform.position.y = 0;
+      player.transform.position.z = standZ;
+      player.transform.rotationY = 0;
+      player.velocity.vx = 0;
+      player.velocity.vy = 0;
+      player.velocity.vz = 0;
+    }
+
+    this.mageRig.resetCombatPose();
+    this.mageRig.setEncoreTier(store.encoreTier);
+    this.mageRig.root.position.set(standX, 0, standZ);
+    this.mageRig.root.rotation.set(0, 0, 0);
+
+    // Restore captive Marina cleanly to her bound kneeling dais posture at remaining charge
+    this.sceneManager.mageTowerLevel.updateMarinaCaptiveState(
+      remainingCharge,
+      this.elapsed,
+      0.016,
+    );
+
+    this.state = GAME_STATES.LOBBY;
+    this.sound.setMode(AUDIO_MODES.LOBBY);
+    store.setGameState(GAME_STATES.LOBBY);
+    store.setAudioMode(AUDIO_MODES.LOBBY);
+
+    // Frame camera behind the Dark Mage looking south toward Marina on her dais
+    this.cameraRig.setCombatAngles(Math.PI, CAMERA_CONFIG.combatInitialPitch);
+    this.cameraRig.requestLock();
+  }
+
   private startLoop(): void {
     this.clock.start();
 
@@ -1135,6 +1262,20 @@ export class GameEngine implements IGameController {
           this.titleCameraTarget,
           null,
           this.sceneManager,
+        );
+      } else if (this.state === GAME_STATES.LOBBY_SIPHON) {
+        const captiveRig = this.sceneManager.mageTowerLevel.captiveMarinaRig;
+        if (captiveRig) {
+          captiveRig.root.updateMatrixWorld(true);
+          captiveRig.headAnchor.getWorldPosition(
+            this.orbitCameraTarget.position,
+          );
+        }
+        this.cameraRig.update(
+          dt,
+          this.state,
+          this.playerCameraTarget,
+          this.orbitCameraTarget,
         );
       } else if (
         this.state === GAME_STATES.SIPHON_FINISHER ||

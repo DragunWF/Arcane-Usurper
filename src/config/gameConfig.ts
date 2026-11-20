@@ -1415,6 +1415,9 @@ export const SIPHON_GALLERY_CONFIG = Object.freeze({
   bossDefeatRechargeBonus: 1.0,
   minDrainableCharge: 0.05,
   defaultCoreCharge: 1.0,
+  chargeStoreSyncIntervalSec: 0.2,
+  releaseStandOffsetZ: 2.25,
+  siphonInitialAzimuth: Math.PI + 0.55,
 
   // Gallery Atmosphere & Cold-Flame Brazier Lights
   brazierLightIntensity: 3.1,

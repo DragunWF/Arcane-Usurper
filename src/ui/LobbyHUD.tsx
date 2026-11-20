@@ -19,6 +19,7 @@ interface LobbyHUDProps {
 export function LobbyHUD({ controller }: LobbyHUDProps) {
   const gameState = useGameStore((s) => s.gameState);
   const encoreTier = useGameStore((s) => s.encoreTier);
+  const marinaCoreCharge = useGameStore((s) => s.marinaCoreCharge);
   const lobbyPrompt = useGameStore((s) => s.lobbyPrompt);
   const lobbyDummyHit = useGameStore((s) => s.lobbyDummyHit);
   const audioMuted = useGameStore((s) => s.audioMuted);
@@ -39,7 +40,13 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
     lobbyPrompt?.kind === LOBBY_PROMPT_KINDS.REALM_2_SEALED;
   const isSealedRealm3 =
     lobbyPrompt?.kind === LOBBY_PROMPT_KINDS.REALM_3_SEALED;
-  const isSealed = isSealedRealm2 || isSealedRealm3;
+  const isSealedGallery =
+    lobbyPrompt?.kind === LOBBY_PROMPT_KINDS.SIPHON_GALLERY_WARD;
+  const isMarinaDais = lobbyPrompt?.kind === LOBBY_PROMPT_KINDS.MARINA_DAIS;
+  const isSealed = isSealedRealm2 || isSealedRealm3 || isSealedGallery;
+  const marinaChargePct = Math.round(
+    Math.max(0, Math.min(1, marinaCoreCharge)) * 100,
+  );
 
   return (
     <div className="fixed inset-0 z-20 pointer-events-none">
@@ -161,7 +168,9 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
                     backgroundColor: `${PALETTE.hex.abyssalCloak}E6`,
                     borderColor: isSealedRealm2
                       ? PALETTE.hex.sunkenTeal
-                      : PALETTE.hex.harmonicMagenta,
+                      : isSealedGallery
+                        ? PALETTE.hex.amethystTrim
+                        : PALETTE.hex.harmonicMagenta,
                   }
                 : undefined
             }
@@ -173,7 +182,9 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
                   ? PALETTE.hex.sunkenTeal
                   : isSealedRealm3
                     ? PALETTE.hex.harmonicEmerald
-                    : PALETTE.hex.iceHighlights,
+                    : isSealedGallery
+                      ? PALETTE.hex.pulseLavender
+                      : PALETTE.hex.iceHighlights,
               }}
             >
               {lobbyPrompt.title}
@@ -183,11 +194,28 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
               style={{
                 color: isSealed
                   ? PALETTE.hex.drainedAshSilver
-                  : PALETTE.hex.pulseLavender,
+                  : isMarinaDais
+                    ? PALETTE.hex.frostRunes
+                    : PALETTE.hex.pulseLavender,
               }}
             >
               {lobbyPrompt.subtitle}
             </div>
+
+            {isMarinaDais && (
+              <div className="mt-2.5 w-56 sm:w-64 mx-auto">
+                <div className="h-2 w-full rounded-full bg-slate-950/90 border border-sky-400/40 overflow-hidden p-[1px]">
+                  <div
+                    className="bar-fill h-full rounded-full transition-all duration-150"
+                    style={{
+                      width: `${marinaChargePct}%`,
+                      background: `linear-gradient(90deg, ${PALETTE.hex.frostRunes}, ${PALETTE.hex.iceHighlights})`,
+                      boxShadow: `0 0 12px ${PALETTE.hex.frostRunes}`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
           </button>
         </div>
       )}
