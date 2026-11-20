@@ -87,13 +87,17 @@ export class MovementSystem implements ISystem {
       state === GAME_STATES.BOSS_COMBAT ||
       state === GAME_STATES.CHAMBER_COMBAT
     ) {
-      this.updatePlayerMovement(dt);
-      this.updateBossMovement(dt, state);
+      this.updatePlayerMovement(dt, state);
+      if (state === GAME_STATES.BOSS_COMBAT) {
+        this.updateBossMovement(dt, state);
+      } else {
+        this.updateServantsMovement(dt);
+      }
     } else if (state === GAME_STATES.STAGGER) {
       if (this.finisherApproach) {
         this.updateFinisherApproach(dt);
       } else {
-        this.updatePlayerMovement(dt);
+        this.updatePlayerMovement(dt, state);
         this.updateStaggerProximity();
       }
       this.updateBossMovement(dt, state);
@@ -122,7 +126,7 @@ export class MovementSystem implements ISystem {
     return outVec;
   }
 
-  private updatePlayerMovement(dt: number): void {
+  private updatePlayerMovement(dt: number, state: GameState): void {
     const player = this.world.queryFirst(
       'playerTag',
       'transform',
@@ -247,26 +251,32 @@ export class MovementSystem implements ISystem {
       }
     }
 
-    // Soft body separation from Boss
-    const boss = this.world.queryFirst('bossPhase', 'transform', 'hurtbox');
-    if (boss) {
-      const bx = boss.transform.position.x;
-      const bz = boss.transform.position.z;
-      const dx = pos.x - bx;
-      const dz = pos.z - bz;
-      const minSep =
-        PLAYER_CONFIG.radius +
-        boss.hurtbox.radius * BOSS_CONFIG.bodySeparationFactor;
-      const distSq = dx * dx + dz * dz;
-      if (distSq < minSep * minSep && distSq > 0.00001) {
-        const dist = Math.sqrt(distSq);
-        pos.x = bx + (dx / dist) * minSep;
-        pos.z = bz + (dz / dist) * minSep;
+    // Soft body separation from Boss (summit combat & stagger only)
+    if (state !== GAME_STATES.CHAMBER_COMBAT) {
+      const boss = this.world.queryFirst('bossPhase', 'transform', 'hurtbox');
+      if (boss) {
+        const bx = boss.transform.position.x;
+        const bz = boss.transform.position.z;
+        const dx = pos.x - bx;
+        const dz = pos.z - bz;
+        const minSep =
+          PLAYER_CONFIG.radius +
+          boss.hurtbox.radius * BOSS_CONFIG.bodySeparationFactor;
+        const distSq = dx * dx + dz * dz;
+        if (distSq < minSep * minSep && distSq > 0.00001) {
+          const dist = Math.sqrt(distSq);
+          pos.x = bx + (dx / dist) * minSep;
+          pos.z = bz + (dz / dist) * minSep;
+        }
       }
     }
 
     // Clamp strictly within active ArenaBounds (rectangular chambers or circular summit)
-    const bounds = this.arena.bounds;
+    this.clampPositionToArenaBounds(pos);
+  }
+
+  private clampPositionToArenaBounds(pos: { x: number; z: number }): void {
+    const bounds = this.arena.getArenaBounds();
     if (bounds.kind === ARENA_BOUNDS_KINDS.RECTANGULAR) {
       pos.x = THREE.MathUtils.clamp(pos.x, bounds.minX, bounds.maxX);
       pos.z = THREE.MathUtils.clamp(pos.z, bounds.minZ, bounds.maxZ);
@@ -276,6 +286,67 @@ export class MovementSystem implements ISystem {
         pos.x = (pos.x / radial) * bounds.clampRadius;
         pos.z = (pos.z / radial) * bounds.clampRadius;
       }
+    }
+  }
+
+  /**
+   * Integrates Chamber Servant velocities, resolves pillar collisions, separates overlapping
+   * servants, and clamps every servant inside `SceneManager.getArenaBounds()`.
+   */
+  private updateServantsMovement(dt: number): void {
+    const servants = this.world.query(
+      'servantAI',
+      'transform',
+      'velocity',
+      'hurtbox',
+    );
+    const pillars = this.arena.pillarColliders;
+
+    for (let i = 0; i < servants.length; i++) {
+      const entity = servants[i];
+      if (!entity) continue;
+      const { transform, velocity, hurtbox } = entity;
+      const pos = transform.position;
+
+      pos.x += velocity.vx * dt;
+      pos.z += velocity.vz * dt;
+
+      // Colonnade pillar & statue repulsion
+      for (let j = 0; j < pillars.length; j++) {
+        const pil = pillars[j];
+        if (!pil) continue;
+        const dx = pos.x - pil.x;
+        const dz = pos.z - pil.z;
+        const minR = pil.radius + hurtbox.radius;
+        const distSq = dx * dx + dz * dz;
+        if (distSq < minR * minR && distSq > 0.00001) {
+          const dist = Math.sqrt(distSq);
+          pos.x = pil.x + (dx / dist) * minR;
+          pos.z = pil.z + (dz / dist) * minR;
+        }
+      }
+
+      // Soft separation between neighboring servants
+      for (let k = i + 1; k < servants.length; k++) {
+        const other = servants[k];
+        if (!other) continue;
+        const dx = pos.x - other.transform.position.x;
+        const dz = pos.z - other.transform.position.z;
+        const minSep = hurtbox.radius + other.hurtbox.radius;
+        const distSq = dx * dx + dz * dz;
+        if (distSq < minSep * minSep && distSq > 0.00001) {
+          const dist = Math.sqrt(distSq);
+          const push = (minSep - dist) * 0.5;
+          const nx = dx / dist;
+          const nz = dz / dist;
+          pos.x += nx * push;
+          pos.z += nz * push;
+          other.transform.position.x -= nx * push;
+          other.transform.position.z -= nz * push;
+        }
+      }
+
+      this.clampPositionToArenaBounds(pos);
     }
   }
 

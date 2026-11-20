@@ -7,8 +7,10 @@ import {
   NG_PLUS_CONFIG,
   PALETTE,
   PLAYER_CONFIG,
+  SOUL_WISP_KINDS,
   type BossPhase,
   type DrainThrottleMode,
+  type SoulWispKind,
 } from '../config/gameConfig';
 import type { DarkMageRig } from '../rigs/DarkMageRig';
 import { ToonAssets } from './ToonAssets';
@@ -61,6 +63,11 @@ export interface IVfxSpawner {
     direction: THREE.Vector3,
   ): THREE.Group;
   createIceLanceGroup(): THREE.Group;
+  createServantBoltGroup(
+    origin: THREE.Vector3,
+    direction: THREE.Vector3,
+  ): THREE.Group;
+  createSoulWispGroup(origin: THREE.Vector3, kind: SoulWispKind): THREE.Group;
   createCrescentBladeGroup(origin: THREE.Vector3, yaw: number): THREE.Group;
   createSpiralOrbGroup(origin: THREE.Vector3): THREE.Group;
   createUmbralPulseGroup(origin: THREE.Vector3): THREE.Group;
@@ -290,6 +297,64 @@ export class VfxFactory implements IVfxSpawner {
     glow.scale.set(1.38, 1.38, 1.08);
     group.add(glow);
 
+    this.scene.add(group);
+    return group;
+  }
+
+  /**
+   * Sleek crystalline frost needle fired in fans by Cryo Acolytes.
+   */
+  public createServantBoltGroup(
+    origin: THREE.Vector3,
+    direction: THREE.Vector3,
+  ): THREE.Group {
+    const group = new THREE.Group();
+    group.position.copy(origin);
+    this.scratchLookTarget.copy(origin).add(direction);
+    group.lookAt(this.scratchLookTarget);
+
+    const core = new THREE.Mesh(this.lanceGeo, this.lanceMat);
+    core.scale.set(0.75, 0.75, 0.72);
+    group.add(core);
+
+    const aura = new THREE.Mesh(this.lanceGeo, this.lanceCoreMat);
+    aura.scale.set(1.18, 1.18, 0.82);
+    group.add(aura);
+
+    this.scene.add(group);
+    return group;
+  }
+
+  /**
+   * Homing Soul Wisp orb (cyan for Astral Portal charge; emerald-cyan for Frost Urn healing).
+   */
+  public createSoulWispGroup(
+    origin: THREE.Vector3,
+    kind: SoulWispKind,
+  ): THREE.Group {
+    const group = new THREE.Group();
+    group.position.copy(origin);
+
+    const isHeal = kind === SOUL_WISP_KINDS.HEAL_PLAYER;
+    const coreColor = isHeal ? PALETTE.emeraldReady : PALETTE.iceHighlights;
+    const haloColor = isHeal ? PALETTE.emeraldReady : PALETTE.frostRunes;
+
+    const coreGeo = new THREE.OctahedronGeometry(0.16, 0);
+    const coreMat = new THREE.MeshBasicMaterial({ color: coreColor });
+    group.add(new THREE.Mesh(coreGeo, coreMat));
+
+    const haloGeo = new THREE.SphereGeometry(0.32, 10, 10);
+    const haloMat = new THREE.MeshBasicMaterial({
+      color: haloColor,
+      transparent: true,
+      opacity: 0.58,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    group.add(new THREE.Mesh(haloGeo, haloMat));
+
+    group.userData.ownedGeometries = [coreGeo, haloGeo];
+    group.userData.ownedMaterials = [coreMat, haloMat];
     this.scene.add(group);
     return group;
   }

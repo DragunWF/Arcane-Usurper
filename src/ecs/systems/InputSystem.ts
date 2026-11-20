@@ -48,6 +48,7 @@ export class InputSystem implements ISystem {
   private queuedBlink = false;
   private queuedPulse = false;
   private queuedFinisherExecute = false;
+  private queuedPortalInteract = false;
   private queuedTaunt = false;
   private queuedSurgeTap = false;
   private queuedPose: FinisherPoseId | null = null;
@@ -100,9 +101,13 @@ export class InputSystem implements ISystem {
         return;
       }
 
-      // Execute Arcane Siphon Kiss ([E]) in STAGGER
+      // Execute Arcane Siphon Kiss ([E]) in STAGGER or Ascend Astral Portal ([E]) in CHAMBER_COMBAT
       if (e.code === 'KeyE' && state === GAME_STATES.STAGGER) {
         this.queuedFinisherExecute = true;
+        return;
+      }
+      if (e.code === 'KeyE' && state === GAME_STATES.CHAMBER_COMBAT) {
+        this.queuedPortalInteract = true;
         return;
       }
 
@@ -215,6 +220,10 @@ export class InputSystem implements ISystem {
     this.queuedFinisherExecute = true;
   }
 
+  public queuePortalInteract(): void {
+    this.queuedPortalInteract = true;
+  }
+
   public triggerSingleShotFire(): void {
     this.queuedSingleShotFire = true;
   }
@@ -236,6 +245,7 @@ export class InputSystem implements ISystem {
     this.queuedBlink = false;
     this.queuedPulse = false;
     this.queuedFinisherExecute = false;
+    this.queuedPortalInteract = false;
     this.queuedTaunt = false;
     this.queuedSurgeTap = false;
     this.queuedPose = null;
@@ -274,6 +284,7 @@ export class InputSystem implements ISystem {
     intent.blinkRequested = this.queuedBlink;
     intent.pulseRequested = this.queuedPulse;
     intent.finisherExecuteRequested = this.queuedFinisherExecute;
+    intent.portalInteractRequested = this.queuedPortalInteract;
     intent.tauntRequested = this.queuedTaunt;
     intent.surgeTapRequested = this.queuedSurgeTap;
     intent.requestedPose = this.queuedPose;
@@ -284,6 +295,7 @@ export class InputSystem implements ISystem {
     this.queuedBlink = false;
     this.queuedPulse = false;
     this.queuedFinisherExecute = false;
+    this.queuedPortalInteract = false;
     this.queuedTaunt = false;
     this.queuedSurgeTap = false;
     this.queuedPose = null;

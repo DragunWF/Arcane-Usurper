@@ -87,6 +87,7 @@ export interface PlayerIntentComponent {
   blinkRequested: boolean;
   pulseRequested: boolean;
   finisherExecuteRequested: boolean;
+  portalInteractRequested: boolean;
   tauntRequested: boolean;
   surgeTapRequested: boolean;
   requestedPose: FinisherPoseId | null;
@@ -206,8 +207,11 @@ export interface DestructiblePropComponent {
  * Homing soul wisp travelling from a defeated servant / shattered urn to its target.
  */
 export interface SoulWispComponent {
+  startPos: Vec3Data;
   targetPos: Vec3Data;
   progress: number;
+  duration: number;
+  healValue: number;
   kind: SoulWispKind;
 }
 

@@ -99,9 +99,14 @@ export class RenderSyncSystem implements ISystem {
       }
     }
 
-    // 3. Sync Boss Rig Transform & Procedural Pose (yields to Finisher/Diorama poses)
+    // 3. Sync Boss Rig Transform & Procedural Pose (hidden in Chambers, yields to Finisher/Diorama)
+    const isChamberState =
+      state === GAME_STATES.CHAMBER_COMBAT ||
+      state === GAME_STATES.PORTAL_TRANSITION;
+    this.bossRig.root.visible = !isChamberState;
+
     const boss = this.world.queryFirst('bossPhase', 'transform');
-    if (boss && !isDioramaOrFinisher) {
+    if (boss && !isDioramaOrFinisher && !isChamberState) {
       const bPos = boss.transform.position;
       this.bossRig.root.position.set(bPos.x, bPos.y, bPos.z);
       this.bossRig.root.rotation.y = boss.transform.rotationY;
@@ -137,7 +142,11 @@ export class RenderSyncSystem implements ISystem {
         transform.position.z,
       );
 
-      if (projectile.kind === 'VOID_BOLT' || projectile.kind === 'USURPED_BEAM') {
+      if (
+        projectile.kind === 'VOID_BOLT' ||
+        projectile.kind === 'USURPED_BEAM' ||
+        projectile.kind === 'SERVANT_BOLT'
+      ) {
         obj.rotateZ(dt * projectile.spinSpeed);
       } else if (projectile.kind === 'ICE_LANCE') {
         if (projectile.state === 'HOVER' && playerPos) {

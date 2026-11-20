@@ -4,6 +4,7 @@ import {
   GAME_STATES,
   PALETTE,
   PLAYER_CONFIG,
+  PORTAL_STATES,
 } from '../config/gameConfig';
 import type { IGameController } from '../engine/GameEngine';
 import { useGameStore } from '../state/useGameStore';
@@ -37,6 +38,12 @@ export function CombatHUD({ controller }: CombatHUDProps) {
   const isBossStaggered = useGameStore((s) => s.isBossStaggered);
   const canExecuteFinisher = useGameStore((s) => s.canExecuteFinisher);
   const encoreTier = useGameStore((s) => s.encoreTier);
+  const chamberWave = useGameStore((s) => s.chamberWave);
+  const totalChamberWaves = useGameStore((s) => s.totalChamberWaves);
+  const servantsRemaining = useGameStore((s) => s.servantsRemaining);
+  const portalState = useGameStore((s) => s.portalState);
+  const isNearPortal = useGameStore((s) => s.isNearPortal);
+  const portalWarpProgress = useGameStore((s) => s.portalWarpProgress);
 
   const audioMuted = useGameStore((s) => s.audioMuted);
   const errorMessage = useGameStore((s) => s.errorMessage);
@@ -71,9 +78,13 @@ export function CombatHUD({ controller }: CombatHUDProps) {
   );
   const bossHpPct = Math.max(0, Math.min(100, (bossHp / Math.max(1, bossMaxHp)) * 100));
 
+  const isChamberMode =
+    gameState === GAME_STATES.CHAMBER_COMBAT ||
+    gameState === GAME_STATES.PORTAL_TRANSITION;
   const showCombatHud =
     gameState === GAME_STATES.BOSS_COMBAT ||
     gameState === GAME_STATES.CHAMBER_COMBAT ||
+    gameState === GAME_STATES.PORTAL_TRANSITION ||
     gameState === GAME_STATES.STAGGER;
 
   const phaseSubtitleClass = isBossStaggered
@@ -114,7 +125,7 @@ export function CombatHUD({ controller }: CombatHUDProps) {
               onClick={() => controller?.startGame()}
               className="ascend-btn px-8 sm:px-11 py-4 rounded-xl font-display text-sm sm:text-base font-bold tracking-[0.22em] text-sky-50 uppercase cursor-pointer"
             >
-              [ASCEND TO THE SUMMIT]
+              [ASCEND THE GLACIAL SPIRE]
             </button>
             <p className="text-[11px] sm:text-xs tracking-[0.14em] text-sky-200/65 text-center max-w-md">
               Click the arena after ascending to lock camera orbit &bull; Press{' '}
@@ -249,33 +260,63 @@ export function CombatHUD({ controller }: CombatHUDProps) {
             </div>
           </div>
 
-          {/* Top-Center Frosted-Glass Boss HUD */}
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 w-[310px] sm:w-[460px] md:w-[540px] max-w-[calc(100vw-2rem)]">
-            <div className="frost-panel rounded-2xl px-4 py-3 sm:px-5 sm:py-3.5 border-sky-300/35 shadow-[0_12px_36px_rgba(2,132,199,0.28)]">
-              <div className="flex items-end justify-between gap-2 mb-1.5">
-                <div>
+          {/* Top-Center Royal Ice Chambers Wave Header OR Marina Boss HP Bar */}
+          {isChamberMode ? (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 w-[310px] sm:w-[460px] md:w-[540px] max-w-[calc(100vw-2rem)]">
+              <div className="frost-panel rounded-2xl px-4 py-3 sm:px-5 sm:py-3.5 border-purple-400/45 shadow-[0_12px_36px_rgba(139,92,246,0.28)]">
+                <div className="flex items-center justify-between gap-2 mb-1">
                   <div className="font-display text-xs sm:text-sm md:text-base font-bold tracking-[0.18em] text-sky-50 leading-tight drop-shadow-[0_0_10px_rgba(56,189,248,0.6)]">
-                    {bossDisplayName} &mdash; {bossTitle}
+                    ROYAL ICE CHAMBERS
                   </div>
-                  <div className={phaseSubtitleClass}>{bossPhaseSubtitle}</div>
+                  <span
+                    className={
+                      portalState === PORTAL_STATES.IGNITED
+                        ? 'text-[10px] sm:text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-purple-500/30 border border-fuchsia-300/70 text-fuchsia-100 uppercase'
+                        : 'text-[10px] sm:text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-sky-950/80 border border-sky-400/40 text-sky-200 uppercase'
+                    }
+                  >
+                    {portalState === PORTAL_STATES.IGNITED
+                      ? 'PORTAL IGNITED'
+                      : `PORTAL SEALED`}
+                  </span>
                 </div>
-                <div className="text-[11px] sm:text-xs font-mono font-semibold text-sky-100/95 whitespace-nowrap">
-                  {Math.ceil(bossHp)} / {bossMaxHp}
+                <div className="text-[10px] sm:text-[11px] tracking-[0.2em] uppercase font-semibold text-sky-200/90">
+                  {portalState === PORTAL_STATES.IGNITED
+                    ? 'ASTRAL PORTAL OPEN — ASCEND TO MARINA’S SUMMIT'
+                    : `CHAMBER WAVE ${Math.max(1, chamberWave)} / ${totalChamberWaves} — SERVANTS REMAINING: ${servantsRemaining}`}
                 </div>
-              </div>
-
-              <div className="relative h-3 w-full rounded-full bg-slate-950/90 border border-sky-300/35 overflow-hidden p-[1px]">
-                <div
-                  className="absolute top-[1px] left-[1px] bottom-[1px] rounded-full bg-sky-100/75 transition-all duration-300 ease-out"
-                  style={{ width: `${bossHpPct.toFixed(1)}%` }}
-                />
-                <div
-                  className="bar-fill relative h-full rounded-full bg-gradient-to-r from-sky-700 via-sky-400 to-cyan-200 shadow-[0_0_14px_rgba(56,189,248,0.85)]"
-                  style={{ width: `${bossHpPct.toFixed(1)}%` }}
-                />
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 w-[310px] sm:w-[460px] md:w-[540px] max-w-[calc(100vw-2rem)]">
+              <div className="frost-panel rounded-2xl px-4 py-3 sm:px-5 sm:py-3.5 border-sky-300/35 shadow-[0_12px_36px_rgba(2,132,199,0.28)]">
+                <div className="flex items-end justify-between gap-2 mb-1.5">
+                  <div>
+                    <div className="font-display text-xs sm:text-sm md:text-base font-bold tracking-[0.18em] text-sky-50 leading-tight drop-shadow-[0_0_10px_rgba(56,189,248,0.6)]">
+                      {bossDisplayName} &mdash; {bossTitle}
+                    </div>
+                    <div className={phaseSubtitleClass}>
+                      {bossPhaseSubtitle}
+                    </div>
+                  </div>
+                  <div className="text-[11px] sm:text-xs font-mono font-semibold text-sky-100/95 whitespace-nowrap">
+                    {Math.ceil(bossHp)} / {bossMaxHp}
+                  </div>
+                </div>
+
+                <div className="relative h-3 w-full rounded-full bg-slate-950/90 border border-sky-300/35 overflow-hidden p-[1px]">
+                  <div
+                    className="absolute top-[1px] left-[1px] bottom-[1px] rounded-full bg-sky-100/75 transition-all duration-300 ease-out"
+                    style={{ width: `${bossHpPct.toFixed(1)}%` }}
+                  />
+                  <div
+                    className="bar-fill relative h-full rounded-full bg-gradient-to-r from-sky-700 via-sky-400 to-cyan-200 shadow-[0_0_14px_rgba(56,189,248,0.85)]"
+                    style={{ width: `${bossHpPct.toFixed(1)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Top-Right Pause ([P]) & Audio Toggle ([M]) Pills */}
           <div className="fixed top-4 right-4 sm:top-6 sm:right-6 z-30 flex items-center gap-2 pointer-events-auto">
@@ -415,6 +456,22 @@ export function CombatHUD({ controller }: CombatHUDProps) {
             }`}
           />
 
+          {/* Lower-Center Ignited Astral Portal Prompt (CHAMBER_COMBAT) */}
+          {gameState === GAME_STATES.CHAMBER_COMBAT &&
+            portalState === PORTAL_STATES.IGNITED && (
+              <div className="fixed bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 pointer-events-auto z-30">
+                <button
+                  type="button"
+                  onClick={() => controller?.triggerPortalAscend()}
+                  className={`ascend-btn px-6 sm:px-9 py-3.5 rounded-xl font-display text-xs sm:text-sm md:text-base font-bold tracking-[0.2em] text-fuchsia-100 uppercase cursor-pointer animate-pulse ${
+                    isNearPortal ? 'scale-105' : 'opacity-90'
+                  }`}
+                >
+                  [E] ASCEND THROUGH ASTRAL PORTAL
+                </button>
+              </div>
+            )}
+
           {/* Lower-Center Amethyst Finisher Prompt (STAGGER within 8.5m) */}
           {gameState === GAME_STATES.STAGGER && canExecuteFinisher && (
             <div className="fixed bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 pointer-events-auto z-30">
@@ -425,6 +482,21 @@ export function CombatHUD({ controller }: CombatHUDProps) {
               >
                 [E] EXECUTE ARCANE SIPHON KISS
               </button>
+            </div>
+          )}
+
+          {/* White-Violet Astral Portal Warp Transition Overlay */}
+          {gameState === GAME_STATES.PORTAL_TRANSITION && (
+            <div
+              className="fixed inset-0 z-40 pointer-events-none flex items-center justify-center"
+              style={{
+                opacity: Math.min(1, Math.pow(portalWarpProgress, 0.7) * 1.1),
+                background: `radial-gradient(circle at center, ${PALETTE.hex.pureWhite} 0%, ${PALETTE.hex.pulseLavender} 42%, ${PALETTE.hex.glowViolet} 100%)`,
+              }}
+            >
+              <div className="font-display text-sm sm:text-lg font-extrabold tracking-[0.28em] uppercase text-slate-950 drop-shadow-[0_0_16px_rgba(255,255,255,0.9)]">
+                ASCENDING TO THE GLACIAL SUMMIT
+              </div>
             </div>
           )}
         </div>

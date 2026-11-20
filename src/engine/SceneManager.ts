@@ -47,6 +47,7 @@ export interface IArenaGeometry {
   readonly bounds: ArenaBounds;
   readonly pillarColliders: readonly PillarCollider[];
   readonly pillarMeshes: readonly THREE.Object3D[];
+  getArenaBounds(): ArenaBounds;
 }
 
 export type ArenaAtmospherePhase = BossPhase | 'STAGGER';
@@ -126,6 +127,10 @@ export class SceneManager implements IArenaGeometry {
     return this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER
       ? this._chamberBounds
       : this._summitBounds;
+  }
+
+  public getArenaBounds(): ArenaBounds {
+    return this.bounds;
   }
 
   public get pillarColliders(): readonly PillarCollider[] {

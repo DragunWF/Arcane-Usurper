@@ -1,4 +1,4 @@
-import { PALETTE } from '../config/gameConfig';
+import { GAME_STATES, PALETTE } from '../config/gameConfig';
 import type { IGameController } from '../engine/GameEngine';
 import { useGameStore } from '../state/useGameStore';
 
@@ -12,11 +12,13 @@ interface PauseMenuProps {
  * Resume ([P]), and Restart Stage actions. Zero Three.js imports.
  */
 export function PauseMenu({ controller }: PauseMenuProps) {
+  const gameState = useGameStore((s) => s.gameState);
   const isPaused = useGameStore((s) => s.isPaused);
   const musicVolume = useGameStore((s) => s.musicVolume);
   const sfxVolume = useGameStore((s) => s.sfxVolume);
   const audioMuted = useGameStore((s) => s.audioMuted);
   const encoreTier = useGameStore((s) => s.encoreTier);
+  const hasReachedSummit = useGameStore((s) => s.hasReachedSummit);
   const setMusicVolumeStore = useGameStore((s) => s.setMusicVolume);
   const setSfxVolumeStore = useGameStore((s) => s.setSfxVolume);
 
@@ -74,9 +76,13 @@ export function PauseMenu({ controller }: PauseMenuProps) {
               }}
             />
             <span className="text-[10px] sm:text-[11px] font-semibold tracking-[0.24em] uppercase text-sky-200">
-              {encoreTier > 0
-                ? `Glacial Spire • Encore NG+${encoreTier}`
-                : 'Glacial Spire • Temporal Stasis'}
+              {gameState === GAME_STATES.CHAMBER_COMBAT
+                ? encoreTier > 0
+                  ? `Royal Ice Chambers • Encore NG+${encoreTier}`
+                  : 'Royal Ice Chambers • Temporal Stasis'
+                : encoreTier > 0
+                  ? `Glacial Spire Summit • Encore NG+${encoreTier}`
+                  : 'Glacial Spire Summit • Temporal Stasis'}
             </span>
           </div>
 
@@ -191,7 +197,11 @@ export function PauseMenu({ controller }: PauseMenuProps) {
               boxShadow: PALETTE.rgba.pauseRestartShadow,
             }}
           >
-            RESTART STAGE
+            {gameState === GAME_STATES.CHAMBER_COMBAT
+              ? 'RESTART CHAMBERS'
+              : hasReachedSummit
+                ? 'RESTART SUMMIT DUEL'
+                : 'RESTART STAGE'}
           </button>
         </div>
       </div>

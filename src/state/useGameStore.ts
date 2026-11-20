@@ -66,6 +66,7 @@ export interface GameStoreState {
   portalState: PortalState;
   hasReachedSummit: boolean;
   isNearPortal: boolean;
+  portalWarpProgress: number;
 
   // Boss Telemetry
   bossId: string;
@@ -121,6 +122,7 @@ export interface GameStoreState {
   setPortalState: (portalState: PortalState) => void;
   setHasReachedSummit: (reached: boolean) => void;
   setNearPortal: (isNear: boolean) => void;
+  setPortalWarpProgress: (progress: number) => void;
   resetChamberProgress: () => void;
   setFinisherPose: (pose: FinisherPoseId) => void;
   setDrainThrottle: (mode: DrainThrottleMode) => void;
@@ -166,6 +168,7 @@ const INITIAL_STATE = {
   portalState: PORTAL_STATES.SEALED as PortalState,
   hasReachedSummit: false,
   isNearPortal: false,
+  portalWarpProgress: 0,
 
   bossId: BOSS_CONFIG.defaultId,
   bossDisplayName: BOSS_CONFIG.defaultDisplayName,
@@ -248,6 +251,8 @@ export const useGameStore = create<GameStoreState>((set) => ({
   setPortalState: (portalState) => set({ portalState }),
   setHasReachedSummit: (hasReachedSummit) => set({ hasReachedSummit }),
   setNearPortal: (isNearPortal) => set({ isNearPortal }),
+  setPortalWarpProgress: (portalWarpProgress) =>
+    set({ portalWarpProgress: Math.max(0, Math.min(1, portalWarpProgress)) }),
   resetChamberProgress: () =>
     set({
       chamberWave: 0,
@@ -256,6 +261,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
       portalState: PORTAL_STATES.SEALED,
       hasReachedSummit: false,
       isNearPortal: false,
+      portalWarpProgress: 0,
     }),
 
   setFinisherPose: (finisherPose) => set({ finisherPose }),

@@ -7,7 +7,9 @@ import {
   BOSS_EXPRESSIONS,
   BOSS_PHASES,
   CAMERA_CONFIG,
+  CHAMBER_CONFIG,
   DRAIN_THROTTLE_MODES,
+  ENVIRONMENT_IDS,
   FINISHER_POSE_IDS,
   GAME_STATES,
   NG_PLUS_CONFIG,
@@ -18,6 +20,7 @@ import {
   type GameState,
 } from '../config/gameConfig';
 import { BossAISystem } from '../ecs/systems/BossAISystem';
+import { ChamberSystem } from '../ecs/systems/ChamberSystem';
 import { CombatSystem } from '../ecs/systems/CombatSystem';
 import { DioramaSystem } from '../ecs/systems/DioramaSystem';
 import { FinisherSystem } from '../ecs/systems/FinisherSystem';
@@ -49,6 +52,7 @@ export interface IGameController {
   playSfxPreview(): void;
   toggleAudioMute(): void;
   triggerFinisher(): void;
+  triggerPortalAscend(): void;
   setFinisherPose(pose: FinisherPoseId): void;
   setDrainThrottle(mode: DrainThrottleMode | null): void;
   triggerTaunt(): void;
@@ -78,6 +82,7 @@ export class GameEngine implements IGameController {
 
   private readonly inputSystem: InputSystem;
   private readonly movementSystem: MovementSystem;
+  private readonly chamberSystem: ChamberSystem;
   private readonly bossAISystem: BossAISystem;
   private readonly combatSystem: CombatSystem;
   private readonly finisherSystem: FinisherSystem;
@@ -122,12 +127,14 @@ export class GameEngine implements IGameController {
     this.mageRig = new DarkMageRig(this.sceneManager.scene);
     this.bossRig = new MarinaRig(this.sceneManager.scene);
 
-    // Automatic Three.js mesh disposal whenever an ECS projectile/hazard/clone is destroyed
+    // Automatic Three.js mesh disposal whenever an ECS projectile/hazard/clone/wisp is destroyed
     this.unsubscribeEntityRemoved = this.world.onEntityRemoved((entity) => {
       if (
         entity.meshRef &&
         entity.meshRef.object3D !== this.mageRig.root &&
-        entity.meshRef.object3D !== this.bossRig.root
+        entity.meshRef.object3D !== this.bossRig.root &&
+        !entity.meshRef.object3D.userData.managedByLevel &&
+        !entity.meshRef.object3D.userData.managedByRig
       ) {
         this.vfx.detachAndDispose(entity.meshRef.object3D);
       }
@@ -178,7 +185,7 @@ export class GameEngine implements IGameController {
         requestPointerLock: () => this.cameraRig.requestLock(),
         onTogglePause: () => this.togglePause(),
         onToggleAudioMute: () => this.toggleAudioMute(),
-        onQuickRetry: () => this.resetDuel(),
+        onQuickRetry: () => this.retryStage(),
       },
     );
 
@@ -200,6 +207,30 @@ export class GameEngine implements IGameController {
           }
         },
         onFinisherApproachComplete: () => this.startSiphonFinisher(),
+      },
+    );
+
+    this.chamberSystem = new ChamberSystem(
+      this.world,
+      this.sceneManager.scene,
+      this.sceneManager.icePalaceLevel,
+      this.sceneManager,
+      this.sound,
+      this.vfx,
+      {
+        getGameState: () => this.state,
+        setGameState: (next) => {
+          this.state = next;
+        },
+        getEncoreTier: () => useGameStore.getState().encoreTier,
+        addCameraShake: (amount) => this.cameraRig.addShake(amount),
+        onPlayerDamaged: (amount) => this.combatSystem.applyPlayerDamage(amount),
+        onPlayerHealed: () => this.renderSyncSystem.flushHudSnapshot(),
+        onPortalWarpStarted: () => {
+          this.inputSystem.resetTransientInputs();
+          this.clearAllCombatEntities();
+        },
+        onPortalWarpComplete: () => this.enterSummitFromPortal(),
       },
     );
 
@@ -244,6 +275,14 @@ export class GameEngine implements IGameController {
           this.bossAISystem.evaluateHealthThresholds();
           this.renderSyncSystem.flushHudSnapshot();
         },
+        onServantHitFlash: (id) =>
+          this.chamberSystem.triggerServantHitFlash(id),
+        onServantGuardBreak: (id) =>
+          this.chamberSystem.handleServantGuardBreak(id),
+        onServantDefeated: (id) =>
+          this.chamberSystem.handleServantDefeated(id),
+        onUrnShattered: (origin, healValue) =>
+          this.chamberSystem.handleUrnShattered(origin, healValue),
       },
     );
 
@@ -355,6 +394,7 @@ export class GameEngine implements IGameController {
         blinkRequested: false,
         pulseRequested: false,
         finisherExecuteRequested: false,
+        portalInteractRequested: false,
         tauntRequested: false,
         surgeTapRequested: false,
         requestedPose: null,
@@ -437,20 +477,96 @@ export class GameEngine implements IGameController {
   public startGame(): void {
     if (this.state !== GAME_STATES.TITLE) return;
     this.sound.unlock();
-    this.state = GAME_STATES.BOSS_COMBAT;
+    this.enterChambersRun(0);
+    this.cameraRig.requestLock();
+  }
 
+  /**
+   * Launches a fresh Royal Ice Chambers gauntlet (Wave 1) with `hasReachedSummit = false`.
+   */
+  public enterChambersRun(encoreTier: number): void {
+    this.sound.unlock();
+    this.isPaused = false;
+    this.cameraRig.isPaused = false;
+    this.state = GAME_STATES.CHAMBER_COMBAT;
+
+    this.clearAllCombatEntities();
+    this.dioramaSystem.cleanupPuppetVisuals();
+    this.finisherSystem.resetState();
+    this.vfx.clearTransientVfx();
+    this.inputSystem.resetTransientInputs();
+    this.movementSystem.resetTransientState();
+
+    this.sceneManager.setEnvironment(ENVIRONMENT_IDS.CHAMBER);
+    this.bossRig.root.visible = false;
+
+    const player = this.world.queryFirst(
+      'playerTag',
+      'transform',
+      'velocity',
+      'health',
+      'stamina',
+      'playerCombat',
+    );
+    if (player) {
+      player.transform.position.x = CHAMBER_CONFIG.playerSpawnX;
+      player.transform.position.y = 0;
+      player.transform.position.z = CHAMBER_CONFIG.playerSpawnZ;
+      player.transform.rotationY = CHAMBER_CONFIG.playerSpawnYaw;
+      player.velocity.vx = 0;
+      player.velocity.vy = 0;
+      player.velocity.vz = 0;
+      player.health.current = PLAYER_CONFIG.maxHp;
+      player.health.max = PLAYER_CONFIG.maxHp;
+      player.health.invulnTimer = 0;
+      player.health.isInvulnerable = false;
+      player.stamina.current = PLAYER_CONFIG.maxStamina;
+      player.playerCombat.dashTimer = 0;
+      player.playerCombat.dashCooldown = 0;
+      player.playerCombat.boltCooldown = 0;
+      player.playerCombat.pulseCooldown = 0;
+      player.playerCombat.aimFaceTimer = 0;
+      player.playerCombat.encoreTier = encoreTier;
+    }
+
+    this.mageRig.resetCombatPose();
+    this.mageRig.setEncoreTier(encoreTier);
     this.cameraRig.setCombatAngles(
       CAMERA_CONFIG.combatInitialYaw,
       CAMERA_CONFIG.combatInitialPitch,
     );
-    this.sceneManager.setPhaseAtmosphere(BOSS_PHASES.PHASE_1);
-    this.sound.setMode(AUDIO_MODES.COMBAT_P1);
 
     const store = useGameStore.getState();
-    store.setGameState(GAME_STATES.BOSS_COMBAT);
-    store.setAudioMode(AUDIO_MODES.COMBAT_P1);
-    this.renderSyncSystem.flushHudSnapshot();
+    store.setEncoreTier(encoreTier);
+    store.setHasReachedSummit(false);
+    store.setPaused(false);
+    store.setGameState(GAME_STATES.CHAMBER_COMBAT);
+    store.setAudioMode(AUDIO_MODES.CHAMBER);
 
+    this.sound.setMode(AUDIO_MODES.CHAMBER);
+    this.chamberSystem.enterChambers(encoreTier);
+    this.renderSyncSystem.flushHudSnapshot();
+  }
+
+  /**
+   * Transitions from the ignited Astral Portal warp directly to Marina's Summit arena,
+   * locking the Summit Checkpoint (`hasReachedSummit = true`) and carrying over player HP
+   * with a minimum 40% safety floor.
+   */
+  private enterSummitFromPortal(): void {
+    const player = this.world.queryFirst('playerTag', 'health');
+    const carryoverHp = player
+      ? Math.max(
+          player.health.current,
+          Math.ceil(
+            player.health.max * CHAMBER_CONFIG.summitCarryoverMinHpRatio,
+          ),
+        )
+      : PLAYER_CONFIG.maxHp;
+    const tier = useGameStore.getState().encoreTier;
+
+    useGameStore.getState().setHasReachedSummit(true);
+    this.resetDuel(tier, carryoverHp);
     this.cameraRig.requestLock();
   }
 
@@ -527,13 +643,29 @@ export class GameEngine implements IGameController {
   public restartStage(): void {
     this.sound.unlock();
     this.setPaused(false);
-    this.resetDuel(useGameStore.getState().encoreTier);
+    const store = useGameStore.getState();
+    const shouldStartAtSummit =
+      this.state === GAME_STATES.BOSS_COMBAT ||
+      this.state === GAME_STATES.STAGGER ||
+      (this.state !== GAME_STATES.CHAMBER_COMBAT && store.hasReachedSummit);
+
+    if (shouldStartAtSummit) {
+      this.resetDuel(store.encoreTier);
+    } else {
+      this.enterChambersRun(store.encoreTier);
+    }
     this.cameraRig.requestLock();
   }
 
   public triggerFinisher(): void {
     if (this.state === GAME_STATES.STAGGER) {
       this.inputSystem.queueFinisherExecute();
+    }
+  }
+
+  public triggerPortalAscend(): void {
+    if (this.state === GAME_STATES.CHAMBER_COMBAT) {
+      this.chamberSystem.startPortalTransition();
     }
   }
 
@@ -570,12 +702,20 @@ export class GameEngine implements IGameController {
   public enterEncoreStage(): void {
     this.sound.unlock();
     const nextTier = useGameStore.getState().encoreTier + 1;
-    this.resetDuel(nextTier);
+    useGameStore.getState().setHasReachedSummit(false);
+    this.enterChambersRun(nextTier);
+    this.cameraRig.requestLock();
   }
 
   public retryStage(): void {
     this.sound.unlock();
-    this.resetDuel(useGameStore.getState().encoreTier);
+    const store = useGameStore.getState();
+    if (store.hasReachedSummit) {
+      this.resetDuel(store.encoreTier);
+    } else {
+      this.enterChambersRun(store.encoreTier);
+    }
+    this.cameraRig.requestLock();
   }
 
   private clearAllCombatEntities(): void {
@@ -619,17 +759,21 @@ export class GameEngine implements IGameController {
     }
   }
 
-  public resetDuel(encoreTier?: number): void {
+  public resetDuel(encoreTier?: number, carryoverPlayerHp?: number): void {
     this.sound.unlock();
     this.isPaused = false;
     this.cameraRig.isPaused = false;
     this.state = GAME_STATES.BOSS_COMBAT;
 
-    // Clear all active projectiles, hazards, clones, diorama props & transient particles
+    // Clear all chamber entities, projectiles, hazards, clones, diorama props & transient particles
+    this.chamberSystem.cleanupChambers();
     this.clearAllCombatEntities();
     this.dioramaSystem.cleanupPuppetVisuals();
     this.finisherSystem.resetState();
     this.vfx.clearTransientVfx();
+
+    this.sceneManager.setEnvironment(ENVIRONMENT_IDS.SUMMIT);
+    this.bossRig.root.visible = true;
 
     this.inputSystem.resetTransientInputs();
     this.movementSystem.resetTransientState();
@@ -639,6 +783,10 @@ export class GameEngine implements IGameController {
       BOSS_CONFIG.maxHp *
         Math.pow(NG_PLUS_CONFIG.bossHpMultiplierPerTier, nextTier),
     );
+    const startingPlayerHp =
+      carryoverPlayerHp !== undefined
+        ? Math.min(PLAYER_CONFIG.maxHp, Math.max(1, carryoverPlayerHp))
+        : PLAYER_CONFIG.maxHp;
 
     const player = this.world.queryFirst(
       'playerTag',
@@ -656,7 +804,7 @@ export class GameEngine implements IGameController {
       player.velocity.vx = 0;
       player.velocity.vy = 0;
       player.velocity.vz = 0;
-      player.health.current = PLAYER_CONFIG.maxHp;
+      player.health.current = startingPlayerHp;
       player.health.max = PLAYER_CONFIG.maxHp;
       player.health.invulnTimer = 0;
       player.health.isInvulnerable = false;
@@ -746,6 +894,11 @@ export class GameEngine implements IGameController {
   private handlePlayerDefeated(): void {
     this.inputSystem.resetTransientInputs();
     this.finisherSystem.resetState();
+    if (this.state === GAME_STATES.CHAMBER_COMBAT) {
+      this.chamberSystem.cleanupChambers();
+      this.sceneManager.setEnvironment(ENVIRONMENT_IDS.SUMMIT);
+      this.bossRig.root.visible = true;
+    }
     this.dioramaSystem.enterDefeatDiorama();
   }
 
@@ -809,6 +962,7 @@ export class GameEngine implements IGameController {
       // Run ECS Simulation Pipeline in deterministic order
       this.inputSystem.update(dt, this.elapsed);
       this.movementSystem.update(dt, this.elapsed);
+      this.chamberSystem.update(dt, this.elapsed);
       this.bossAISystem.update(dt, this.elapsed);
       this.combatSystem.update(dt, this.elapsed);
       this.finisherSystem.update(dt, this.elapsed);
@@ -874,6 +1028,7 @@ export class GameEngine implements IGameController {
     window.removeEventListener('resize', this.handleResize);
     this.unsubscribeStore();
     this.inputSystem.dispose();
+    this.chamberSystem.dispose();
     this.finisherSystem.dispose();
     this.dioramaSystem.dispose();
     this.cameraRig.exitLock();

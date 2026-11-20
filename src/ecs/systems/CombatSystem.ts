@@ -3,9 +3,13 @@ import {
   ARENA_BOUNDS_KINDS,
   ARENA_CONFIG,
   BOSS_CONFIG,
+  CHAMBER_CONFIG,
   GAME_STATES,
   NG_PLUS_CONFIG,
   PLAYER_CONFIG,
+  SERVANT_AI_STATES,
+  SERVANT_ARCHETYPES,
+  SERVANT_CONFIG,
   type GameState,
 } from '../../config/gameConfig';
 import type { IArenaGeometry } from '../../engine/SceneManager';
@@ -28,6 +32,10 @@ export interface ICombatCallbacks {
   onPlayerDamaged: () => void;
   onPlayerDefeated: () => void;
   onBossDamaged: () => void;
+  onServantHitFlash?: (entityId: EntityId) => void;
+  onServantGuardBreak?: (entityId: EntityId) => void;
+  onServantDefeated?: (entityId: EntityId) => void;
+  onUrnShattered?: (origin: THREE.Vector3, healValue: number) => void;
 }
 
 /**
@@ -74,14 +82,14 @@ export class CombatSystem implements ISystem {
       state === GAME_STATES.BOSS_COMBAT || state === GAME_STATES.CHAMBER_COMBAT;
 
     if (isCombatActive) {
-      this.processPlayerCasts();
+      this.processPlayerCasts(state);
     }
 
     this.resolveProjectileCollisions(dt, state);
     this.resolveHazardZones(dt, state);
   }
 
-  private processPlayerCasts(): void {
+  private processPlayerCasts(state: GameState): void {
     const player = this.world.queryFirst(
       'playerTag',
       'transform',
@@ -98,7 +106,10 @@ export class CombatSystem implements ISystem {
       playerCombat.boltCooldown = PLAYER_CONFIG.boltCooldown;
       playerCombat.aimFaceTimer = PLAYER_CONFIG.aimFaceDuration;
 
-      const boss = this.world.queryFirst('bossPhase', 'transform');
+      const boss =
+        state === GAME_STATES.BOSS_COMBAT
+          ? this.world.queryFirst('bossPhase', 'transform')
+          : undefined;
       if (boss) {
         this.vBossPos.set(
           boss.transform.position.x,
@@ -239,21 +250,28 @@ export class CombatSystem implements ISystem {
         PLAYER_CONFIG.umbralPulseRadius,
       );
 
-      // Bidirectional Hit Check: Umbral Pulse damages boss if within shockwave radius
-      const boss = this.world.queryFirst(
-        'bossPhase',
-        'transform',
-        'hurtbox',
-        'health',
-      );
-      if (boss && !boss.bossPhase.isStaggered) {
-        const dist = Math.hypot(
-          transform.position.x - boss.transform.position.x,
-          transform.position.z - boss.transform.position.z,
+      // Bidirectional Hit Check: Umbral Pulse damages boss on Summit, or servants & Frost Urns in Chambers
+      if (state === GAME_STATES.BOSS_COMBAT) {
+        const boss = this.world.queryFirst(
+          'bossPhase',
+          'transform',
+          'hurtbox',
+          'health',
         );
-        if (dist <= PLAYER_CONFIG.umbralPulseRadius + boss.hurtbox.radius) {
-          this.damageBoss(BOSS_CONFIG.pulseDamage, null);
+        if (boss && !boss.bossPhase.isStaggered) {
+          const dist = Math.hypot(
+            transform.position.x - boss.transform.position.x,
+            transform.position.z - boss.transform.position.z,
+          );
+          if (dist <= PLAYER_CONFIG.umbralPulseRadius + boss.hurtbox.radius) {
+            this.damageBoss(BOSS_CONFIG.pulseDamage, null);
+          }
         }
+      } else if (state === GAME_STATES.CHAMBER_COMBAT) {
+        this.applyUmbralPulseToChamberTargets(
+          transform.position.x,
+          transform.position.z,
+        );
       }
     }
   }
@@ -288,8 +306,9 @@ export class CombatSystem implements ISystem {
           this.vfx.spawnTrailSpark(this.vBurstPos);
         }
 
-        // Hit Boss cylindrical hurtbox
+        // Hit Boss cylindrical hurtbox (Summit BOSS_COMBAT only)
         if (
+          state === GAME_STATES.BOSS_COMBAT &&
           boss &&
           !boss.bossPhase.isStaggered &&
           !projectile.hitEntityIds.includes(boss.id)
@@ -316,6 +335,11 @@ export class CombatSystem implements ISystem {
               hit = true;
             }
           }
+        }
+
+        // Hit Chamber Servants & Destructible Frost Urns (CHAMBER_COMBAT)
+        if (!hit && state === GAME_STATES.CHAMBER_COMBAT) {
+          hit = this.resolvePlayerProjectileVsChamber(entity, toDestroy);
         }
 
         // Perimeter Pillars
@@ -481,6 +505,52 @@ export class CombatSystem implements ISystem {
           }
 
           if (remove) {
+            toDestroy.push(entity.id);
+          }
+        } else if (projectile.kind === 'SERVANT_BOLT') {
+          const bounds = this.arena.getArenaBounds();
+          if (
+            !remove &&
+            bounds.kind === ARENA_BOUNDS_KINDS.RECTANGULAR &&
+            (Math.abs(p.x) >= bounds.halfWidth ||
+              Math.abs(p.z) >= bounds.halfLength)
+          ) {
+            remove = true;
+          }
+
+          if (!remove) {
+            for (let j = 0; j < pillars.length; j++) {
+              const pil = pillars[j];
+              if (!pil) continue;
+              const dx = p.x - pil.x;
+              const dz = p.z - pil.z;
+              const rad = pil.radius + projectile.radius * 0.5;
+              if (dx * dx + dz * dz <= rad * rad && p.y <= pil.height) {
+                remove = true;
+                break;
+              }
+            }
+          }
+
+          if (
+            !remove &&
+            player &&
+            !projectile.hitEntityIds.includes(player.id) &&
+            !player.health.isInvulnerable
+          ) {
+            const dx = p.x - player.transform.position.x;
+            const dz = p.z - player.transform.position.z;
+            const hitR = projectile.radius + PLAYER_CONFIG.radius;
+            if (dx * dx + dz * dz <= hitR * hitR) {
+              projectile.hitEntityIds.push(player.id);
+              this.damagePlayer(projectile.damage, state);
+              remove = true;
+            }
+          }
+
+          if (remove) {
+            this.vBurstPos.set(p.x, p.y, p.z);
+            this.vfx.spawnFrostShatterBurst(this.vBurstPos, 6, 4.8);
             toDestroy.push(entity.id);
           }
         }
@@ -696,6 +766,241 @@ export class CombatSystem implements ISystem {
       }
     }
     clearedIds.forEach((id) => this.world.destroyEntity(id));
+  }
+
+  private resolvePlayerProjectileVsChamber(
+    projEntity: {
+      projectile: {
+        kind: string;
+        damage: number;
+        radius: number;
+        pierceRemaining: number;
+        hitEntityIds: EntityId[];
+      };
+      transform: { position: { x: number; y: number; z: number } };
+    },
+    extraDestroys: EntityId[],
+  ): boolean {
+    const { projectile, transform } = projEntity;
+    const p = transform.position;
+
+    // 1. Check Chamber Servants (with Frostbite Warden directional frontal tower-shield)
+    const servants = this.world.query(
+      'servantAI',
+      'transform',
+      'hurtbox',
+      'health',
+    );
+    for (let i = 0; i < servants.length; i++) {
+      const s = servants[i];
+      if (!s) continue;
+      if (
+        s.servantAI.state === SERVANT_AI_STATES.SPAWNING ||
+        s.servantAI.state === SERVANT_AI_STATES.DYING ||
+        projectile.hitEntityIds.includes(s.id)
+      ) {
+        continue;
+      }
+
+      const sPos = s.transform.position;
+      const r = s.hurtbox.radius + projectile.radius;
+      const dx = p.x - sPos.x;
+      const dz = p.z - sPos.z;
+      if (
+        p.y >= s.hurtbox.minY &&
+        p.y <= s.hurtbox.maxY + 0.3 &&
+        dx * dx + dz * dz <= r * r
+      ) {
+        projectile.hitEntityIds.push(s.id);
+        this.vBurstPos.set(p.x, p.y, p.z);
+
+        const isWardenShielded =
+          s.servantAI.archetype === SERVANT_ARCHETYPES.FROSTBITE_WARDEN &&
+          s.servantAI.guardBrokenTimer <= 0;
+
+        if (isWardenShielded) {
+          const distXZ = Math.hypot(dx, dz) || 1;
+          const toBoltX = dx / distXZ;
+          const toBoltZ = dz / distXZ;
+          const fwdX = Math.sin(s.transform.rotationY);
+          const fwdZ = Math.cos(s.transform.rotationY);
+          const frontDot = toBoltX * fwdX + toBoltZ * fwdZ;
+
+          if (frontDot > CHAMBER_CONFIG.wardenShieldDotThreshold) {
+            if (projectile.kind === 'USURPED_BEAM') {
+              // Piercing NG+ Glacial Spear-Beam shatters Warden's hexagonal tower-shield
+              this.audio.playGuardBreak();
+              this.vfx.spawnFrostShatterBurst(this.vBurstPos, 18, 8.0);
+              this.callbacks.onServantGuardBreak?.(s.id);
+              this.damageServant(s, projectile.damage, this.vBurstPos);
+            } else {
+              // Standard Void Bolt deflected with metallic ice-steel clang (0 damage)
+              this.audio.playShieldClang();
+              this.vfx.spawnFrostShatterBurst(this.vBurstPos, 8, 5.8);
+              return true;
+            }
+          } else {
+            // Flanked from behind/side via Shadow Blink
+            this.damageServant(s, projectile.damage, this.vBurstPos);
+          }
+        } else {
+          const mult =
+            s.servantAI.guardBrokenTimer > 0
+              ? SERVANT_CONFIG.FROSTBITE_WARDEN.guardBrokenDamageMultiplier
+              : 1.0;
+          this.damageServant(s, Math.round(projectile.damage * mult), this.vBurstPos);
+        }
+
+        if (projectile.pierceRemaining > 0) {
+          projectile.pierceRemaining--;
+        } else {
+          return true;
+        }
+      }
+    }
+
+    // 2. Check Destructible Frost Urns
+    const urns = this.world.query(
+      'destructibleProp',
+      'transform',
+      'hurtbox',
+      'meshRef',
+    );
+    for (let i = 0; i < urns.length; i++) {
+      const u = urns[i];
+      if (!u || projectile.hitEntityIds.includes(u.id)) continue;
+      const uPos = u.transform.position;
+      const r = u.hurtbox.radius + projectile.radius;
+      const dx = p.x - uPos.x;
+      const dz = p.z - uPos.z;
+      if (p.y >= 0 && p.y <= u.hurtbox.maxY && dx * dx + dz * dz <= r * r) {
+        projectile.hitEntityIds.push(u.id);
+        this.shatterFrostUrn(u, extraDestroys);
+        if (projectile.pierceRemaining > 0) {
+          projectile.pierceRemaining--;
+        } else {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  private applyUmbralPulseToChamberTargets(
+    originX: number,
+    originZ: number,
+  ): void {
+    const pulseR = PLAYER_CONFIG.umbralPulseRadius;
+    const servants = this.world.query(
+      'servantAI',
+      'transform',
+      'hurtbox',
+      'health',
+    );
+    for (let i = 0; i < servants.length; i++) {
+      const s = servants[i];
+      if (!s) continue;
+      if (
+        s.servantAI.state === SERVANT_AI_STATES.SPAWNING ||
+        s.servantAI.state === SERVANT_AI_STATES.DYING
+      ) {
+        continue;
+      }
+      const dist = Math.hypot(
+        s.transform.position.x - originX,
+        s.transform.position.z - originZ,
+      );
+      if (dist <= pulseR + s.hurtbox.radius) {
+        this.vBurstPos.set(
+          s.transform.position.x,
+          1.2,
+          s.transform.position.z,
+        );
+        if (
+          s.servantAI.archetype === SERVANT_ARCHETYPES.FROSTBITE_WARDEN &&
+          s.servantAI.guardBrokenTimer <= 0
+        ) {
+          this.audio.playGuardBreak();
+          this.vfx.spawnFrostShatterBurst(this.vBurstPos, 18, 8.2);
+          this.callbacks.onServantGuardBreak?.(s.id);
+        }
+        this.damageServant(s, PLAYER_CONFIG.pulseDamage, this.vBurstPos);
+      }
+    }
+
+    // Umbral Pulse also shatters nearby Destructible Frost Urns
+    const urns = this.world.query(
+      'destructibleProp',
+      'transform',
+      'hurtbox',
+      'meshRef',
+    );
+    const urnsToDestroy: EntityId[] = [];
+    for (let i = 0; i < urns.length; i++) {
+      const u = urns[i];
+      if (!u) continue;
+      const dist = Math.hypot(
+        u.transform.position.x - originX,
+        u.transform.position.z - originZ,
+      );
+      if (dist <= pulseR + u.hurtbox.radius) {
+        this.shatterFrostUrn(u, urnsToDestroy);
+      }
+    }
+    urnsToDestroy.forEach((id) => this.world.destroyEntity(id));
+  }
+
+  private damageServant(
+    servant: {
+      id: EntityId;
+      health: { current: number };
+      transform: { position: { x: number; y: number; z: number } };
+    },
+    amount: number,
+    hitPoint: THREE.Vector3,
+  ): void {
+    servant.health.current = Math.max(0, servant.health.current - amount);
+    this.vfx.spawnFrostShatterBurst(hitPoint, 8, 6.0);
+    this.audio.playIceShatter(0.55);
+    this.callbacks.onServantHitFlash?.(servant.id);
+
+    if (servant.health.current <= 0) {
+      this.vfx.spawnFrostShatterBurst(hitPoint, 16, 7.6);
+      this.callbacks.onServantDefeated?.(servant.id);
+    }
+  }
+
+  private shatterFrostUrn(
+    urn: {
+      id: EntityId;
+      destructibleProp: { hp: number; healValue: number };
+      transform: { position: { x: number; y: number; z: number } };
+      meshRef: { object3D: THREE.Object3D };
+    },
+    destroyQueue: EntityId[],
+  ): void {
+    urn.destructibleProp.hp -= 1;
+    if (urn.destructibleProp.hp > 0) return;
+
+    urn.meshRef.object3D.visible = false;
+    const pos = new THREE.Vector3(
+      urn.transform.position.x,
+      urn.transform.position.y + 0.65,
+      urn.transform.position.z,
+    );
+    this.vfx.spawnFrostShatterBurst(pos, 14, 6.8);
+    this.audio.playUrnShatter();
+    this.callbacks.onUrnShattered?.(pos, urn.destructibleProp.healValue);
+    destroyQueue.push(urn.id);
+  }
+
+  /**
+   * Public damage entry point so ChamberSystem melee lunges & pounces reuse
+   * unified i-frames, frost hit flash, SFX, and defeat routing.
+   */
+  public applyPlayerDamage(amount: number): void {
+    this.damagePlayer(amount, this.callbacks.getGameState());
   }
 
   private damageBoss(amount: number, hitPoint: THREE.Vector3 | null): void {
