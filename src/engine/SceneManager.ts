@@ -5,11 +5,13 @@ import {
   BOSS_PHASES,
   CHAMBER_CONFIG,
   ENVIRONMENT_IDS,
+  LOBBY_CONFIG,
   PALETTE,
   type BossPhase,
   type EnvironmentId,
 } from '../config/gameConfig';
 import { IcePalaceLevel } from '../levels/IcePalaceLevel';
+import { MageTowerLevel } from '../levels/MageTowerLevel';
 import { ToonAssets } from './ToonAssets';
 
 export { ToonAssets };
@@ -86,11 +88,18 @@ export class SceneManager implements IArenaGeometry {
   public readonly scene: THREE.Scene;
   public readonly arenaGroup: THREE.Group;
   public readonly icePalaceLevel: IcePalaceLevel;
+  public readonly mageTowerLevel: MageTowerLevel;
 
   private readonly _summitBounds: CircularArenaBounds = Object.freeze({
     kind: ARENA_BOUNDS_KINDS.CIRCULAR,
     radius: ARENA_CONFIG.radius,
     clampRadius: ARENA_CONFIG.playerClampRadius,
+  });
+
+  private readonly _lobbyBounds: CircularArenaBounds = Object.freeze({
+    kind: ARENA_BOUNDS_KINDS.CIRCULAR,
+    radius: LOBBY_CONFIG.rotundaRadius,
+    clampRadius: LOBBY_CONFIG.rotundaRadius,
   });
 
   private readonly _chamberBounds: RectangularArenaBounds = Object.freeze({
@@ -127,9 +136,13 @@ export class SceneManager implements IArenaGeometry {
   }
 
   public get bounds(): ArenaBounds {
-    return this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER
-      ? this._chamberBounds
-      : this._summitBounds;
+    if (this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER) {
+      return this._chamberBounds;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
+      return this._lobbyBounds;
+    }
+    return this._summitBounds;
   }
 
   public getArenaBounds(): ArenaBounds {
@@ -137,21 +150,33 @@ export class SceneManager implements IArenaGeometry {
   }
 
   public getCameraColliders(): readonly THREE.Object3D[] {
-    return this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER
-      ? this.icePalaceLevel.cameraColliders
-      : EMPTY_CAMERA_COLLIDERS;
+    if (this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER) {
+      return this.icePalaceLevel.cameraColliders;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
+      return this.mageTowerLevel.cameraColliders;
+    }
+    return EMPTY_CAMERA_COLLIDERS;
   }
 
   public get pillarColliders(): readonly PillarCollider[] {
-    return this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER
-      ? this.icePalaceLevel.pillarColliders
-      : this._pillarColliders;
+    if (this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER) {
+      return this.icePalaceLevel.pillarColliders;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
+      return this.mageTowerLevel.pillarColliders;
+    }
+    return this._pillarColliders;
   }
 
   public get pillarMeshes(): readonly THREE.Object3D[] {
-    return this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER
-      ? this.icePalaceLevel.pillarMeshes
-      : this._pillarMeshes;
+    if (this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER) {
+      return this.icePalaceLevel.pillarMeshes;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
+      return this.mageTowerLevel.pillarMeshes;
+    }
+    return this._pillarMeshes;
   }
 
   public get domElement(): HTMLCanvasElement {
@@ -194,6 +219,11 @@ export class SceneManager implements IArenaGeometry {
     this.icePalaceLevel = new IcePalaceLevel();
     this.icePalaceLevel.root.visible = false;
     this.scene.add(this.icePalaceLevel.root);
+
+    // Build Obsidian Spire Sanctum 3D Hub Lobby group
+    this.mageTowerLevel = new MageTowerLevel();
+    this.mageTowerLevel.root.visible = false;
+    this.scene.add(this.mageTowerLevel.root);
   }
 
   /**
@@ -710,17 +740,49 @@ export class SceneManager implements IArenaGeometry {
 
   /**
    * Switches active environment visibility, fog, lighting calibration, and active
-   * ArenaBounds between the Royal Ice Chambers ('CHAMBER') and Glacial Spire Summit ('SUMMIT')
-   * without recreating the WebGLRenderer.
+   * ArenaBounds between the Obsidian Spire Sanctum ('LOBBY'), Royal Ice Chambers ('CHAMBER'),
+   * and Glacial Spire Summit ('SUMMIT') without recreating the WebGLRenderer.
    */
   public setEnvironment(env: EnvironmentId): void {
     this._activeEnvironment = env;
     const isChamber = env === ENVIRONMENT_IDS.CHAMBER;
+    const isLobby = env === ENVIRONMENT_IDS.LOBBY;
+    const isSummit = env === ENVIRONMENT_IDS.SUMMIT;
 
-    this.arenaGroup.visible = !isChamber;
+    this.arenaGroup.visible = isSummit;
     this.icePalaceLevel.root.visible = isChamber;
+    this.mageTowerLevel.root.visible = isLobby;
 
-    if (isChamber) {
+    if (isLobby) {
+      const LL = LOBBY_CONFIG.lighting;
+      this.scene.background = new THREE.Color(PALETTE.midnightSky);
+      this.scene.fog = new THREE.FogExp2(PALETTE.midnightSky, LL.fogDensity);
+
+      if (this.hemiLight) {
+        this.hemiLight.color.setHex(PALETTE.pulseLavender);
+        this.hemiLight.groundColor.setHex(PALETTE.sanctumStone);
+        this.hemiLight.intensity = LL.hemiIntensity;
+      }
+      if (this.moonLight) {
+        this.moonLight.color.setHex(PALETTE.iceHighlights);
+        this.moonLight.intensity = LL.keyIntensity;
+        this.moonLight.position.set(10, 24, 8);
+        const d = LL.shadowExtent;
+        this.moonLight.shadow.camera.left = -d;
+        this.moonLight.shadow.camera.right = d;
+        this.moonLight.shadow.camera.top = d;
+        this.moonLight.shadow.camera.bottom = -d;
+        this.moonLight.shadow.camera.updateProjectionMatrix();
+      }
+      if (this.amethystRim) {
+        this.amethystRim.color.setHex(PALETTE.amethystTrim);
+        this.amethystRim.intensity = LL.rimIntensity;
+      }
+      if (this.frostRim) {
+        this.frostRim.color.setHex(PALETTE.frostRunes);
+        this.frostRim.intensity = LL.rimIntensity;
+      }
+    } else if (isChamber) {
       const CL = CHAMBER_CONFIG.lighting;
       this.scene.background = new THREE.Color(PALETTE.chamberVoid);
       this.scene.fog = new THREE.FogExp2(PALETTE.chamberVoid, CL.fogDensity);
@@ -837,6 +899,10 @@ export class SceneManager implements IArenaGeometry {
    * Updates active environment animations (chamber banners/braziers/portal or summit snow/aurora/rings).
    */
   public update(dt: number, elapsed: number): void {
+    if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
+      this.mageTowerLevel.update(elapsed, dt);
+      return;
+    }
     if (this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER) {
       this.icePalaceLevel.update(dt, elapsed);
       return;
@@ -928,6 +994,7 @@ export class SceneManager implements IArenaGeometry {
   }
 
   public dispose(): void {
+    this.mageTowerLevel.dispose();
     this.icePalaceLevel.dispose();
     this.renderer.dispose();
     if (this.renderer.domElement.parentElement) {

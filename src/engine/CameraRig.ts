@@ -4,6 +4,7 @@ import {
   ARENA_CONFIG,
   BOSS_CONFIG,
   CAMERA_CONFIG,
+  ENVIRONMENT_IDS,
   GAME_STATES,
   PALETTE,
   type GameState,
@@ -584,6 +585,29 @@ export class CameraRig {
         } else if (this.springDir.y < -0.0001) {
           const t = (boxMinY - this.springPivotPos.y) / this.springDir.y;
           if (t >= 0) allowedDist = Math.min(allowedDist, t);
+        }
+      } else if (
+        bounds &&
+        bounds.kind === ARENA_BOUNDS_KINDS.CIRCULAR &&
+        arena?.activeEnvironment === ENVIRONMENT_IDS.LOBBY
+      ) {
+        // Analytical cylinder intersection for enclosed circular Obsidian Spire Sanctum rotunda
+        const safeR = Math.max(2.0, bounds.radius - margin);
+        const ox = this.springPivotPos.x;
+        const oz = this.springPivotPos.z;
+        const dx = this.springDir.x;
+        const dz = this.springDir.z;
+        const a = dx * dx + dz * dz;
+        if (a > 0.00001) {
+          const b = 2 * (ox * dx + oz * dz);
+          const c = ox * ox + oz * oz - safeR * safeR;
+          const disc = b * b - 4 * a * c;
+          if (disc >= 0) {
+            const tExit = (-b + Math.sqrt(disc)) / (2 * a);
+            if (tExit >= 0) {
+              allowedDist = Math.min(allowedDist, tExit);
+            }
+          }
         }
       }
 

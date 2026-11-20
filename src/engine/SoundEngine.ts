@@ -41,6 +41,10 @@ export interface IAudioTrigger {
   playSummonGlyphChime(): void;
   playPortalIgnite(): void;
   playPortalWarp(): void;
+  playSunkenWardChime(): void;
+  playHarmonicWardPulse(): void;
+  playDummyCrystalHit(): void;
+  playTrophyToggle(): void;
   dispose(): void;
 }
 
@@ -314,6 +318,9 @@ export class SoundEngine implements IAudioTrigger {
     if (this._mode === AUDIO_MODES.CHAMBER) {
       return (60 / AUDIO_CONFIG.chamberTempo) * 0.25;
     }
+    if (this._mode === AUDIO_MODES.LOBBY) {
+      return (60 / AUDIO_CONFIG.lobbyTempo) * 0.5;
+    }
     return AUDIO_CONFIG.defaultStepDuration;
   }
 
@@ -489,7 +496,76 @@ export class SoundEngine implements IAudioTrigger {
       }
 
       if (step % 4 === 2) this.synthIceTick(time, 0.03);
+    } else if (this._mode === AUDIO_MODES.LOBBY) {
+      // Serene dark-fantasy music box & warm low cello-pad progression for Obsidian Spire Sanctum
+      const boxNotes = AUDIO_CONFIG.lobbyMusicBoxNotes;
+      const noteFreq = boxNotes[step % boxNotes.length];
+      if (noteFreq !== undefined) {
+        this.synthCathedralBell(
+          time,
+          noteFreq,
+          AUDIO_CONFIG.lobbyMusicBoxGain,
+          AUDIO_CONFIG.lobbyMusicBoxDuration,
+        );
+      }
+
+      if (step % 4 === 0) {
+        const celloNotes = AUDIO_CONFIG.lobbyCelloNotes;
+        const celloFreq =
+          celloNotes[Math.floor(step / 4) % celloNotes.length];
+        if (celloFreq !== undefined) {
+          this.synthWarmCelloPad(
+            time,
+            celloFreq,
+            AUDIO_CONFIG.lobbyCelloGain,
+            AUDIO_CONFIG.lobbyCelloDuration,
+          );
+        }
+      }
     }
+  }
+
+  /**
+   * Warm low cello-pad voice routed through musicGain for the Obsidian Spire Sanctum.
+   */
+  private synthWarmCelloPad(
+    time: number,
+    freq: number,
+    peakGain: number,
+    duration: number,
+  ): void {
+    if (!this.ctx || !this.musicGain) return;
+    const osc1 = this.ctx.createOscillator();
+    const osc2 = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const env = this.ctx.createGain();
+
+    osc1.type = 'sawtooth';
+    osc1.frequency.setValueAtTime(freq, time);
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(freq * 0.5, time);
+    osc1.detune.setValueAtTime(4, time);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(AUDIO_CONFIG.lobbyCelloCutoff, time);
+    filter.Q.value = 1.2;
+
+    env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, time);
+    env.gain.linearRampToValueAtTime(peakGain, time + 0.24);
+    env.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      time + duration,
+    );
+
+    osc1.connect(filter);
+    osc2.connect(filter);
+    filter.connect(env);
+    env.connect(this.musicGain);
+
+    osc1.start(time);
+    osc2.start(time);
+    osc1.stop(time + duration + 0.04);
+    osc2.stop(time + duration + 0.04);
   }
 
   /**
@@ -1301,6 +1377,88 @@ export class SoundEngine implements IAudioTrigger {
     );
     this.playNoiseBurst(now, 'bandpass', 300, 6400, 3.0, 0.24, dur);
     this.playTone(now + dur * 0.85, 'sine', 1760, 2637.02, 0.1, 0.01, 0.5);
+  }
+
+  // =========================================================================
+  // OBSIDIAN SPIRE SANCTUM ('LOBBY') SOUND EFFECTS (routed through sfxGain)
+  // =========================================================================
+
+  /**
+   * Resonant underwater bell + aqueous ripple for Realm II (The Sunken Sanctuary) ward gate.
+   */
+  public playSunkenWardChime(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    AUDIO_CONFIG.sunkenWardFreqs.forEach((freq, i) => {
+      this.playTone(
+        now + i * 0.08,
+        'sine',
+        freq,
+        freq * 0.96,
+        0.11 - i * 0.02,
+        0.015,
+        0.75,
+      );
+    });
+    this.playNoiseBurst(now, 'bandpass', 620, 240, 4.2, 0.09, 0.55);
+  }
+
+  /**
+   * Crystalline synth chord pulse for Realm III (The Harmonic Citadel) ward gate.
+   */
+  public playHarmonicWardPulse(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    AUDIO_CONFIG.harmonicWardFreqs.forEach((freq, i) => {
+      this.playTone(
+        now + i * 0.045,
+        i % 2 === 0 ? 'triangle' : 'sine',
+        freq,
+        freq * 1.008,
+        0.085,
+        0.01,
+        0.65,
+      );
+    });
+  }
+
+  /**
+   * Arcana glass chime when striking the Abyssal Target Crystal in the Sanctum.
+   */
+  public playDummyCrystalHit(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    AUDIO_CONFIG.dummyHitFreqs.forEach((freq, i) => {
+      this.playTone(
+        now + i * 0.018,
+        'sine',
+        freq,
+        freq * 0.99,
+        0.12 - i * 0.025,
+        0.004,
+        0.38,
+      );
+    });
+    this.playNoiseBurst(now, 'highpass', 4800, 2400, 1.4, 0.08, 0.09);
+  }
+
+  /**
+   * Frost-crown crystalline resonance when interacting with the Stolen Trophy Pedestal.
+   */
+  public playTrophyToggle(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    AUDIO_CONFIG.trophyToggleFreqs.forEach((freq, i) => {
+      this.playTone(
+        now + i * 0.055,
+        'sine',
+        freq,
+        freq * 1.01,
+        0.09,
+        0.008,
+        0.68,
+      );
+    });
   }
 
   /**

@@ -13,6 +13,7 @@
 
 export const GAME_STATES = Object.freeze({
   TITLE: 'TITLE',
+  LOBBY: 'LOBBY',
   CHAMBER_COMBAT: 'CHAMBER_COMBAT',
   PORTAL_TRANSITION: 'PORTAL_TRANSITION',
   BOSS_COMBAT: 'BOSS_COMBAT',
@@ -65,6 +66,7 @@ export type DrainThrottleMode =
 
 export const AUDIO_MODES = Object.freeze({
   SILENT: 'SILENT',
+  LOBBY: 'LOBBY',
   COMBAT_P1: 'COMBAT_P1',
   COMBAT_P2: 'COMBAT_P2',
   COMBAT_P3: 'COMBAT_P3',
@@ -78,12 +80,23 @@ export const AUDIO_MODES = Object.freeze({
 export type AudioMode = (typeof AUDIO_MODES)[keyof typeof AUDIO_MODES];
 
 export const ENVIRONMENT_IDS = Object.freeze({
+  LOBBY: 'LOBBY',
   CHAMBER: 'CHAMBER',
   SUMMIT: 'SUMMIT',
 } as const);
 
 export type EnvironmentId =
   (typeof ENVIRONMENT_IDS)[keyof typeof ENVIRONMENT_IDS];
+
+export const LOBBY_PROMPT_KINDS = Object.freeze({
+  REALM_1: 'REALM_1',
+  REALM_2_SEALED: 'REALM_2_SEALED',
+  REALM_3_SEALED: 'REALM_3_SEALED',
+  TROPHY_PEDESTAL: 'TROPHY_PEDESTAL',
+} as const);
+
+export type LobbyPromptKind =
+  (typeof LOBBY_PROMPT_KINDS)[keyof typeof LOBBY_PROMPT_KINDS];
 
 export const ARENA_BOUNDS_KINDS = Object.freeze({
   RECTANGULAR: 'RECTANGULAR',
@@ -242,6 +255,18 @@ export const PALETTE = Object.freeze({
   marbleWall: 0x111a33,
   knightFrost: 0xa5b4cf,
 
+  // Obsidian Spire Sanctum (3D Playable Hub Lobby)
+  sanctumStone: 0x12101e,
+  astrolabeBrass: 0xd97706,
+  sunkenTeal: 0x06b6d4,
+  harmonicEmerald: 0x10b981,
+  harmonicMagenta: 0xec4899,
+  candleWarm: 0xfbbf24,
+  oakWood: 0x451a03,
+  parchmentCream: 0xfef3c7,
+  crimsonPotion: 0xe11d48,
+  candleWax: 0xfde68a,
+
   // CSS Hex Strings for Canvas2D, Tailwind inline styles, and SVG tokens
   hex: Object.freeze({
     midnightSky: '#040711',
@@ -299,6 +324,16 @@ export const PALETTE = Object.freeze({
     chamberVoid: '#05060F',
     marbleWall: '#111A33',
     knightFrost: '#A5B4CF',
+    sanctumStone: '#12101E',
+    astrolabeBrass: '#D97706',
+    sunkenTeal: '#06B6D4',
+    harmonicEmerald: '#10B981',
+    harmonicMagenta: '#EC4899',
+    candleWarm: '#FBBF24',
+    oakWood: '#451A03',
+    parchmentCream: '#FEF3C7',
+    crimsonPotion: '#E11D48',
+    candleWax: '#FDE68A',
   } as const),
 
   // Canvas2D RGBA & Gradient Stop Tokens (Zero Inline Color Literals)
@@ -350,6 +385,16 @@ export const PALETTE = Object.freeze({
     carpetTrimCyan: 'rgba(56, 189, 248, 0.88)',
     bannerCrestGlow: 'rgba(186, 230, 253, 0.9)',
     bannerFold: 'rgba(2, 6, 23, 0.28)',
+
+    // Obsidian Spire Sanctum Canvas Tokens
+    sanctumTileDark: 'rgba(18, 16, 30, 0.96)',
+    sanctumTileJoint: 'rgba(9, 9, 11, 0.65)',
+    sanctumRuneEmissive: 'rgba(139, 92, 246, 0.95)',
+    sanctumRuneDiffuse: 'rgba(168, 85, 247, 0.62)',
+    sanctumRuneSoftGlow: 'rgba(139, 92, 246, 0.28)',
+    sanctumNebulaViolet: 'rgba(139, 92, 246, 0.28)',
+    sanctumNebulaIndigo: 'rgba(67, 56, 202, 0.24)',
+    sanctumStarCore: 'rgba(248, 250, 252, 0.92)',
   } as const),
 } as const);
 
@@ -1199,6 +1244,77 @@ export const SERVANT_CONFIG = Object.freeze({
 } as const);
 
 // ============================================================================
+// OBSIDIAN SPIRE SANCTUM (PHASE 4 PLAYABLE 3D HUB LOBBY) CONFIGURATION
+// ============================================================================
+
+export const LOBBY_CONFIG = Object.freeze({
+  rotundaRadius: 12.2,
+  outerWallRadius: 13.0,
+  wallHeight: 11.2,
+  domeRadius: 13.0,
+  skyDomeRadius: 34.0,
+  playerSpawn: Object.freeze({ x: 0, y: 0, z: 4.5 }),
+  playerSpawnYaw: Math.PI,
+  titleOrbitRadius: 4.8,
+  titleOrbitHeight: 2.3,
+  titleOrbitSpeed: 0.22,
+  enterGlideDuration: 0.95,
+
+  // 3 Northern Arc Realm Portals
+  realm1PortalPos: Object.freeze({ x: 0, z: -9.8 }),
+  realm2PortalPos: Object.freeze({ x: -6.8, z: -7.2 }),
+  realm3PortalPos: Object.freeze({ x: 6.8, z: -7.2 }),
+  portalInteractRadius: 2.6,
+  portalCenterY: 2.45,
+  portalRingRadius: 1.95,
+  portalTubeRadius: 0.22,
+  portalPylonOffset: 2.45,
+  portalPylonCollisionRadius: 0.6,
+
+  // Stolen Trophy Pedestal & Abyssal Target Crystal
+  trophyPedestalPos: Object.freeze({ x: -3.2, z: 1.5 }),
+  trophyInteractRadius: 2.2,
+  trophyCollisionRadius: 0.65,
+  dummyPos: Object.freeze({ x: 6.5, z: 2.0 }),
+  dummyRadius: 0.85,
+  dummyCenterY: 1.55,
+  deskPos: Object.freeze({ x: -7.2, z: 3.4 }),
+  deskCollisionRadius: 1.45,
+
+  // Observatory Architecture, Astrolabe & Study Props
+  archCount: 12,
+  archPierCollisionRadius: 0.72,
+  astrolabeY: 8.6,
+  astrolabeOuterRadius: 4.5,
+  astrolabeMidRadius: 3.3,
+  astrolabeInnerRadius: 2.1,
+  astrolabeSpeed1: 0.26,
+  astrolabeSpeed2: -0.38,
+  astrolabeSpeed3: 0.52,
+  floatingBookCount: 3,
+  candleClusterCount: 6,
+  realm1SnowMoteCount: 44,
+  floorTextureSize: 1024,
+  skyTextureSize: 1024,
+  marinaDefeatedStorageKey: 'arcane_usurper_marina_defeated',
+
+  // Sanctum Lighting
+  lighting: Object.freeze({
+    hemiIntensity: 1.25,
+    keyIntensity: 1.95,
+    rimIntensity: 1.15,
+    fogDensity: 0.013,
+    shadowExtent: 18,
+    candleLightIntensity: 3.4,
+    candleLightDistance: 7.5,
+    portalLightIntensity: 5.2,
+    portalLightDistance: 9.0,
+    trophyLightIntensity: 3.8,
+    trophyLightDistance: 5.5,
+  } as const),
+} as const);
+
+// ============================================================================
 // CAMERA & RETICLE CONFIGURATION
 // ============================================================================
 
@@ -1320,6 +1436,7 @@ export const AUDIO_CONFIG = Object.freeze({
   windRampTimeConstant: 0.25,
   windGains: Object.freeze({
     SILENT: 0.0001,
+    LOBBY: 0.012,
     COMBAT_P1: 0.055,
     COMBAT_P2: 0.085,
     COMBAT_P3: 0.115,
@@ -1329,6 +1446,27 @@ export const AUDIO_CONFIG = Object.freeze({
     DEFEAT: 0.05,
     CHAMBER: 0.03,
   } as const),
+
+  // Obsidian Spire Sanctum ('LOBBY') Music Box & Warm Cello Pad Sequencer
+  lobbyTempo: 76,
+  lobbyMusicBoxNotes: Object.freeze([
+    587.33, 659.25, 698.46, 880.0, 698.46, 659.25, 587.33, 440.0,
+    523.25, 587.33, 659.25, 783.99, 659.25, 587.33, 523.25, 440.0,
+  ] as const),
+  lobbyCelloNotes: Object.freeze([
+    146.83, 130.81, 116.54, 110.0,
+  ] as const),
+  lobbyMusicBoxGain: 0.052,
+  lobbyMusicBoxDuration: 0.95,
+  lobbyCelloGain: 0.11,
+  lobbyCelloDuration: 1.55,
+  lobbyCelloCutoff: 290,
+
+  // Obsidian Spire Sanctum SFX Tables
+  sunkenWardFreqs: Object.freeze([392.0, 587.33, 783.99] as const),
+  harmonicWardFreqs: Object.freeze([523.25, 659.25, 987.77, 1318.51] as const),
+  dummyHitFreqs: Object.freeze([880.0, 1318.51, 1760.0] as const),
+  trophyToggleFreqs: Object.freeze([659.25, 880.0, 1174.66, 1760.0] as const),
 
   // Royal Ice Chambers Harpsichord Sequencer (D-minor regal ostinato)
   chamberTempo: 104,

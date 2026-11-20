@@ -10,6 +10,7 @@ import {
   FINISHER_CONFIG,
   FINISHER_POSE_IDS,
   GAME_STATES,
+  LOBBY_CONFIG,
   NG_PLUS_CONFIG,
   PLAYER_CONFIG,
   PORTAL_STATES,
@@ -20,9 +21,47 @@ import {
   type DrainThrottleMode,
   type FinisherPoseId,
   type GameState,
+  type LobbyPromptKind,
   type PortalState,
   type RealmId,
 } from '../config/gameConfig';
+
+export interface LobbyPromptState {
+  readonly kind: LobbyPromptKind;
+  readonly title: string;
+  readonly subtitle: string;
+}
+
+export interface LobbyDummyHitState {
+  readonly damage: number;
+  readonly isEncore: boolean;
+  readonly timestamp: number;
+}
+
+function readInitialMarinaDefeated(): boolean {
+  try {
+    return (
+      typeof window !== 'undefined' &&
+      window.localStorage.getItem(LOBBY_CONFIG.marinaDefeatedStorageKey) ===
+        'true'
+    );
+  } catch {
+    return false;
+  }
+}
+
+function persistMarinaDefeated(defeated: boolean): void {
+  try {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(
+        LOBBY_CONFIG.marinaDefeatedStorageKey,
+        defeated ? 'true' : 'false',
+      );
+    }
+  } catch {
+    // Ignore storage quota / sandboxed iframe restrictions
+  }
+}
 
 /**
  * Throttled telemetry snapshot written by the 60 FPS ECS simulation (~15–20 Hz)
@@ -58,6 +97,11 @@ export interface GameStoreState {
   isPointerLocked: boolean;
   frostHitFlashToken: number;
   reticlePulseToken: number;
+
+  // Obsidian Spire Sanctum (3D Hub Lobby) Telemetry
+  marinaDefeated: boolean;
+  lobbyPrompt: LobbyPromptState | null;
+  lobbyDummyHit: LobbyDummyHitState | null;
 
   // Royal Ice Chambers Progression Telemetry
   chamberWave: number;
@@ -124,6 +168,9 @@ export interface GameStoreState {
   setNearPortal: (isNear: boolean) => void;
   setPortalWarpProgress: (progress: number) => void;
   resetChamberProgress: () => void;
+  setMarinaDefeated: (val: boolean) => void;
+  setLobbyPrompt: (prompt: LobbyPromptState | null) => void;
+  setLobbyDummyHit: (hit: LobbyDummyHitState | null) => void;
   setFinisherPose: (pose: FinisherPoseId) => void;
   setDrainThrottle: (mode: DrainThrottleMode) => void;
   setThrottleMode: (mode: DrainThrottleMode) => void;
@@ -161,6 +208,10 @@ const INITIAL_STATE = {
   isPointerLocked: false,
   frostHitFlashToken: 0,
   reticlePulseToken: 0,
+
+  marinaDefeated: readInitialMarinaDefeated(),
+  lobbyPrompt: null as LobbyPromptState | null,
+  lobbyDummyHit: null as LobbyDummyHitState | null,
 
   chamberWave: 0,
   totalChamberWaves: CHAMBER_CONFIG.WAVES.length,
@@ -264,6 +315,13 @@ export const useGameStore = create<GameStoreState>((set) => ({
       portalWarpProgress: 0,
     }),
 
+  setMarinaDefeated: (marinaDefeated) => {
+    persistMarinaDefeated(marinaDefeated);
+    set({ marinaDefeated });
+  },
+  setLobbyPrompt: (lobbyPrompt) => set({ lobbyPrompt }),
+  setLobbyDummyHit: (lobbyDummyHit) => set({ lobbyDummyHit }),
+
   setFinisherPose: (finisherPose) => set({ finisherPose }),
   setDrainThrottle: (drainThrottle) =>
     set({ drainThrottle, throttleMode: drainThrottle }),
@@ -352,6 +410,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
   resetToTitle: () =>
     set((state) => ({
       ...INITIAL_STATE,
+      marinaDefeated: state.marinaDefeated,
       audioMuted: state.audioMuted,
       musicVolume: state.musicVolume,
       sfxVolume: state.sfxVolume,
