@@ -9,7 +9,7 @@ interface PauseMenuProps {
 /**
  * Frosted-obsidian Pause Menu modal rendered whenever `isPaused === true`.
  * Features independent Music & SFX volume sliders (with SFX preview chime on release),
- * Resume ([ESC]), and Restart Stage actions. Zero Three.js imports.
+ * Resume ([P]), and Restart Stage actions. Zero Three.js imports.
  */
 export function PauseMenu({ controller }: PauseMenuProps) {
   const isPaused = useGameStore((s) => s.isPaused);
@@ -178,7 +178,7 @@ export function PauseMenu({ controller }: PauseMenuProps) {
             onClick={() => controller?.resumeGame()}
             className="ascend-btn w-full py-3.5 px-6 rounded-xl font-display text-xs sm:text-sm font-bold tracking-[0.2em] text-sky-50 uppercase cursor-pointer"
           >
-            [ESC] RESUME
+            [P] RESUME
           </button>
 
           <button

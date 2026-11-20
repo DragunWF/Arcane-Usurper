@@ -243,7 +243,7 @@ export function CombatHUD({ controller }: CombatHUDProps) {
                 Bolt &bull;{' '}
                 <span className="text-purple-300 font-semibold">RMB</span>{' '}
                 Umbral Pulse &bull;{' '}
-                <span className="text-purple-300 font-semibold">ESC/P</span>{' '}
+                <span className="text-purple-300 font-semibold">P</span>{' '}
                 Pause
               </div>
             </div>
@@ -277,7 +277,7 @@ export function CombatHUD({ controller }: CombatHUDProps) {
             </div>
           </div>
 
-          {/* Top-Right Pause ([ESC/P]) & Audio Toggle ([M]) Pills */}
+          {/* Top-Right Pause ([P]) & Audio Toggle ([M]) Pills */}
           <div className="fixed top-4 right-4 sm:top-6 sm:right-6 z-30 flex items-center gap-2 pointer-events-auto">
             <button
               type="button"

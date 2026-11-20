@@ -79,7 +79,7 @@ export class InputSystem implements ISystem {
 
       const state = this.callbacks.getGameState();
 
-      if ((e.code === 'Escape' || e.code === 'KeyP') && !e.repeat) {
+      if (e.code === 'KeyP' && !e.repeat) {
         if (state !== GAME_STATES.TITLE) {
           this.callbacks.onTogglePause();
         }
