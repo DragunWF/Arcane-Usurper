@@ -1,0 +1,502 @@
+import * as THREE from 'three';
+import {
+  ARENA_CONFIG,
+  BOSS_CONFIG,
+  CAMERA_CONFIG,
+  GAME_STATES,
+  type GameState,
+} from '../config/gameConfig';
+import type { IArenaGeometry } from './SceneManager';
+
+/**
+ * Narrow camera focus target contract exposed to ECS systems (ISP & DIP).
+ */
+export interface ICameraTarget {
+  readonly position: THREE.Vector3;
+  readonly focusOffsetY?: number;
+}
+
+export type CameraMode = 'TITLE' | 'COMBAT' | 'SPHERICAL_ORBIT';
+
+/**
+ * Third-person PointerLock combat follow camera + 360° spherical orbit/zoom controller
+ * for interactive Siphon Finisher and Victory/Defeat Diorama states.
+ */
+export class CameraRig {
+  public readonly camera: THREE.PerspectiveCamera;
+  public yaw: number = CAMERA_CONFIG.initialYaw;
+  public pitch: number = CAMERA_CONFIG.initialPitch;
+
+  // Spherical 360° Orbit & Zoom state for Finisher / Dioramas
+  public orbitAzimuth = 0;
+  public orbitElevation: number = CAMERA_CONFIG.finisherDefaultElevation;
+  public orbitDistance: number = CAMERA_CONFIG.finisherDefaultDistance;
+
+  public onPointerLockChange: ((locked: boolean) => void) | null = null;
+
+  private readonly domElement: HTMLElement;
+  private titleOrbitAngle: number = CAMERA_CONFIG.titleOrbitInitialAngle;
+  private _isPointerLocked = false;
+  private isDragging = false;
+  private lastPointerX = 0;
+  private lastPointerY = 0;
+  private activeMode: CameraMode = 'TITLE';
+
+  private shakeIntensity = 0;
+  private readonly currentPosition = new THREE.Vector3(0, 3.2, -6.5);
+  private readonly currentLookAt = new THREE.Vector3(
+    0,
+    CAMERA_CONFIG.lookAtHeight,
+    0,
+  );
+  private readonly raycaster = new THREE.Raycaster();
+  private readonly floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+  // Reusable scratch objects (zero per-frame GC churn)
+  private readonly desiredPos = new THREE.Vector3();
+  private readonly desiredLookAt = new THREE.Vector3();
+  private readonly reticleNdc = new THREE.Vector2(0, 0);
+  private readonly scratchBossCenter = new THREE.Vector3();
+  private readonly scratchBossSphere = new THREE.Sphere();
+  private readonly scratchSphereHit = new THREE.Vector3();
+  private readonly scratchFloorHit = new THREE.Vector3();
+
+  // Bound event listeners for clean disposal
+  private readonly handlePointerLockChange: () => void;
+  private readonly handlePointerLockError: () => void;
+  private readonly handleMouseMove: (e: MouseEvent) => void;
+  private readonly handleMouseDown: (e: MouseEvent) => void;
+  private readonly handleMouseUp: () => void;
+  private readonly handleWheel: (e: WheelEvent) => void;
+  private readonly handleTouchStart: (e: TouchEvent) => void;
+  private readonly handleTouchMove: (e: TouchEvent) => void;
+  private readonly handleTouchEnd: () => void;
+
+  public get isPointerLocked(): boolean {
+    return this._isPointerLocked;
+  }
+
+  constructor(domElement: HTMLElement) {
+    this.domElement = domElement;
+
+    const width = domElement.clientWidth || window.innerWidth;
+    const height = domElement.clientHeight || window.innerHeight;
+    this.camera = new THREE.PerspectiveCamera(
+      CAMERA_CONFIG.fov,
+      width / Math.max(1, height),
+      CAMERA_CONFIG.nearPlane,
+      CAMERA_CONFIG.farPlane,
+    );
+
+    this.handlePointerLockChange = () => {
+      this._isPointerLocked = document.pointerLockElement === this.domElement;
+      if (this.onPointerLockChange) {
+        this.onPointerLockChange(this._isPointerLocked);
+      }
+    };
+
+    this.handlePointerLockError = () => {
+      this._isPointerLocked = false;
+    };
+
+    this.handleMouseMove = (e: MouseEvent) => {
+      if (this.activeMode === 'SPHERICAL_ORBIT') {
+        if (!this.isDragging) return;
+        const dx = e.clientX - this.lastPointerX;
+        const dy = e.clientY - this.lastPointerY;
+        this.lastPointerX = e.clientX;
+        this.lastPointerY = e.clientY;
+        this.orbitAzimuth -= dx * CAMERA_CONFIG.dragSensitivity;
+        this.orbitElevation += dy * CAMERA_CONFIG.dragSensitivity;
+        this.clampOrbitElevation();
+        return;
+      }
+
+      if (this._isPointerLocked) {
+        this.yaw -= e.movementX * CAMERA_CONFIG.mouseSensitivity;
+        this.pitch += e.movementY * CAMERA_CONFIG.mouseSensitivity;
+        this.clampCombatPitch();
+      } else if (this.isDragging) {
+        const dx = e.clientX - this.lastPointerX;
+        const dy = e.clientY - this.lastPointerY;
+        this.lastPointerX = e.clientX;
+        this.lastPointerY = e.clientY;
+        this.yaw -= dx * CAMERA_CONFIG.dragSensitivity;
+        this.pitch += dy * CAMERA_CONFIG.dragSensitivity;
+        this.clampCombatPitch();
+      }
+    };
+
+    this.handleMouseDown = (e: MouseEvent) => {
+      if (!this._isPointerLocked && e.button === 0) {
+        this.isDragging = true;
+        this.lastPointerX = e.clientX;
+        this.lastPointerY = e.clientY;
+      }
+    };
+
+    this.handleMouseUp = () => {
+      this.isDragging = false;
+    };
+
+    this.handleWheel = (e: WheelEvent) => {
+      if (this.activeMode !== 'SPHERICAL_ORBIT') return;
+      e.preventDefault();
+      this.orbitDistance = THREE.MathUtils.clamp(
+        this.orbitDistance + e.deltaY * CAMERA_CONFIG.finisherZoomSpeed,
+        CAMERA_CONFIG.finisherMinDistance,
+        CAMERA_CONFIG.finisherMaxDistance,
+      );
+    };
+
+    this.handleTouchStart = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (e.touches.length === 1 && touch) {
+        this.isDragging = true;
+        this.lastPointerX = touch.clientX;
+        this.lastPointerY = touch.clientY;
+      }
+    };
+
+    this.handleTouchMove = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (!this.isDragging || e.touches.length !== 1 || !touch) return;
+      const dx = touch.clientX - this.lastPointerX;
+      const dy = touch.clientY - this.lastPointerY;
+      this.lastPointerX = touch.clientX;
+      this.lastPointerY = touch.clientY;
+
+      const scale =
+        CAMERA_CONFIG.dragSensitivity * CAMERA_CONFIG.touchSensitivityMultiplier;
+      if (this.activeMode === 'SPHERICAL_ORBIT') {
+        this.orbitAzimuth -= dx * scale;
+        this.orbitElevation += dy * scale;
+        this.clampOrbitElevation();
+      } else {
+        this.yaw -= dx * scale;
+        this.pitch += dy * scale;
+        this.clampCombatPitch();
+      }
+    };
+
+    this.handleTouchEnd = () => {
+      this.isDragging = false;
+    };
+
+    this.bindEvents();
+  }
+
+  private bindEvents(): void {
+    document.addEventListener('pointerlockchange', this.handlePointerLockChange);
+    document.addEventListener('pointerlockerror', this.handlePointerLockError);
+    document.addEventListener('mousemove', this.handleMouseMove);
+    this.domElement.addEventListener('mousedown', this.handleMouseDown);
+    window.addEventListener('mouseup', this.handleMouseUp);
+    this.domElement.addEventListener('wheel', this.handleWheel, {
+      passive: false,
+    });
+    this.domElement.addEventListener('touchstart', this.handleTouchStart, {
+      passive: true,
+    });
+    this.domElement.addEventListener('touchmove', this.handleTouchMove, {
+      passive: true,
+    });
+    this.domElement.addEventListener('touchend', this.handleTouchEnd);
+  }
+
+  private clampCombatPitch(): void {
+    this.pitch = THREE.MathUtils.clamp(
+      this.pitch,
+      CAMERA_CONFIG.minPitch,
+      CAMERA_CONFIG.maxPitch,
+    );
+  }
+
+  private clampOrbitElevation(): void {
+    this.orbitElevation = THREE.MathUtils.clamp(
+      this.orbitElevation,
+      CAMERA_CONFIG.finisherMinElevation,
+      CAMERA_CONFIG.finisherMaxElevation,
+    );
+  }
+
+  public setCombatAngles(yaw: number, pitch: number): void {
+    this.yaw = yaw;
+    this.pitch = pitch;
+    this.clampCombatPitch();
+  }
+
+  public resetSphericalOrbit(
+    azimuth = 0,
+    elevation: number = CAMERA_CONFIG.finisherDefaultElevation,
+    distance: number = CAMERA_CONFIG.finisherDefaultDistance,
+  ): void {
+    this.orbitAzimuth = azimuth;
+    this.orbitElevation = elevation;
+    this.orbitDistance = THREE.MathUtils.clamp(
+      distance,
+      CAMERA_CONFIG.finisherMinDistance,
+      CAMERA_CONFIG.finisherMaxDistance,
+    );
+    this.clampOrbitElevation();
+  }
+
+  public requestLock(): void {
+    try {
+      if (typeof this.domElement.requestPointerLock === 'function') {
+        const result = this.domElement.requestPointerLock() as unknown;
+        if (
+          result &&
+          typeof (result as Promise<void>).catch === 'function'
+        ) {
+          void (result as Promise<void>).catch(() => {});
+        }
+      }
+    } catch {
+      // Gracefully fall back to drag orbit when PointerLock is restricted
+    }
+  }
+
+  public exitLock(): void {
+    try {
+      if (
+        document.pointerLockElement &&
+        typeof document.exitPointerLock === 'function'
+      ) {
+        document.exitPointerLock();
+      }
+    } catch {
+      // Ignore if pointer lock is already released
+    }
+  }
+
+  public addShake(amount: number): void {
+    this.shakeIntensity = Math.min(
+      CAMERA_CONFIG.maxShakeIntensity,
+      this.shakeIntensity + amount,
+    );
+  }
+
+  /**
+   * Returns the horizontal forward direction vector of the camera (for WASD movement).
+   */
+  public getForwardXZ(outVec: THREE.Vector3): THREE.Vector3 {
+    this.camera.getWorldDirection(outVec);
+    outVec.y = 0;
+    if (outVec.lengthSq() < 0.0001) outVec.set(0, 0, -1);
+    return outVec.normalize();
+  }
+
+  /**
+   * Computes a razor-accurate 3D world target point under the center screen reticle.
+   */
+  public getReticleTargetPoint(
+    arena: IArenaGeometry | null,
+    outVec: THREE.Vector3,
+    bossPosition: THREE.Vector3 | null = null,
+  ): THREE.Vector3 {
+    this.raycaster.setFromCamera(this.reticleNdc, this.camera);
+
+    let closestDist: number = CAMERA_CONFIG.reticleMaxDist;
+    let found = false;
+
+    // Prioritize boss torso/head sphere when center reticle aims directly at her
+    if (bossPosition) {
+      this.scratchBossCenter.set(
+        bossPosition.x,
+        bossPosition.y + CAMERA_CONFIG.reticleBossAimHeight,
+        bossPosition.z,
+      );
+      this.scratchBossSphere.set(
+        this.scratchBossCenter,
+        BOSS_CONFIG.hitRadius * CAMERA_CONFIG.reticleBossRadiusMult,
+      );
+      if (
+        this.raycaster.ray.intersectSphere(
+          this.scratchBossSphere,
+          this.scratchSphereHit,
+        )
+      ) {
+        const d = this.camera.position.distanceTo(this.scratchSphereHit);
+        if (d > CAMERA_CONFIG.reticleBossMinDist && d < closestDist) {
+          closestDist = d;
+          outVec.copy(this.scratchSphereHit);
+          found = true;
+        }
+      }
+    }
+
+    // Check intersections against perimeter pillars
+    if (arena && arena.pillarMeshes.length > 0) {
+      const hits = this.raycaster.intersectObjects(
+        arena.pillarMeshes as THREE.Object3D[],
+        false,
+      );
+      const firstHit = hits[0];
+      if (
+        firstHit &&
+        firstHit.distance > CAMERA_CONFIG.reticlePillarMinDist &&
+        firstHit.distance < closestDist
+      ) {
+        closestDist = firstHit.distance;
+        outVec.copy(firstHit.point);
+        found = true;
+      }
+    }
+
+    // Check intersection with glacial floor plane (y = 0)
+    if (this.raycaster.ray.intersectPlane(this.floorPlane, this.scratchFloorHit)) {
+      const dist = this.camera.position.distanceTo(this.scratchFloorHit);
+      const radialSq =
+        this.scratchFloorHit.x * this.scratchFloorHit.x +
+        this.scratchFloorHit.z * this.scratchFloorHit.z;
+      const maxFloorR = ARENA_CONFIG.radius + CAMERA_CONFIG.reticleFloorRadiusPad;
+      if (
+        dist > CAMERA_CONFIG.reticleFloorMinDist &&
+        dist < closestDist &&
+        radialSq <= maxFloorR * maxFloorR
+      ) {
+        outVec.copy(this.scratchFloorHit);
+        found = true;
+      }
+    }
+
+    if (found) return outVec;
+
+    return this.raycaster.ray.at(CAMERA_CONFIG.reticleFallbackDist, outVec);
+  }
+
+  /**
+   * Resolves the active camera mode from the GameState machine.
+   */
+  public resolveModeForState(state: GameState): CameraMode {
+    if (state === GAME_STATES.TITLE) return 'TITLE';
+    if (
+      state === GAME_STATES.SIPHON_FINISHER ||
+      state === GAME_STATES.VICTORY_DIORAMA ||
+      state === GAME_STATES.ENDLESS_SAVOR ||
+      state === GAME_STATES.DEFEAT_DIORAMA
+    ) {
+      return 'SPHERICAL_ORBIT';
+    }
+    return 'COMBAT';
+  }
+
+  /**
+   * Updates camera transform for TITLE orbit, COMBAT follow, or 360° SPHERICAL_ORBIT.
+   */
+  public update(
+    dt: number,
+    state: GameState,
+    followTarget: ICameraTarget,
+    orbitTarget: ICameraTarget | null = null,
+  ): void {
+    this.activeMode = this.resolveModeForState(state);
+    const targetPos = followTarget.position;
+
+    if (this.activeMode === 'TITLE') {
+      this.titleOrbitAngle += dt * CAMERA_CONFIG.titleOrbitSpeed;
+      const r = CAMERA_CONFIG.titleOrbitRadius;
+      this.desiredPos.set(
+        targetPos.x + Math.sin(this.titleOrbitAngle) * r,
+        targetPos.y + CAMERA_CONFIG.titleOrbitHeight,
+        targetPos.z + Math.cos(this.titleOrbitAngle) * r,
+      );
+      this.desiredLookAt.set(
+        targetPos.x,
+        targetPos.y +
+          (followTarget.focusOffsetY ?? CAMERA_CONFIG.titleLookAtHeight),
+        targetPos.z,
+      );
+
+      this.currentPosition.lerp(
+        this.desiredPos,
+        Math.min(1, dt * CAMERA_CONFIG.titlePosLerp),
+      );
+      this.currentLookAt.lerp(
+        this.desiredLookAt,
+        Math.min(1, dt * CAMERA_CONFIG.titleLookLerp),
+      );
+    } else if (this.activeMode === 'SPHERICAL_ORBIT') {
+      const focus = orbitTarget ?? followTarget;
+      const focusY = focus.position.y + (focus.focusOffsetY ?? 0);
+      const horizR = Math.cos(this.orbitElevation) * this.orbitDistance;
+      const vertY = Math.sin(this.orbitElevation) * this.orbitDistance;
+
+      this.desiredLookAt.set(focus.position.x, focusY, focus.position.z);
+      this.desiredPos.set(
+        focus.position.x + Math.sin(this.orbitAzimuth) * horizR,
+        Math.max(0.18, focusY + vertY),
+        focus.position.z + Math.cos(this.orbitAzimuth) * horizR,
+      );
+
+      const smooth = Math.min(1, dt * CAMERA_CONFIG.finisherOrbitLerp);
+      this.currentPosition.lerp(this.desiredPos, smooth);
+      this.currentLookAt.lerp(this.desiredLookAt, smooth);
+    } else {
+      const dist = CAMERA_CONFIG.followDistance;
+      const heightOffset = CAMERA_CONFIG.followHeight;
+
+      const horizDist = Math.cos(this.pitch) * dist;
+      const vertOffset = Math.sin(this.pitch) * dist;
+
+      this.desiredPos.set(
+        targetPos.x + Math.sin(this.yaw) * horizDist,
+        Math.max(
+          CAMERA_CONFIG.minCameraY,
+          targetPos.y + heightOffset + vertOffset,
+        ),
+        targetPos.z + Math.cos(this.yaw) * horizDist,
+      );
+
+      this.desiredLookAt.set(
+        targetPos.x - Math.sin(this.yaw) * CAMERA_CONFIG.lookAheadOffset,
+        targetPos.y +
+          (followTarget.focusOffsetY ?? CAMERA_CONFIG.lookAtHeight) -
+          Math.sin(this.pitch) * CAMERA_CONFIG.lookPitchOffset,
+        targetPos.z - Math.cos(this.yaw) * CAMERA_CONFIG.lookAheadOffset,
+      );
+
+      const smooth = Math.min(1, dt * CAMERA_CONFIG.smoothFactor);
+      this.currentPosition.lerp(this.desiredPos, smooth);
+      this.currentLookAt.lerp(this.desiredLookAt, smooth);
+    }
+
+    // Apply decaying camera shake
+    this.camera.position.copy(this.currentPosition);
+    if (this.shakeIntensity > 0.001) {
+      this.camera.position.x += (Math.random() - 0.5) * this.shakeIntensity;
+      this.camera.position.y += (Math.random() - 0.5) * this.shakeIntensity;
+      this.shakeIntensity = Math.max(
+        0,
+        this.shakeIntensity - dt * CAMERA_CONFIG.shakeDecayRate,
+      );
+    }
+
+    this.camera.lookAt(this.currentLookAt);
+  }
+
+  public onResize(width: number, height: number): void {
+    if (width <= 0 || height <= 0) return;
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+  }
+
+  public dispose(): void {
+    document.removeEventListener(
+      'pointerlockchange',
+      this.handlePointerLockChange,
+    );
+    document.removeEventListener(
+      'pointerlockerror',
+      this.handlePointerLockError,
+    );
+    document.removeEventListener('mousemove', this.handleMouseMove);
+    this.domElement.removeEventListener('mousedown', this.handleMouseDown);
+    window.removeEventListener('mouseup', this.handleMouseUp);
+    this.domElement.removeEventListener('wheel', this.handleWheel);
+    this.domElement.removeEventListener('touchstart', this.handleTouchStart);
+    this.domElement.removeEventListener('touchmove', this.handleTouchMove);
+    this.domElement.removeEventListener('touchend', this.handleTouchEnd);
+  }
+}
