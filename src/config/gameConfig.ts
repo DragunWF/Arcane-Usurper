@@ -72,9 +72,62 @@ export const AUDIO_MODES = Object.freeze({
   SIPHON: 'SIPHON',
   VICTORY: 'VICTORY',
   DEFEAT: 'DEFEAT',
+  CHAMBER: 'CHAMBER',
 } as const);
 
 export type AudioMode = (typeof AUDIO_MODES)[keyof typeof AUDIO_MODES];
+
+export const ENVIRONMENT_IDS = Object.freeze({
+  CHAMBER: 'CHAMBER',
+  SUMMIT: 'SUMMIT',
+} as const);
+
+export type EnvironmentId =
+  (typeof ENVIRONMENT_IDS)[keyof typeof ENVIRONMENT_IDS];
+
+export const ARENA_BOUNDS_KINDS = Object.freeze({
+  RECTANGULAR: 'RECTANGULAR',
+  CIRCULAR: 'CIRCULAR',
+} as const);
+
+export type ArenaBoundsKind =
+  (typeof ARENA_BOUNDS_KINDS)[keyof typeof ARENA_BOUNDS_KINDS];
+
+export const PORTAL_STATES = Object.freeze({
+  SEALED: 'SEALED',
+  IGNITED: 'IGNITED',
+} as const);
+
+export type PortalState = (typeof PORTAL_STATES)[keyof typeof PORTAL_STATES];
+
+export const SERVANT_AI_STATES = Object.freeze({
+  SPAWNING: 'SPAWNING',
+  IDLE: 'IDLE',
+  CHASE: 'CHASE',
+  TELEGRAPH: 'TELEGRAPH',
+  ATTACK: 'ATTACK',
+  RECOVER: 'RECOVER',
+  GUARD_BROKEN: 'GUARD_BROKEN',
+  DYING: 'DYING',
+} as const);
+
+export type ServantAIState =
+  (typeof SERVANT_AI_STATES)[keyof typeof SERVANT_AI_STATES];
+
+export const DESTRUCTIBLE_PROP_TYPES = Object.freeze({
+  FROST_URN: 'FROST_URN',
+} as const);
+
+export type DestructiblePropType =
+  (typeof DESTRUCTIBLE_PROP_TYPES)[keyof typeof DESTRUCTIBLE_PROP_TYPES];
+
+export const SOUL_WISP_KINDS = Object.freeze({
+  PORTAL_CHARGE: 'PORTAL_CHARGE',
+  HEAL_PLAYER: 'HEAL_PLAYER',
+} as const);
+
+export type SoulWispKind =
+  (typeof SOUL_WISP_KINDS)[keyof typeof SOUL_WISP_KINDS];
 
 export const BOSS_PHASES = Object.freeze({
   PHASE_1: 1,
@@ -93,9 +146,10 @@ export const REALM_IDS = Object.freeze({
 export type RealmId = (typeof REALM_IDS)[keyof typeof REALM_IDS];
 
 export const SERVANT_ARCHETYPES = Object.freeze({
-  FROST_KNIGHT: 'FROST_KNIGHT',
-  CYBER_DRONE: 'CYBER_DRONE',
-  TIDE_SENTINEL: 'TIDE_SENTINEL',
+  GLACIAL_VANGUARD: 'GLACIAL_VANGUARD',
+  CRYO_ACOLYTE: 'CRYO_ACOLYTE',
+  RIME_HOUND: 'RIME_HOUND',
+  FROSTBITE_WARDEN: 'FROSTBITE_WARDEN',
 } as const);
 
 export type ServantArchetype =
@@ -166,6 +220,15 @@ export const PALETTE = Object.freeze({
   mutedSlate: 0x475569,
   coolGray: 0x64748b,
 
+  // Royal Ice Chambers (Realm I Chamber Hall)
+  royalIndigo: 0x1e1b4b,
+  frostMarble: 0x0f172a,
+  bannerTrim: 0x38bdf8,
+  coldFlame: 0x7dd3fc,
+  chamberVoid: 0x05060f,
+  marbleWall: 0x111a33,
+  knightFrost: 0xa5b4cf,
+
   // CSS Hex Strings for Canvas2D, Tailwind inline styles, and SVG tokens
   hex: Object.freeze({
     midnightSky: '#040711',
@@ -216,6 +279,13 @@ export const PALETTE = Object.freeze({
     browSlate: '#1E293B',
     mutedSlate: '#475569',
     coolGray: '#64748B',
+    royalIndigo: '#1E1B4B',
+    frostMarble: '#0F172A',
+    bannerTrim: '#38BDF8',
+    coldFlame: '#7DD3FC',
+    chamberVoid: '#05060F',
+    marbleWall: '#111A33',
+    knightFrost: '#A5B4CF',
   } as const),
 
   // Canvas2D RGBA & Gradient Stop Tokens (Zero Inline Color Literals)
@@ -254,6 +324,19 @@ export const PALETTE = Object.freeze({
     pauseModalShadow:
       '0 0 36px rgba(139, 92, 246, 0.28), inset 0 0 18px rgba(56, 189, 248, 0.14)',
     pauseRestartShadow: '0 0 20px rgba(56, 189, 248, 0.22)',
+
+    // Royal Ice Chambers Canvas Tokens
+    marbleVeinLight: 'rgba(148, 163, 184, 0.14)',
+    marbleVeinDeep: 'rgba(2, 6, 23, 0.45)',
+    filigreeEmissive: 'rgba(56, 189, 248, 0.95)',
+    filigreeDiffuse: 'rgba(125, 211, 252, 0.5)',
+    filigreeGlow: 'rgba(56, 189, 248, 0.26)',
+    carpetPile: 'rgba(99, 102, 241, 0.09)',
+    carpetShadow: 'rgba(2, 6, 23, 0.35)',
+    carpetTrimSilver: 'rgba(226, 232, 240, 0.92)',
+    carpetTrimCyan: 'rgba(56, 189, 248, 0.88)',
+    bannerCrestGlow: 'rgba(186, 230, 253, 0.9)',
+    bannerFold: 'rgba(2, 6, 23, 0.28)',
   } as const),
 } as const);
 
@@ -759,6 +842,293 @@ export const NG_PLUS_CONFIG = Object.freeze({
 } as const);
 
 // ============================================================================
+// ROYAL ICE CHAMBERS (REALM I CHAMBER HALL, WAVES & ASTRAL PORTAL)
+// ============================================================================
+
+export interface ChamberWaveEntry {
+  readonly archetype: ServantArchetype;
+  readonly count: number;
+}
+
+export interface ChamberWaveRecipe {
+  readonly servants: readonly ChamberWaveEntry[];
+}
+
+export const CHAMBER_CONFIG = Object.freeze({
+  // Rectangular Vaulted Hall (X = width, Z = length; entrance at +Z, dais at -Z)
+  width: 24,
+  length: 52,
+  wallHeight: 16,
+  wallThickness: 1.2,
+  movementWallPadding: 1.15,
+  playerSpawnX: 0,
+  playerSpawnZ: 19.5,
+  playerSpawnYaw: Math.PI,
+
+  // Colonnade of Faceted Hexagonal Ice Pillars & Pointed Gothic Arches
+  pillarRowX: 9.0,
+  pillarCountPerSide: 7,
+  pillarStartZ: 19.5,
+  pillarSpacing: 6.4,
+  pillarHeight: 8.6,
+  pillarRadius: 0.62,
+  pillarCollisionRadius: 0.95,
+  archApexRise: 4.6,
+  archRibRadius: 0.22,
+  archRibOutlineRadius: 0.3,
+  archTubularSegments: 28,
+  ceilingY: 14.2,
+
+  // Royal Velvet Runner
+  carpetWidth: 4.2,
+  carpetStartZ: 24.5,
+  carpetEndZ: -15.8,
+  carpetTextureRepeat: 6,
+  carpetY: 0.012,
+
+  // Swaying Royal Crest Banners
+  bannerWidth: 1.55,
+  bannerHeight: 5.2,
+  bannerTopY: 8.4,
+  bannerSegmentsY: 10,
+  bannerWallInset: 0.8,
+  bannerSwayAmp: 0.16,
+  bannerSwaySpeed: 1.35,
+  bannerSwayPhaseStep: 0.85,
+
+  // Cold-Flame Obsidian Braziers
+  brazierInset: 1.3,
+  brazierLightStride: 3,
+  brazierLightIntensity: 6.0,
+  brazierLightDistance: 9.0,
+  brazierLightDecay: 1.8,
+  brazierFlickerSpeed: 9.0,
+  brazierFlickerAmp: 0.22,
+
+  // Geometric Hanging Icicle Chandeliers
+  chandelierZPositions: Object.freeze([12, 0, -12] as const),
+  chandelierY: 11.4,
+  chandelierSpinSpeed: 0.18,
+  chandelierIcicleCount: 12,
+  chandelierLightIntensity: 4.5,
+  chandelierLightDistance: 16.0,
+  chandelierLightDecay: 1.6,
+
+  // Frosted Knight Statues flanking the runway
+  statueZPositions: Object.freeze([16, 7, -2] as const),
+  statueX: 3.6,
+  statueScale: 1.35,
+  statueCollisionRadius: 0.8,
+
+  // Destructible Frost Urns along the colonnade edges
+  urnCount: 8,
+  urnHealAmount: 8,
+  urnHp: 1,
+  urnRowX: 7.25,
+  urnZPositions: Object.freeze([14.2, 4.6, -5.0, -13.4] as const),
+  urnHitRadius: 0.55,
+
+  // Astral Portal Dais
+  daisZ: -20.6,
+  daisRadius: 5.4,
+  daisTierHeights: Object.freeze([0.08, 0.16] as const),
+  daisTierRadiusStep: 1.1,
+  portalZ: -22.3,
+  portalCenterY: 3.35,
+  portalRingRadius: 2.7,
+  portalTubeRadius: 0.3,
+  portalRuneSegmentCount: 12,
+  portalPylonOffsetX: 3.45,
+  portalPylonCollisionRadius: 0.75,
+  portalInteractionRadius: 4.0,
+  portalSealPulseSpeed: 2.2,
+  portalVortexSwirlSpeed: 1.6,
+  portalVortexArms: 5,
+  portalIgniteLerp: 4.0,
+  portalSpinSpeed: 0.35,
+
+  // Wave Escalation & Portal Flow
+  waveEscalationDelay: 1.5,
+  portalWarpDuration: 1.1,
+  portalIgniteDuration: 0.9,
+  servantSpawnPoints: Object.freeze([
+    Object.freeze({ x: -5.0, z: 3.0 }),
+    Object.freeze({ x: 5.0, z: 3.0 }),
+    Object.freeze({ x: -6.2, z: -6.0 }),
+    Object.freeze({ x: 6.2, z: -6.0 }),
+    Object.freeze({ x: 0.0, z: -9.5 }),
+    Object.freeze({ x: -3.2, z: 9.0 }),
+    Object.freeze({ x: 3.2, z: 9.0 }),
+  ] as const),
+
+  // Soul Wisps (servant kills charge portal; urn shatters heal player)
+  soulWispSpeed: 9.0,
+  soulWispArcHeight: 2.2,
+  soulWispMaxLife: 1.6,
+
+  // Ambient Frost Motes drifting through the hall
+  frostMoteCount: 220,
+  frostMoteRiseSpeed: 0.22,
+  frostMoteSwayAmp: 0.35,
+
+  // Procedural Texture Resolutions
+  floorTextureSize: 1024,
+  carpetTextureSize: 512,
+  bannerTextureSize: 512,
+
+  // Indoor Royal Lighting (calibrated for Three.js r187 physically-based lights)
+  lighting: Object.freeze({
+    hemiIntensity: 1.2,
+    keyIntensity: 2.2,
+    rimIntensity: 1.15,
+    fogDensity: 0.016,
+    shadowExtent: 28,
+    portalLightSealed: 1.6,
+    portalLightIgnited: 9.0,
+    portalLightDistance: 14.0,
+    portalLightDecay: 1.6,
+  } as const),
+
+  WAVES: Object.freeze([
+    Object.freeze({
+      servants: Object.freeze([
+        Object.freeze({ archetype: SERVANT_ARCHETYPES.GLACIAL_VANGUARD, count: 2 }),
+        Object.freeze({ archetype: SERVANT_ARCHETYPES.CRYO_ACOLYTE, count: 2 }),
+      ]),
+    }),
+    Object.freeze({
+      servants: Object.freeze([
+        Object.freeze({ archetype: SERVANT_ARCHETYPES.FROSTBITE_WARDEN, count: 1 }),
+        Object.freeze({ archetype: SERVANT_ARCHETYPES.RIME_HOUND, count: 2 }),
+        Object.freeze({ archetype: SERVANT_ARCHETYPES.CRYO_ACOLYTE, count: 1 }),
+      ]),
+    }),
+  ] as readonly ChamberWaveRecipe[]),
+} as const);
+
+// ============================================================================
+// CHAMBER SERVANT ARCHETYPE STATS (Marina's Royal Ice Guard)
+// ============================================================================
+
+export interface ServantArchetypeStats {
+  readonly displayName: string;
+  readonly maxHp: number;
+  readonly moveSpeed: number;
+  readonly turnSpeed: number;
+  readonly damage: number;
+  readonly attackCooldown: number;
+  readonly attackTelegraph: number;
+  readonly attackRecovery: number;
+  readonly attackRange: number;
+  readonly preferredRange: number;
+  readonly aggroRadius: number;
+  readonly hitRadius: number;
+  readonly hitHeight: number;
+  readonly spawnDuration: number;
+  readonly scale: number;
+}
+
+export const SERVANT_CONFIG = Object.freeze({
+  // Shielded halberd knight: frontal shield blocks bolts until guard is broken
+  GLACIAL_VANGUARD: Object.freeze({
+    displayName: 'Glacial Vanguard',
+    maxHp: 140,
+    moveSpeed: 3.4,
+    turnSpeed: 5.5,
+    damage: 16,
+    attackCooldown: 2.1,
+    attackTelegraph: 0.62,
+    attackRecovery: 0.55,
+    attackRange: 2.4,
+    preferredRange: 1.8,
+    aggroRadius: 30,
+    hitRadius: 0.72,
+    hitHeight: 2.2,
+    spawnDuration: 1.1,
+    scale: 1.0,
+    shieldBlockArcRad: Math.PI * 0.55,
+    shieldBlockDamageMultiplier: 0.15,
+    guardBreakHits: 4,
+    guardBreakDuration: 2.4,
+    guardBrokenDamageMultiplier: 1.5,
+  } as const),
+
+  // Ranged frost caster: keeps distance and fires triple shard volleys
+  CRYO_ACOLYTE: Object.freeze({
+    displayName: 'Cryo Acolyte',
+    maxHp: 70,
+    moveSpeed: 3.0,
+    turnSpeed: 7.0,
+    damage: 10,
+    attackCooldown: 2.6,
+    attackTelegraph: 0.8,
+    attackRecovery: 0.45,
+    attackRange: 14.0,
+    preferredRange: 9.5,
+    aggroRadius: 30,
+    hitRadius: 0.55,
+    hitHeight: 1.95,
+    spawnDuration: 1.0,
+    scale: 0.95,
+    boltSpeed: 13.5,
+    boltRadius: 0.42,
+    boltLife: 2.6,
+    boltSpread: 0.22,
+    boltsPerVolley: 3,
+    boltHeight: 1.25,
+  } as const),
+
+  // Fast pack beast: circles the player then lunges
+  RIME_HOUND: Object.freeze({
+    displayName: 'Rime Hound',
+    maxHp: 55,
+    moveSpeed: 6.4,
+    turnSpeed: 9.0,
+    damage: 12,
+    attackCooldown: 1.7,
+    attackTelegraph: 0.42,
+    attackRecovery: 0.6,
+    attackRange: 5.2,
+    preferredRange: 4.2,
+    aggroRadius: 30,
+    hitRadius: 0.6,
+    hitHeight: 1.05,
+    spawnDuration: 0.85,
+    scale: 1.0,
+    lungeSpeed: 15.0,
+    lungeDuration: 0.32,
+    circleAngularSpeed: 1.4,
+  } as const),
+
+  // Armored elite: slow, heavy ground-slam shockwave with long telegraph
+  FROSTBITE_WARDEN: Object.freeze({
+    displayName: 'Frostbite Warden',
+    maxHp: 320,
+    moveSpeed: 2.4,
+    turnSpeed: 3.8,
+    damage: 24,
+    attackCooldown: 3.4,
+    attackTelegraph: 1.15,
+    attackRecovery: 0.9,
+    attackRange: 4.2,
+    preferredRange: 3.0,
+    aggroRadius: 30,
+    hitRadius: 1.05,
+    hitHeight: 2.9,
+    spawnDuration: 1.45,
+    scale: 1.35,
+    slamRadius: 4.6,
+    armorDamageMultiplier: 0.7,
+    slamCameraShake: 0.22,
+  } as const),
+
+  // Shared servant feedback
+  hitFlashDuration: 0.12,
+  deathDissolveDuration: 0.65,
+  summonGlyphRadius: 1.4,
+} as const);
+
+// ============================================================================
 // CAMERA & RETICLE CONFIGURATION
 // ============================================================================
 
@@ -879,7 +1249,35 @@ export const AUDIO_CONFIG = Object.freeze({
     SIPHON: 0.025,
     VICTORY: 0.0001,
     DEFEAT: 0.05,
+    CHAMBER: 0.03,
   } as const),
+
+  // Royal Ice Chambers Harpsichord Sequencer (D-minor regal ostinato)
+  chamberTempo: 104,
+  chamberArp: Object.freeze([
+    293.66, 440.0, 587.33, 698.46, 880.0, 698.46, 587.33, 440.0,
+    277.18, 440.0, 554.37, 659.25, 880.0, 659.25, 554.37, 440.0,
+  ] as const),
+  chamberBass: Object.freeze([
+    73.42, 73.42, 69.3, 69.3, 58.27, 58.27, 55.0, 55.0,
+  ] as const),
+  chamberHarpsichordGain: 0.075,
+  chamberHarpsichordDuration: 0.32,
+  chamberHarpsichordCutoff: 3200,
+  chamberBassGain: 0.13,
+  chamberBassDuration: 0.5,
+  chamberAccentBellGain: 0.045,
+
+  // Chamber SFX Tables
+  urnShatterGrainCount: 7,
+  urnShatterBaseFreq: 1800,
+  urnShatterFreqSpread: 2600,
+  shieldClangFreqs: Object.freeze([523.25, 1244.51, 1975.53] as const),
+  guardBreakFreqs: Object.freeze([196.0, 155.56, 123.47] as const),
+  summonGlyphFreqs: Object.freeze([880.0, 1108.73, 1318.51, 1760.0] as const),
+  portalIgniteFreqs: Object.freeze([146.83, 220.0, 293.66, 440.0, 587.33] as const),
+  portalWarpStartFreq: 110,
+  portalWarpEndFreq: 1760,
 
   // Winter-Cathedral D-Minor / Dorian Note Tables (Hz)
   arpP1: Object.freeze([

@@ -5,12 +5,14 @@ import {
   BOSS_CONFIG,
   BOSS_EXPRESSIONS,
   BOSS_PHASES,
+  CHAMBER_CONFIG,
   DRAIN_THROTTLE_MODES,
   FINISHER_CONFIG,
   FINISHER_POSE_IDS,
   GAME_STATES,
   NG_PLUS_CONFIG,
   PLAYER_CONFIG,
+  PORTAL_STATES,
   REALM_IDS,
   type AudioMode,
   type BossExpression,
@@ -18,6 +20,7 @@ import {
   type DrainThrottleMode,
   type FinisherPoseId,
   type GameState,
+  type PortalState,
   type RealmId,
 } from '../config/gameConfig';
 
@@ -56,11 +59,13 @@ export interface GameStoreState {
   frostHitFlashToken: number;
   reticlePulseToken: number;
 
-  // Chamber Progression Telemetry
-  chamberIndex: number;
-  chamberServantsRemaining: number;
-  chamberServantsTotal: number;
-  isPortalUnlocked: boolean;
+  // Royal Ice Chambers Progression Telemetry
+  chamberWave: number;
+  totalChamberWaves: number;
+  servantsRemaining: number;
+  portalState: PortalState;
+  hasReachedSummit: boolean;
+  isNearPortal: boolean;
 
   // Boss Telemetry
   bossId: string;
@@ -108,12 +113,15 @@ export interface GameStoreState {
   setBossExpression: (expression: BossExpression) => void;
   setBossStaggered: (staggered: boolean) => void;
   setCanExecuteFinisher: (canExecute: boolean) => void;
-  setChamberProgress: (
-    chamberIndex: number,
-    remaining: number,
-    total: number,
-    portalUnlocked: boolean,
+  setChamberWaveProgress: (
+    chamberWave: number,
+    totalChamberWaves: number,
+    servantsRemaining: number,
   ) => void;
+  setPortalState: (portalState: PortalState) => void;
+  setHasReachedSummit: (reached: boolean) => void;
+  setNearPortal: (isNear: boolean) => void;
+  resetChamberProgress: () => void;
   setFinisherPose: (pose: FinisherPoseId) => void;
   setDrainThrottle: (mode: DrainThrottleMode) => void;
   setThrottleMode: (mode: DrainThrottleMode) => void;
@@ -152,10 +160,12 @@ const INITIAL_STATE = {
   frostHitFlashToken: 0,
   reticlePulseToken: 0,
 
-  chamberIndex: 0,
-  chamberServantsRemaining: 0,
-  chamberServantsTotal: 0,
-  isPortalUnlocked: false,
+  chamberWave: 0,
+  totalChamberWaves: CHAMBER_CONFIG.WAVES.length,
+  servantsRemaining: 0,
+  portalState: PORTAL_STATES.SEALED as PortalState,
+  hasReachedSummit: false,
+  isNearPortal: false,
 
   bossId: BOSS_CONFIG.defaultId,
   bossDisplayName: BOSS_CONFIG.defaultDisplayName,
@@ -233,17 +243,19 @@ export const useGameStore = create<GameStoreState>((set) => ({
 
   setCanExecuteFinisher: (canExecuteFinisher) => set({ canExecuteFinisher }),
 
-  setChamberProgress: (
-    chamberIndex,
-    chamberServantsRemaining,
-    chamberServantsTotal,
-    isPortalUnlocked,
-  ) =>
+  setChamberWaveProgress: (chamberWave, totalChamberWaves, servantsRemaining) =>
+    set({ chamberWave, totalChamberWaves, servantsRemaining }),
+  setPortalState: (portalState) => set({ portalState }),
+  setHasReachedSummit: (hasReachedSummit) => set({ hasReachedSummit }),
+  setNearPortal: (isNearPortal) => set({ isNearPortal }),
+  resetChamberProgress: () =>
     set({
-      chamberIndex,
-      chamberServantsRemaining,
-      chamberServantsTotal,
-      isPortalUnlocked,
+      chamberWave: 0,
+      totalChamberWaves: CHAMBER_CONFIG.WAVES.length,
+      servantsRemaining: 0,
+      portalState: PORTAL_STATES.SEALED,
+      hasReachedSummit: false,
+      isNearPortal: false,
     }),
 
   setFinisherPose: (finisherPose) => set({ finisherPose }),

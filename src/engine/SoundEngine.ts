@@ -1,6 +1,7 @@
 import {
   AUDIO_CONFIG,
   AUDIO_MODES,
+  CHAMBER_CONFIG,
   DIORAMA_CONFIG,
   DRAIN_THROTTLE_MODES,
   type AudioMode,
@@ -34,6 +35,12 @@ export interface IAudioTrigger {
   playTiaraPing(): void;
   playVictoryClimax(): void;
   playPreviewChime(): void;
+  playUrnShatter(): void;
+  playShieldClang(): void;
+  playGuardBreak(): void;
+  playSummonGlyphChime(): void;
+  playPortalIgnite(): void;
+  playPortalWarp(): void;
   dispose(): void;
 }
 
@@ -304,6 +311,9 @@ export class SoundEngine implements IAudioTrigger {
     if (this._mode === AUDIO_MODES.DEFEAT) {
       return DIORAMA_CONFIG.defeatMusicBoxStepDuration;
     }
+    if (this._mode === AUDIO_MODES.CHAMBER) {
+      return (60 / AUDIO_CONFIG.chamberTempo) * 0.25;
+    }
     return AUDIO_CONFIG.defaultStepDuration;
   }
 
@@ -433,7 +443,104 @@ export class SoundEngine implements IAudioTrigger {
           this.synthCathedralBell(time, noteFreq, 0.04, 1.35);
         }
       }
+    } else if (this._mode === AUDIO_MODES.CHAMBER) {
+      // Tense regal harpsichord ostinato + crystalline accents building toward the summit theme
+      const arp = AUDIO_CONFIG.chamberArp;
+      const noteFreq = arp[step % arp.length];
+      if (noteFreq !== undefined) {
+        const accent = step % 4 === 0 ? 1.25 : 1.0;
+        this.synthHarpsichord(
+          time,
+          noteFreq,
+          AUDIO_CONFIG.chamberHarpsichordGain * accent,
+          AUDIO_CONFIG.chamberHarpsichordDuration,
+        );
+      }
+
+      if (step % 8 === 0) {
+        const bassFreq =
+          AUDIO_CONFIG.chamberBass[
+            Math.floor(step / 8) % AUDIO_CONFIG.chamberBass.length
+          ];
+        if (bassFreq !== undefined) {
+          this.synthDarkBass(
+            time,
+            bassFreq,
+            AUDIO_CONFIG.chamberBassGain,
+            AUDIO_CONFIG.chamberBassDuration,
+          );
+        }
+      }
+
+      // Crystalline bell foreshadowing Marina's summit arpeggio every bar
+      if (step % 16 === 12) {
+        const bellFreq =
+          AUDIO_CONFIG.arpP1[
+            Math.floor(step / 16) % AUDIO_CONFIG.arpP1.length
+          ];
+        if (bellFreq !== undefined) {
+          this.synthCathedralBell(
+            time,
+            bellFreq,
+            AUDIO_CONFIG.chamberAccentBellGain,
+            1.1,
+          );
+        }
+      }
+
+      if (step % 4 === 2) this.synthIceTick(time, 0.03);
     }
+  }
+
+  /**
+   * Plucked regal harpsichord voice (bright sawtooth + square pair through a decaying lowpass).
+   */
+  private synthHarpsichord(
+    time: number,
+    freq: number,
+    peakGain: number,
+    duration: number,
+  ): void {
+    if (!this.ctx || !this.musicGain) return;
+    const saw = this.ctx.createOscillator();
+    const sq = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const env = this.ctx.createGain();
+
+    saw.type = 'sawtooth';
+    saw.frequency.setValueAtTime(freq, time);
+    sq.type = 'square';
+    sq.frequency.setValueAtTime(freq * 2.0, time);
+    sq.detune.setValueAtTime(6, time);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(AUDIO_CONFIG.chamberHarpsichordCutoff, time);
+    filter.frequency.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.chamberHarpsichordCutoff * 0.18,
+      time + duration,
+    );
+    filter.Q.value = 1.6;
+
+    env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, time);
+    env.gain.linearRampToValueAtTime(peakGain, time + 0.004);
+    env.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      time + duration,
+    );
+
+    const sqGain = this.ctx.createGain();
+    sqGain.gain.value = 0.35;
+
+    saw.connect(filter);
+    sq.connect(sqGain);
+    sqGain.connect(filter);
+    filter.connect(env);
+    env.connect(this.musicGain);
+
+    saw.start(time);
+    sq.start(time);
+    saw.stop(time + duration + 0.02);
+    sq.stop(time + duration + 0.02);
   }
 
   private synthCathedralBell(
@@ -1037,6 +1144,163 @@ export class SoundEngine implements IAudioTrigger {
       osc.start(start);
       osc.stop(start + AUDIO_CONFIG.previewChimeDurationSec + 0.02);
     });
+  }
+
+  // =========================================================================
+  // ROYAL ICE CHAMBERS SOUND EFFECTS (routed through sfxGain)
+  // =========================================================================
+
+  private canPlaySfx(): boolean {
+    return Boolean(this.ctx && this.sfxGain && this.ctx.state === 'running');
+  }
+
+  private playNoiseBurst(
+    time: number,
+    filterType: BiquadFilterType,
+    startFreq: number,
+    endFreq: number,
+    q: number,
+    peakGain: number,
+    duration: number,
+  ): void {
+    if (!this.ctx || !this.sfxGain || !this.noiseBuffer) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = filterType;
+    filter.frequency.setValueAtTime(startFreq, time);
+    filter.frequency.exponentialRampToValueAtTime(endFreq, time + duration);
+    filter.Q.value = q;
+
+    const env = this.ctx.createGain();
+    env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, time);
+    env.gain.linearRampToValueAtTime(peakGain, time + 0.008);
+    env.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      time + duration,
+    );
+
+    src.connect(filter);
+    filter.connect(env);
+    env.connect(this.sfxGain);
+    src.start(time);
+    src.stop(time + duration + 0.02);
+  }
+
+  private playTone(
+    time: number,
+    type: OscillatorType,
+    startFreq: number,
+    endFreq: number,
+    peakGain: number,
+    attack: number,
+    duration: number,
+  ): void {
+    if (!this.ctx || !this.sfxGain) return;
+    const osc = this.ctx.createOscillator();
+    const env = this.ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(startFreq, time);
+    osc.frequency.exponentialRampToValueAtTime(endFreq, time + duration);
+
+    env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, time);
+    env.gain.linearRampToValueAtTime(peakGain, time + attack);
+    env.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      time + duration,
+    );
+
+    osc.connect(env);
+    env.connect(this.sfxGain);
+    osc.start(time);
+    osc.stop(time + duration + 0.02);
+  }
+
+  /**
+   * Brittle porcelain-ice crack + scattering crystalline grains when a Frost Urn shatters.
+   */
+  public playUrnShatter(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    this.playNoiseBurst(now, 'bandpass', 2600, 900, 1.4, 0.22, 0.16);
+    this.playTone(now, 'sine', 240, 90, 0.16, 0.006, 0.14);
+    for (let i = 0; i < AUDIO_CONFIG.urnShatterGrainCount; i++) {
+      const offset = 0.012 + i * 0.022 + Math.random() * 0.012;
+      const freq =
+        AUDIO_CONFIG.urnShatterBaseFreq +
+        Math.random() * AUDIO_CONFIG.urnShatterFreqSpread;
+      this.playTone(now + offset, 'triangle', freq, freq * 0.78, 0.07, 0.004, 0.11);
+    }
+  }
+
+  /**
+   * Metallic ice-steel clang when a Void Bolt glances off a Glacial Vanguard shield.
+   */
+  public playShieldClang(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    AUDIO_CONFIG.shieldClangFreqs.forEach((freq, i) => {
+      this.playTone(now, i === 0 ? 'square' : 'sine', freq, freq * 0.985, 0.1 - i * 0.022, 0.003, 0.42 - i * 0.08);
+    });
+    this.playNoiseBurst(now, 'highpass', 5200, 3800, 0.8, 0.12, 0.07);
+  }
+
+  /**
+   * Heavy descending crunch + glassy fracture when a shield guard is broken.
+   */
+  public playGuardBreak(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    AUDIO_CONFIG.guardBreakFreqs.forEach((freq, i) => {
+      this.playTone(now + i * 0.055, 'sawtooth', freq, freq * 0.62, 0.12, 0.006, 0.3);
+    });
+    this.playNoiseBurst(now, 'bandpass', 1800, 320, 1.2, 0.26, 0.34);
+    this.playIceShatter(1.1);
+  }
+
+  /**
+   * Shimmering ascending glyph chime as a summoning circle materializes a servant.
+   */
+  public playSummonGlyphChime(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    AUDIO_CONFIG.summonGlyphFreqs.forEach((freq, i) => {
+      this.playTone(now + i * 0.06, 'sine', freq, freq * 1.01, 0.075, 0.01, 0.62);
+    });
+    this.playNoiseBurst(now, 'bandpass', 900, 4200, 2.4, 0.06, 0.5);
+  }
+
+  /**
+   * Swelling regal chord + sub-bass bloom when the Astral Portal ignites.
+   */
+  public playPortalIgnite(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    this.playTone(now, 'sine', 70, 42, 0.32, 0.08, 1.1);
+    AUDIO_CONFIG.portalIgniteFreqs.forEach((freq, i) => {
+      this.playTone(now + i * 0.07, 'triangle', freq, freq * 1.004, 0.075, 0.12, 1.6);
+    });
+    this.playNoiseBurst(now, 'bandpass', 400, 3600, 1.8, 0.1, 1.2);
+  }
+
+  /**
+   * Rising astral whoosh + crystalline sweep as the Dark Mage warps to the summit.
+   */
+  public playPortalWarp(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    const dur = CHAMBER_CONFIG.portalWarpDuration;
+    this.playTone(
+      now,
+      'sawtooth',
+      AUDIO_CONFIG.portalWarpStartFreq,
+      AUDIO_CONFIG.portalWarpEndFreq,
+      0.12,
+      0.2,
+      dur,
+    );
+    this.playNoiseBurst(now, 'bandpass', 300, 6400, 3.0, 0.24, dur);
+    this.playTone(now + dur * 0.85, 'sine', 1760, 2637.02, 0.1, 0.01, 0.5);
   }
 
   /**

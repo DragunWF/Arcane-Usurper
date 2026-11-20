@@ -2,10 +2,15 @@ import type * as THREE from 'three';
 import type {
   BossExpression,
   BossPhase,
+  DestructiblePropType,
   DrainThrottleMode,
   FinisherPoseId,
+  ServantAIState,
   ServantArchetype,
+  SoulWispKind,
 } from '../config/gameConfig';
+
+export type { ServantAIState };
 
 /**
  * Pure data ECS component definitions (SRP & ISP).
@@ -31,8 +36,6 @@ export type HazardKind =
   | 'GLACIAL_LASER'
   | 'ICE_PILLAR'
   | 'PHASE_SHOCKWAVE';
-
-export type ServantAIState = 'IDLE' | 'CHASE' | 'ATTACK' | 'STAGGERED';
 
 export interface Vec3Data {
   x: number;
@@ -178,15 +181,34 @@ export interface SiphonableBossComponent {
   finisherRange: number;
 }
 
+/**
+ * Chamber servant behaviour state (Glacial Vanguard, Cryo Acolyte, Rime Hound, Frostbite Warden).
+ */
 export interface ServantAIComponent {
   archetype: ServantArchetype;
-  chamberIndex: number;
-  aggroRadius: number;
-  preferredRange: number;
-  attackCooldown: number;
-  attackTimer: number;
-  attackDamage: number;
   state: ServantAIState;
+  stateTimer: number;
+  telegraphTimer: number;
+  guardBrokenTimer: number;
+  spawnProgress: number;
+}
+
+/**
+ * Breakable environment prop (e.g. Destructible Frost Urn) that may release healing wisps.
+ */
+export interface DestructiblePropComponent {
+  propType: DestructiblePropType;
+  hp: number;
+  healValue: number;
+}
+
+/**
+ * Homing soul wisp travelling from a defeated servant / shattered urn to its target.
+ */
+export interface SoulWispComponent {
+  targetPos: Vec3Data;
+  progress: number;
+  kind: SoulWispKind;
 }
 
 export interface CloneIllusionComponent {
@@ -221,6 +243,8 @@ export interface ComponentMap {
   bossPhase: BossPhaseStateComponent;
   siphonableBoss: SiphonableBossComponent;
   servantAI: ServantAIComponent;
+  destructibleProp: DestructiblePropComponent;
+  soulWisp: SoulWispComponent;
   cloneIllusion: CloneIllusionComponent;
   lifetime: LifetimeComponent;
 }

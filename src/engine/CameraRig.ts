@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {
+  ARENA_BOUNDS_KINDS,
   ARENA_CONFIG,
   BOSS_CONFIG,
   CAMERA_CONFIG,
@@ -395,17 +396,30 @@ export class CameraRig {
       }
     }
 
-    // Check intersection with glacial floor plane (y = 0)
+    // Check intersection with active arena floor plane (y = 0)
     if (this.raycaster.ray.intersectPlane(this.floorPlane, this.scratchFloorHit)) {
       const dist = this.camera.position.distanceTo(this.scratchFloorHit);
-      const radialSq =
-        this.scratchFloorHit.x * this.scratchFloorHit.x +
-        this.scratchFloorHit.z * this.scratchFloorHit.z;
-      const maxFloorR = ARENA_CONFIG.radius + CAMERA_CONFIG.reticleFloorRadiusPad;
+      const bounds = arena?.bounds;
+      let withinFloor = false;
+      if (bounds && bounds.kind === ARENA_BOUNDS_KINDS.RECTANGULAR) {
+        withinFloor =
+          Math.abs(this.scratchFloorHit.x) <=
+            bounds.halfWidth + CAMERA_CONFIG.reticleFloorRadiusPad &&
+          Math.abs(this.scratchFloorHit.z) <=
+            bounds.halfLength + CAMERA_CONFIG.reticleFloorRadiusPad;
+      } else {
+        const radialSq =
+          this.scratchFloorHit.x * this.scratchFloorHit.x +
+          this.scratchFloorHit.z * this.scratchFloorHit.z;
+        const maxFloorR =
+          (bounds ? bounds.radius : ARENA_CONFIG.radius) +
+          CAMERA_CONFIG.reticleFloorRadiusPad;
+        withinFloor = radialSq <= maxFloorR * maxFloorR;
+      }
       if (
         dist > CAMERA_CONFIG.reticleFloorMinDist &&
         dist < closestDist &&
-        radialSq <= maxFloorR * maxFloorR
+        withinFloor
       ) {
         outVec.copy(this.scratchFloorHit);
         found = true;

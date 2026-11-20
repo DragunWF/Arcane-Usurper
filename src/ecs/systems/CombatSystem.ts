@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {
+  ARENA_BOUNDS_KINDS,
   ARENA_CONFIG,
   BOSS_CONFIG,
   GAME_STATES,
@@ -332,12 +333,28 @@ export class CombatSystem implements ISystem {
           }
         }
 
-        // Glacial Floor
-        const floorR = ARENA_CONFIG.radius + ARENA_CONFIG.floorCollisionRadiusPad;
+        // Arena Floor & Chamber Wall Bounds
+        const bounds = this.arena.bounds;
+        if (!hit && p.y <= ARENA_CONFIG.floorCollisionY) {
+          if (bounds.kind === ARENA_BOUNDS_KINDS.RECTANGULAR) {
+            if (
+              Math.abs(p.x) <= bounds.halfWidth + ARENA_CONFIG.floorCollisionRadiusPad &&
+              Math.abs(p.z) <= bounds.halfLength + ARENA_CONFIG.floorCollisionRadiusPad
+            ) {
+              hit = true;
+            }
+          } else {
+            const floorR = bounds.radius + ARENA_CONFIG.floorCollisionRadiusPad;
+            if (p.x * p.x + p.z * p.z <= floorR * floorR) {
+              hit = true;
+            }
+          }
+        }
         if (
           !hit &&
-          p.y <= ARENA_CONFIG.floorCollisionY &&
-          p.x * p.x + p.z * p.z <= floorR * floorR
+          bounds.kind === ARENA_BOUNDS_KINDS.RECTANGULAR &&
+          (Math.abs(p.x) >= bounds.halfWidth ||
+            Math.abs(p.z) >= bounds.halfLength)
         ) {
           hit = true;
         }

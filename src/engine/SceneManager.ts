@@ -1,10 +1,15 @@
 import * as THREE from 'three';
 import {
+  ARENA_BOUNDS_KINDS,
   ARENA_CONFIG,
   BOSS_PHASES,
+  CHAMBER_CONFIG,
+  ENVIRONMENT_IDS,
   PALETTE,
   type BossPhase,
+  type EnvironmentId,
 } from '../config/gameConfig';
+import { IcePalaceLevel } from '../levels/IcePalaceLevel';
 import { ToonAssets } from './ToonAssets';
 
 export { ToonAssets };
@@ -16,10 +21,30 @@ export interface PillarCollider {
   readonly height: number;
 }
 
+export interface CircularArenaBounds {
+  readonly kind: typeof ARENA_BOUNDS_KINDS.CIRCULAR;
+  readonly radius: number;
+  readonly clampRadius: number;
+}
+
+export interface RectangularArenaBounds {
+  readonly kind: typeof ARENA_BOUNDS_KINDS.RECTANGULAR;
+  readonly halfWidth: number;
+  readonly halfLength: number;
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minZ: number;
+  readonly maxZ: number;
+}
+
+export type ArenaBounds = CircularArenaBounds | RectangularArenaBounds;
+
 /**
  * Narrow geometry contract exposed to MovementSystem, CombatSystem, and CameraRig (ISP).
  */
 export interface IArenaGeometry {
+  readonly activeEnvironment: EnvironmentId;
+  readonly bounds: ArenaBounds;
   readonly pillarColliders: readonly PillarCollider[];
   readonly pillarMeshes: readonly THREE.Object3D[];
 }
@@ -48,14 +73,33 @@ interface FloatingRuneRingRecord {
 
 /**
  * Owns the imperative THREE.WebGLRenderer, THREE.Scene, lighting, fog, resize lifecycle,
- * and the Glacial Spire summit arena environment (terrace, perimeter pillars, aurora
- * ribbons, distant spires, starfield, and drifting snow particle pool).
+ * and toggles cleanly between Realm I environments:
+ * - `'SUMMIT'`: Glacial Spire summit terrace, perimeter pillars, aurora ribbons, and snow
+ * - `'CHAMBER'`: Royal Ice Chambers vaulted cathedral hall & Astral Portal dais
  */
 export class SceneManager implements IArenaGeometry {
   public readonly renderer: THREE.WebGLRenderer;
   public readonly scene: THREE.Scene;
   public readonly arenaGroup: THREE.Group;
+  public readonly icePalaceLevel: IcePalaceLevel;
 
+  private readonly _summitBounds: CircularArenaBounds = Object.freeze({
+    kind: ARENA_BOUNDS_KINDS.CIRCULAR,
+    radius: ARENA_CONFIG.radius,
+    clampRadius: ARENA_CONFIG.playerClampRadius,
+  });
+
+  private readonly _chamberBounds: RectangularArenaBounds = Object.freeze({
+    kind: ARENA_BOUNDS_KINDS.RECTANGULAR,
+    halfWidth: CHAMBER_CONFIG.width * 0.5,
+    halfLength: CHAMBER_CONFIG.length * 0.5,
+    minX: -(CHAMBER_CONFIG.width * 0.5 - CHAMBER_CONFIG.movementWallPadding),
+    maxX: CHAMBER_CONFIG.width * 0.5 - CHAMBER_CONFIG.movementWallPadding,
+    minZ: CHAMBER_CONFIG.portalZ + 1.0,
+    maxZ: CHAMBER_CONFIG.length * 0.5 - CHAMBER_CONFIG.movementWallPadding,
+  });
+
+  private _activeEnvironment: EnvironmentId = ENVIRONMENT_IDS.SUMMIT;
   private readonly _pillarColliders: PillarCollider[] = [];
   private readonly _pillarMeshes: THREE.Object3D[] = [];
   private readonly auroraRibbons: AuroraRibbonRecord[] = [];
@@ -74,12 +118,26 @@ export class SceneManager implements IArenaGeometry {
   private targetAuroraScale: number = ARENA_CONFIG.lighting.auroraScaleP1;
   private auroraSpeedScale: number = ARENA_CONFIG.lighting.auroraSpeedP1;
 
+  public get activeEnvironment(): EnvironmentId {
+    return this._activeEnvironment;
+  }
+
+  public get bounds(): ArenaBounds {
+    return this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER
+      ? this._chamberBounds
+      : this._summitBounds;
+  }
+
   public get pillarColliders(): readonly PillarCollider[] {
-    return this._pillarColliders;
+    return this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER
+      ? this.icePalaceLevel.pillarColliders
+      : this._pillarColliders;
   }
 
   public get pillarMeshes(): readonly THREE.Object3D[] {
-    return this._pillarMeshes;
+    return this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER
+      ? this.icePalaceLevel.pillarMeshes
+      : this._pillarMeshes;
   }
 
   public get domElement(): HTMLCanvasElement {
@@ -117,6 +175,11 @@ export class SceneManager implements IArenaGeometry {
     this.buildAuroraBorealis();
     this.buildStarfield();
     this.buildSnowParticles();
+
+    // Build Royal Ice Chambers environment group (toggled via setEnvironment without recreating renderer)
+    this.icePalaceLevel = new IcePalaceLevel();
+    this.icePalaceLevel.root.visible = false;
+    this.scene.add(this.icePalaceLevel.root);
   }
 
   /**
@@ -632,6 +695,74 @@ export class SceneManager implements IArenaGeometry {
   }
 
   /**
+   * Switches active environment visibility, fog, lighting calibration, and active
+   * ArenaBounds between the Royal Ice Chambers ('CHAMBER') and Glacial Spire Summit ('SUMMIT')
+   * without recreating the WebGLRenderer.
+   */
+  public setEnvironment(env: EnvironmentId): void {
+    this._activeEnvironment = env;
+    const isChamber = env === ENVIRONMENT_IDS.CHAMBER;
+
+    this.arenaGroup.visible = !isChamber;
+    this.icePalaceLevel.root.visible = isChamber;
+
+    if (isChamber) {
+      const CL = CHAMBER_CONFIG.lighting;
+      this.scene.background = new THREE.Color(PALETTE.chamberVoid);
+      this.scene.fog = new THREE.FogExp2(PALETTE.chamberVoid, CL.fogDensity);
+
+      if (this.hemiLight) {
+        this.hemiLight.color.setHex(PALETTE.coldFlame);
+        this.hemiLight.groundColor.setHex(PALETTE.royalIndigo);
+        this.hemiLight.intensity = CL.hemiIntensity;
+      }
+      if (this.moonLight) {
+        this.moonLight.color.setHex(PALETTE.iceHighlights);
+        this.moonLight.intensity = CL.keyIntensity;
+        this.moonLight.position.set(8, 22, 10);
+        const d = CL.shadowExtent;
+        this.moonLight.shadow.camera.left = -d;
+        this.moonLight.shadow.camera.right = d;
+        this.moonLight.shadow.camera.top = d;
+        this.moonLight.shadow.camera.bottom = -d;
+        this.moonLight.shadow.camera.updateProjectionMatrix();
+      }
+      if (this.amethystRim) {
+        this.amethystRim.color.setHex(PALETTE.amethystTrim);
+        this.amethystRim.intensity = CL.rimIntensity;
+      }
+      if (this.frostRim) {
+        this.frostRim.color.setHex(PALETTE.coldFlame);
+        this.frostRim.intensity = CL.rimIntensity;
+      }
+    } else {
+      const L = ARENA_CONFIG.lighting;
+      this.scene.background = new THREE.Color(PALETTE.midnightSky);
+      this.scene.fog = new THREE.FogExp2(
+        PALETTE.midnightSky,
+        ARENA_CONFIG.fogDensity,
+      );
+
+      if (this.hemiLight) {
+        this.hemiLight.color.setHex(PALETTE.frostRunes);
+        this.hemiLight.groundColor.setHex(PALETTE.glacialNavy);
+        this.hemiLight.intensity = L.hemiIntensity;
+      }
+      if (this.moonLight) {
+        this.moonLight.color.setHex(PALETTE.iceHighlights);
+        this.moonLight.position.set(14, 30, 12);
+        const d = L.shadowCameraExtent;
+        this.moonLight.shadow.camera.left = -d;
+        this.moonLight.shadow.camera.right = d;
+        this.moonLight.shadow.camera.top = d;
+        this.moonLight.shadow.camera.bottom = -d;
+        this.moonLight.shadow.camera.updateProjectionMatrix();
+      }
+      this.setPhaseAtmosphere(BOSS_PHASES.PHASE_1);
+    }
+  }
+
+  /**
    * Escalates aurora brightness and calibrated rim/moon lighting across Boss Phases 1–3 & Stagger.
    */
   public setPhaseAtmosphere(phase: ArenaAtmospherePhase): void {
@@ -689,9 +820,14 @@ export class SceneManager implements IArenaGeometry {
   }
 
   /**
-   * Updates drifting snow, aurora vertex shimmer, and rotating arcane floor rings.
+   * Updates active environment animations (chamber banners/braziers/portal or summit snow/aurora/rings).
    */
   public update(dt: number, elapsed: number): void {
+    if (this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER) {
+      this.icePalaceLevel.update(dt, elapsed);
+      return;
+    }
+
     this.auroraIntensityScale +=
       (this.targetAuroraScale - this.auroraIntensityScale) *
       Math.min(1, dt * 3.0);
@@ -778,6 +914,7 @@ export class SceneManager implements IArenaGeometry {
   }
 
   public dispose(): void {
+    this.icePalaceLevel.dispose();
     this.renderer.dispose();
     if (this.renderer.domElement.parentElement) {
       this.renderer.domElement.parentElement.removeChild(

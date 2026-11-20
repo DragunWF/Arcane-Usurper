@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  ARENA_CONFIG,
+  ARENA_BOUNDS_KINDS,
   BOSS_CONFIG,
   BOSS_PHASES,
   FINISHER_CONFIG,
@@ -265,11 +265,17 @@ export class MovementSystem implements ISystem {
       }
     }
 
-    // Clamp strictly within 15.5m arena radius
-    const radial = Math.hypot(pos.x, pos.z);
-    if (radial > ARENA_CONFIG.playerClampRadius) {
-      pos.x = (pos.x / radial) * ARENA_CONFIG.playerClampRadius;
-      pos.z = (pos.z / radial) * ARENA_CONFIG.playerClampRadius;
+    // Clamp strictly within active ArenaBounds (rectangular chambers or circular summit)
+    const bounds = this.arena.bounds;
+    if (bounds.kind === ARENA_BOUNDS_KINDS.RECTANGULAR) {
+      pos.x = THREE.MathUtils.clamp(pos.x, bounds.minX, bounds.maxX);
+      pos.z = THREE.MathUtils.clamp(pos.z, bounds.minZ, bounds.maxZ);
+    } else {
+      const radial = Math.hypot(pos.x, pos.z);
+      if (radial > bounds.clampRadius) {
+        pos.x = (pos.x / radial) * bounds.clampRadius;
+        pos.z = (pos.z / radial) * bounds.clampRadius;
+      }
     }
   }
 
