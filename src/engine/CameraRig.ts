@@ -32,6 +32,7 @@ export class CameraRig {
   public orbitAzimuth = 0;
   public orbitElevation: number = CAMERA_CONFIG.finisherDefaultElevation;
   public orbitDistance: number = CAMERA_CONFIG.defaultDistance;
+  public isPaused = false;
 
   public onPointerLockChange: ((locked: boolean) => void) | null = null;
 
@@ -135,6 +136,7 @@ export class CameraRig {
     };
 
     this.handleMouseMove = (e: MouseEvent) => {
+      if (this.isPaused) return;
       if (this.activeMode === 'SPHERICAL_ORBIT') {
         if (!this.isDragging) return;
         const dx = e.clientX - this.lastPointerX;
@@ -163,6 +165,7 @@ export class CameraRig {
     };
 
     this.handleMouseDown = (e: MouseEvent) => {
+      if (this.isPaused) return;
       if (!this._isPointerLocked && e.button === 0) {
         this.isDragging = true;
         this.lastPointerX = e.clientX;
@@ -175,7 +178,7 @@ export class CameraRig {
     };
 
     this.handleWheel = (e: WheelEvent) => {
-      if (this.activeMode !== 'SPHERICAL_ORBIT') return;
+      if (this.isPaused || this.activeMode !== 'SPHERICAL_ORBIT') return;
       e.preventDefault();
       this.orbitDistance = THREE.MathUtils.clamp(
         this.orbitDistance + e.deltaY * CAMERA_CONFIG.finisherZoomSpeed,

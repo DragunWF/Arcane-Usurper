@@ -250,6 +250,10 @@ export const PALETTE = Object.freeze({
     lipGloss: 'rgba(255, 255, 255, 0.72)',
     puckerGloss: 'rgba(255, 255, 255, 0.82)',
     kissHeart: 'rgba(236, 72, 153, 0.85)',
+    pauseBackdrop: 'rgba(9, 9, 11, 0.78)',
+    pauseModalShadow:
+      '0 0 36px rgba(139, 92, 246, 0.28), inset 0 0 18px rgba(56, 189, 248, 0.14)',
+    pauseRestartShadow: '0 0 20px rgba(56, 189, 248, 0.22)',
   } as const),
 } as const);
 
@@ -366,16 +370,18 @@ export const PLAYER_CONFIG = Object.freeze({
   boltImpactSparkCount: 12,
   aimFaceDuration: 0.42,
 
-  // Umbral Pulse (Secondary Radial Shockwave)
+  // Umbral Pulse (Secondary Radial Shockwave — widened ~70% projectile-clear sweep)
   pulseCooldown: 2.2,
   pulseStaminaCost: 24,
-  pulseMaxRadius: 7.6,
+  umbralPulseRadius: 10.0,
+  pulseMaxRadius: 10.0,
   pulseDuration: 0.55,
   pulseDamage: 72,
   pulseStartScale: 0.65,
   pulseSpinSpeed: 2.4,
-  pulseImpactSparkCount: 18,
+  pulseImpactSparkCount: 22,
   pulseCameraShake: 0.16,
+  pulseFlashLightDistance: 22.0,
 
   // Hit & Reticle Feedback
   playerHitCameraShake: 0.24,
@@ -829,13 +835,21 @@ export const CAMERA_CONFIG = Object.freeze({
 
 export const AUDIO_CONFIG = Object.freeze({
   masterVolume: 0.35,
-  bgmGain: 0.56,
-  sfxGain: 0.92,
+  defaultMusicVolume: 0.7,
+  defaultSfxVolume: 0.85,
+  gainRampTime: 0.02,
+  bgmGain: 0.7,
+  sfxGain: 0.85,
   compressorThreshold: -16,
   compressorKnee: 18,
   compressorRatio: 6,
   muteRampTimeConstant: 0.03,
   minGainFloor: 0.0001,
+  pauseToggleGuardMs: 160,
+  previewChimeNotes: Object.freeze([1046.5, 1567.98] as const),
+  previewChimeGain: 0.14,
+  previewChimeStepSec: 0.035,
+  previewChimeDurationSec: 0.24,
 
   // Sequencer Tempos (BPM) & Scheduling
   p1Tempo: 112,

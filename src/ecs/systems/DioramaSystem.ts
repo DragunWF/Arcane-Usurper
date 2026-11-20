@@ -144,8 +144,8 @@ export class DioramaSystem implements ISystem {
    */
   public enterVictoryDiorama(withClimaxShockwave: boolean): void {
     this.cleanupPuppetVisuals();
-    this.callbacks.exitPointerLock();
     this.callbacks.setGameState(GAME_STATES.VICTORY_DIORAMA);
+    this.callbacks.exitPointerLock();
 
     const boss = this.world.queryFirst('bossPhase', 'siphonableBoss', 'transform');
     const player = this.world.queryFirst('playerTag', 'transform');
@@ -233,8 +233,8 @@ export class DioramaSystem implements ISystem {
    */
   public enterEndlessSavor(): void {
     this.cleanupPuppetVisuals();
-    this.callbacks.exitPointerLock();
     this.callbacks.setGameState(GAME_STATES.ENDLESS_SAVOR);
+    this.callbacks.exitPointerLock();
 
     const boss = this.world.queryFirst('bossPhase', 'siphonableBoss');
     if (boss) {
@@ -274,8 +274,8 @@ export class DioramaSystem implements ISystem {
    */
   public enterDefeatDiorama(): void {
     this.callbacks.clearAllCombatEntities();
-    this.callbacks.exitPointerLock();
     this.callbacks.setGameState(GAME_STATES.DEFEAT_DIORAMA);
+    this.callbacks.exitPointerLock();
 
     const boss = this.world.queryFirst('bossPhase', 'transform');
     const player = this.world.queryFirst('playerTag', 'transform');

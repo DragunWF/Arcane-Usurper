@@ -168,7 +168,11 @@ export class RenderSyncSystem implements ISystem {
       if (hz.kind === 'UMBRAL_PULSE') {
         const t = THREE.MathUtils.clamp(hz.elapsed / hz.activeDuration, 0, 1);
         const ease = 1 - Math.pow(1 - t, 2.5);
-        const scale = PLAYER_CONFIG.pulseStartScale + ease * hz.maxRadius;
+        const scale = THREE.MathUtils.lerp(
+          PLAYER_CONFIG.pulseStartScale,
+          hz.maxRadius,
+          ease,
+        );
         obj.scale.set(scale, 1.0, scale);
         obj.rotation.y += dt * PLAYER_CONFIG.pulseSpinSpeed;
 

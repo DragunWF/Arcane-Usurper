@@ -11,8 +11,10 @@ import type { ECSWorld, ISystem } from '../World';
 
 export interface IInputCallbacks {
   getGameState: () => GameState;
+  isPaused: () => boolean;
   isPointerLocked: () => boolean;
   requestPointerLock: () => void;
+  onTogglePause: () => void;
   onToggleAudioMute: () => void;
   onQuickRetry: () => void;
 }
@@ -75,11 +77,22 @@ export class InputSystem implements ISystem {
         return;
       }
 
+      const state = this.callbacks.getGameState();
+
+      if ((e.code === 'Escape' || e.code === 'KeyP') && !e.repeat) {
+        if (state !== GAME_STATES.TITLE) {
+          this.callbacks.onTogglePause();
+        }
+        return;
+      }
+
+      if (this.callbacks.isPaused()) {
+        return;
+      }
+
       if (e.code in this.keys) {
         this.keys[e.code as keyof typeof this.keys] = true;
       }
-
-      const state = this.callbacks.getGameState();
 
       // Quick Retry ([R]) on Defeat Diorama
       if (e.code === 'KeyR' && state === GAME_STATES.DEFEAT_DIORAMA) {
@@ -135,6 +148,7 @@ export class InputSystem implements ISystem {
 
     this.handleMouseDown = (e: MouseEvent) => {
       this.audio.unlock();
+      if (this.callbacks.isPaused()) return;
       const state = this.callbacks.getGameState();
 
       if (e.button === 2) {
@@ -206,6 +220,16 @@ export class InputSystem implements ISystem {
   }
 
   public resetTransientInputs(): void {
+    this.keys.KeyW = false;
+    this.keys.KeyA = false;
+    this.keys.KeyS = false;
+    this.keys.KeyD = false;
+    this.keys.ArrowUp = false;
+    this.keys.ArrowDown = false;
+    this.keys.ArrowLeft = false;
+    this.keys.ArrowRight = false;
+    this.keys.KeyE = false;
+    this.keys.Space = false;
     this.primaryFireHeld = false;
     this.queuedSingleShotFire = false;
     this.rightMouseHeld = false;

@@ -15,8 +15,12 @@ export interface IAudioTrigger {
   readonly isMuted: boolean;
   readonly isUnlocked: boolean;
   readonly mode: AudioMode;
+  readonly musicVolume: number;
+  readonly sfxVolume: number;
   unlock(): boolean;
   toggleMute(): boolean;
+  setMusicVolume(volume: number): void;
+  setSfxVolume(volume: number): void;
   setMode(mode: AudioMode): void;
   setSiphonThrottle(mode: DrainThrottleMode): void;
   playVoidBolt(): void;
@@ -29,6 +33,7 @@ export interface IAudioTrigger {
   playPlayerHit(): void;
   playTiaraPing(): void;
   playVictoryClimax(): void;
+  playPreviewChime(): void;
   dispose(): void;
 }
 
@@ -49,7 +54,7 @@ interface WindowWithWebkitAudio extends Window {
 export class SoundEngine implements IAudioTrigger {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
-  private bgmGain: GainNode | null = null;
+  private musicGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
 
@@ -62,11 +67,13 @@ export class SoundEngine implements IAudioTrigger {
   // Active Laser Loop Tracking
   private activeLaserNodes: ActiveLaserNodes | null = null;
 
-  // Dynamic Sequencer State
+  // Dynamic Sequencer & Split Channel Gain State
   private _mode: AudioMode = AUDIO_MODES.SILENT;
   private siphonThrottle: DrainThrottleMode = DRAIN_THROTTLE_MODES.FLOW;
   private _isMuted = false;
   private _isUnlocked = false;
+  private _musicVolume: number = AUDIO_CONFIG.defaultMusicVolume;
+  private _sfxVolume: number = AUDIO_CONFIG.defaultSfxVolume;
   private stepIndex = 0;
   private nextNoteTime = 0;
   private schedulerId: ReturnType<typeof setInterval> | null = null;
@@ -81,6 +88,14 @@ export class SoundEngine implements IAudioTrigger {
 
   public get mode(): AudioMode {
     return this._mode;
+  }
+
+  public get musicVolume(): number {
+    return this._musicVolume;
+  }
+
+  public get sfxVolume(): number {
+    return this._sfxVolume;
   }
 
   /**
@@ -102,13 +117,13 @@ export class SoundEngine implements IAudioTrigger {
         this.masterGain = this.ctx.createGain();
         this.masterGain.gain.value = this._isMuted ? 0 : AUDIO_CONFIG.masterVolume;
 
-        this.bgmGain = this.ctx.createGain();
-        this.bgmGain.gain.value = AUDIO_CONFIG.bgmGain;
+        this.musicGain = this.ctx.createGain();
+        this.musicGain.gain.value = this._musicVolume;
 
         this.sfxGain = this.ctx.createGain();
-        this.sfxGain.gain.value = AUDIO_CONFIG.sfxGain;
+        this.sfxGain.gain.value = this._sfxVolume;
 
-        this.bgmGain.connect(compressor);
+        this.musicGain.connect(compressor);
         this.sfxGain.connect(compressor);
         compressor.connect(this.masterGain);
         this.masterGain.connect(this.ctx.destination);
@@ -150,7 +165,7 @@ export class SoundEngine implements IAudioTrigger {
   }
 
   private startWintryWindBed(): void {
-    if (!this.ctx || !this.noiseBuffer || !this.bgmGain) return;
+    if (!this.ctx || !this.noiseBuffer || !this.musicGain) return;
     const src = this.ctx.createBufferSource();
     src.buffer = this.noiseBuffer;
     src.loop = true;
@@ -174,7 +189,7 @@ export class SoundEngine implements IAudioTrigger {
 
     src.connect(filter);
     filter.connect(gain);
-    gain.connect(this.bgmGain);
+    gain.connect(this.musicGain);
     src.start();
 
     this.windSource = src;
@@ -198,6 +213,40 @@ export class SoundEngine implements IAudioTrigger {
       );
     }
     return this._isMuted;
+  }
+
+  /**
+   * Smoothly adjusts dedicated music channel gain without clicks or pops.
+   */
+  public setMusicVolume(volume: number): void {
+    const clamped = Math.max(0, Math.min(1, volume));
+    this._musicVolume = clamped;
+    if (this.ctx && this.musicGain) {
+      const now = this.ctx.currentTime;
+      this.musicGain.gain.cancelScheduledValues(now);
+      this.musicGain.gain.setTargetAtTime(
+        clamped,
+        now,
+        AUDIO_CONFIG.gainRampTime,
+      );
+    }
+  }
+
+  /**
+   * Smoothly adjusts dedicated SFX channel gain without clicks or pops.
+   */
+  public setSfxVolume(volume: number): void {
+    const clamped = Math.max(0, Math.min(1, volume));
+    this._sfxVolume = clamped;
+    if (this.ctx && this.sfxGain) {
+      const now = this.ctx.currentTime;
+      this.sfxGain.gain.cancelScheduledValues(now);
+      this.sfxGain.gain.setTargetAtTime(
+        clamped,
+        now,
+        AUDIO_CONFIG.gainRampTime,
+      );
+    }
   }
 
   /**
@@ -393,7 +442,7 @@ export class SoundEngine implements IAudioTrigger {
     peakGain: number,
     duration: number,
   ): void {
-    if (!this.ctx || !this.bgmGain) return;
+    if (!this.ctx || !this.musicGain) return;
     const carrier = this.ctx.createOscillator();
     const mod = this.ctx.createOscillator();
     const modGain = this.ctx.createGain();
@@ -417,7 +466,7 @@ export class SoundEngine implements IAudioTrigger {
     mod.connect(modGain);
     modGain.connect(carrier.frequency);
     carrier.connect(env);
-    env.connect(this.bgmGain);
+    env.connect(this.musicGain);
 
     carrier.start(time);
     mod.start(time);
@@ -431,7 +480,7 @@ export class SoundEngine implements IAudioTrigger {
     peakGain: number,
     duration: number,
   ): void {
-    if (!this.ctx || !this.bgmGain) return;
+    if (!this.ctx || !this.musicGain) return;
     const osc = this.ctx.createOscillator();
     const filter = this.ctx.createBiquadFilter();
     const env = this.ctx.createGain();
@@ -453,7 +502,7 @@ export class SoundEngine implements IAudioTrigger {
 
     osc.connect(filter);
     filter.connect(env);
-    env.connect(this.bgmGain);
+    env.connect(this.musicGain);
 
     osc.start(time);
     osc.stop(time + duration + 0.02);
@@ -464,7 +513,7 @@ export class SoundEngine implements IAudioTrigger {
     peakGain: number,
     startFreq = 58,
   ): void {
-    if (!this.ctx || !this.bgmGain) return;
+    if (!this.ctx || !this.musicGain) return;
     const osc = this.ctx.createOscillator();
     const env = this.ctx.createGain();
     osc.type = 'sine';
@@ -476,13 +525,13 @@ export class SoundEngine implements IAudioTrigger {
     env.gain.exponentialRampToValueAtTime(AUDIO_CONFIG.minGainFloor, time + 0.22);
 
     osc.connect(env);
-    env.connect(this.bgmGain);
+    env.connect(this.musicGain);
     osc.start(time);
     osc.stop(time + 0.24);
   }
 
   private synthIceTick(time: number, peakGain: number): void {
-    if (!this.ctx || !this.noiseBuffer || !this.bgmGain) return;
+    if (!this.ctx || !this.noiseBuffer || !this.musicGain) return;
     const src = this.ctx.createBufferSource();
     src.buffer = this.noiseBuffer;
 
@@ -499,7 +548,7 @@ export class SoundEngine implements IAudioTrigger {
 
     src.connect(filter);
     filter.connect(env);
-    env.connect(this.bgmGain);
+    env.connect(this.musicGain);
     src.start(time);
     src.stop(time + 0.05);
   }
@@ -957,6 +1006,40 @@ export class SoundEngine implements IAudioTrigger {
   }
 
   /**
+   * Soft crystalline preview chime routed through sfxGain on SFX volume slider release.
+   */
+  public playPreviewChime(): void {
+    this.unlock();
+    if (!this.ctx || !this.sfxGain || this.ctx.state !== 'running') return;
+    const now = this.ctx.currentTime;
+    const ctx = this.ctx;
+    const sfxGain = this.sfxGain;
+
+    AUDIO_CONFIG.previewChimeNotes.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const env = ctx.createGain();
+      const start = now + idx * AUDIO_CONFIG.previewChimeStepSec;
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, start);
+
+      env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, start);
+      env.gain.linearRampToValueAtTime(
+        AUDIO_CONFIG.previewChimeGain * (1 - idx * 0.25),
+        start + 0.01,
+      );
+      env.gain.exponentialRampToValueAtTime(
+        AUDIO_CONFIG.minGainFloor,
+        start + AUDIO_CONFIG.previewChimeDurationSec,
+      );
+
+      osc.connect(env);
+      env.connect(sfxGain);
+      osc.start(start);
+      osc.stop(start + AUDIO_CONFIG.previewChimeDurationSec + 0.02);
+    });
+  }
+
+  /**
    * Stops the sequencer timer, ambient wind bed, and releases the Web Audio context.
    */
   public dispose(): void {
@@ -983,7 +1066,7 @@ export class SoundEngine implements IAudioTrigger {
       this.ctx = null;
     }
     this.masterGain = null;
-    this.bgmGain = null;
+    this.musicGain = null;
     this.sfxGain = null;
     this.noiseBuffer = null;
     this._isUnlocked = false;

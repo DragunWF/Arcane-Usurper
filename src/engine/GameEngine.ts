@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   ARENA_CONFIG,
+  AUDIO_CONFIG,
   AUDIO_MODES,
   BOSS_CONFIG,
   BOSS_EXPRESSIONS,
@@ -40,6 +41,12 @@ import { VfxFactory } from './VfxFactory';
 export interface IGameController {
   startGame(): void;
   resetDuel(encoreTier?: number): void;
+  setPaused(paused: boolean): void;
+  resumeGame(): void;
+  restartStage(): void;
+  setMusicVolume(volume: number): void;
+  setSfxVolume(volume: number): void;
+  playSfxPreview(): void;
   toggleAudioMute(): void;
   triggerFinisher(): void;
   setFinisherPose(pose: FinisherPoseId): void;
@@ -79,9 +86,13 @@ export class GameEngine implements IGameController {
 
   private readonly clock = new THREE.Clock();
   private readonly unsubscribeEntityRemoved: () => void;
+  private readonly unsubscribeStore: () => void;
   private readonly handleResize: () => void;
 
   private state: GameState = GAME_STATES.TITLE;
+  private isPaused = false;
+  private lastAutoPauseTimestamp = 0;
+  private lastRestartToken = 0;
   private elapsed = 0;
   private rafId: number | null = null;
   private isDisposed = false;
@@ -122,10 +133,35 @@ export class GameEngine implements IGameController {
       }
     });
 
-    // Sync PointerLock changes into Zustand HUD store
+    // Sync PointerLock changes into Zustand HUD store & auto-pause if exited unexpectedly in active combat
     this.cameraRig.onPointerLockChange = (locked) => {
       useGameStore.getState().setPointerLocked(locked);
+      if (
+        !locked &&
+        !this.isPaused &&
+        (this.state === GAME_STATES.CHAMBER_COMBAT ||
+          this.state === GAME_STATES.BOSS_COMBAT)
+      ) {
+        this.lastAutoPauseTimestamp = performance.now();
+        this.setPaused(true);
+      }
     };
+
+    // Keep SoundEngine & pause/restart state synced if updated directly via useGameStore actions
+    this.unsubscribeStore = useGameStore.subscribe((storeState) => {
+      if (storeState.musicVolume !== this.sound.musicVolume) {
+        this.sound.setMusicVolume(storeState.musicVolume);
+      }
+      if (storeState.sfxVolume !== this.sound.sfxVolume) {
+        this.sound.setSfxVolume(storeState.sfxVolume);
+      }
+      if (storeState.restartRequestToken !== this.lastRestartToken) {
+        this.lastRestartToken = storeState.restartRequestToken;
+        this.restartStage();
+      } else if (storeState.isPaused !== this.isPaused) {
+        this.setPaused(storeState.isPaused);
+      }
+    });
 
     // Spawn core Player and Boss ECS entities
     this.spawnCoreEntities();
@@ -137,8 +173,10 @@ export class GameEngine implements IGameController {
       this.sound,
       {
         getGameState: () => this.state,
+        isPaused: () => this.isPaused,
         isPointerLocked: () => this.cameraRig.isPointerLocked,
         requestPointerLock: () => this.cameraRig.requestLock(),
+        onTogglePause: () => this.togglePause(),
         onToggleAudioMute: () => this.toggleAudioMute(),
         onQuickRetry: () => this.resetDuel(),
       },
@@ -422,6 +460,77 @@ export class GameEngine implements IGameController {
     useGameStore.getState().setAudioMuted(muted);
   }
 
+  public setMusicVolume(volume: number): void {
+    this.sound.unlock();
+    this.sound.setMusicVolume(volume);
+    useGameStore.getState().setMusicVolume(this.sound.musicVolume);
+  }
+
+  public setSfxVolume(volume: number): void {
+    this.sound.unlock();
+    this.sound.setSfxVolume(volume);
+    useGameStore.getState().setSfxVolume(this.sound.sfxVolume);
+  }
+
+  public playSfxPreview(): void {
+    this.sound.playPreviewChime();
+  }
+
+  private togglePause(): void {
+    if (this.state === GAME_STATES.TITLE) return;
+    if (
+      this.isPaused &&
+      performance.now() - this.lastAutoPauseTimestamp <
+        AUDIO_CONFIG.pauseToggleGuardMs
+    ) {
+      return;
+    }
+    if (this.isPaused) {
+      this.resumeGame();
+    } else {
+      this.setPaused(true);
+    }
+  }
+
+  public setPaused(paused: boolean): void {
+    if (this.state === GAME_STATES.TITLE && paused) return;
+    if (this.isPaused === paused) return;
+    this.isPaused = paused;
+    this.cameraRig.isPaused = paused;
+    this.inputSystem.resetTransientInputs();
+
+    if (paused) {
+      this.sound.stopLaserLoop();
+      this.cameraRig.exitLock();
+    } else {
+      // Discard accumulated pause elapsed time on clock
+      this.clock.getDelta();
+    }
+
+    const store = useGameStore.getState();
+    if (store.isPaused !== paused) {
+      store.setPaused(paused);
+    }
+  }
+
+  public resumeGame(): void {
+    this.sound.unlock();
+    this.setPaused(false);
+    if (
+      this.state === GAME_STATES.CHAMBER_COMBAT ||
+      this.state === GAME_STATES.BOSS_COMBAT
+    ) {
+      this.cameraRig.requestLock();
+    }
+  }
+
+  public restartStage(): void {
+    this.sound.unlock();
+    this.setPaused(false);
+    this.resetDuel(useGameStore.getState().encoreTier);
+    this.cameraRig.requestLock();
+  }
+
   public triggerFinisher(): void {
     if (this.state === GAME_STATES.STAGGER) {
       this.inputSystem.queueFinisherExecute();
@@ -512,6 +621,8 @@ export class GameEngine implements IGameController {
 
   public resetDuel(encoreTier?: number): void {
     this.sound.unlock();
+    this.isPaused = false;
+    this.cameraRig.isPaused = false;
     this.state = GAME_STATES.BOSS_COMBAT;
 
     // Clear all active projectiles, hazards, clones, diorama props & transient particles
@@ -685,7 +796,14 @@ export class GameEngine implements IGameController {
       if (this.isDisposed) return;
       this.rafId = requestAnimationFrame(tick);
 
-      const dt = Math.min(this.clock.getDelta(), ARENA_CONFIG.maxDeltaTime);
+      const rawDt = this.clock.getDelta();
+      if (this.isPaused) {
+        // Freeze ECS simulation tick (dt = 0 / skip system updates) while rendering current frame
+        this.sceneManager.render(this.cameraRig.camera);
+        return;
+      }
+
+      const dt = Math.min(rawDt, ARENA_CONFIG.maxDeltaTime);
       this.elapsed += dt;
 
       // Run ECS Simulation Pipeline in deterministic order
@@ -754,6 +872,7 @@ export class GameEngine implements IGameController {
     }
 
     window.removeEventListener('resize', this.handleResize);
+    this.unsubscribeStore();
     this.inputSystem.dispose();
     this.finisherSystem.dispose();
     this.dioramaSystem.dispose();

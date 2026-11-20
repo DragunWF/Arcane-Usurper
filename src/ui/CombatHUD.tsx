@@ -242,7 +242,9 @@ export function CombatHUD({ controller }: CombatHUDProps) {
                 <span className="text-purple-300 font-semibold">LMB</span> Void
                 Bolt &bull;{' '}
                 <span className="text-purple-300 font-semibold">RMB</span>{' '}
-                Umbral Pulse
+                Umbral Pulse &bull;{' '}
+                <span className="text-purple-300 font-semibold">ESC/P</span>{' '}
+                Pause
               </div>
             </div>
           </div>
@@ -275,24 +277,36 @@ export function CombatHUD({ controller }: CombatHUDProps) {
             </div>
           </div>
 
-          {/* Top-Right Audio Toggle Pill ([M]) */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              controller?.toggleAudioMute();
-            }}
-            className="fixed top-4 right-4 sm:top-6 sm:right-6 z-30 pointer-events-auto frost-panel rounded-full px-3.5 py-1.5 flex items-center gap-2 text-[10px] sm:text-[11px] font-semibold tracking-[0.16em] uppercase text-sky-100 hover:border-purple-400/70 transition-colors cursor-pointer"
-          >
-            <span
-              className={
-                audioMuted
-                  ? 'w-2 h-2 rounded-full bg-rose-400 shadow-[0_0_8px_#FB7185]'
-                  : 'w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34D399]'
-              }
-            />
-            <span>{audioMuted ? '[M] AUDIO: OFF' : '[M] AUDIO: ON'}</span>
-          </button>
+          {/* Top-Right Pause ([ESC/P]) & Audio Toggle ([M]) Pills */}
+          <div className="fixed top-4 right-4 sm:top-6 sm:right-6 z-30 flex items-center gap-2 pointer-events-auto">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                controller?.setPaused(true);
+              }}
+              className="frost-panel rounded-full px-3.5 py-1.5 flex items-center gap-1.5 text-[10px] sm:text-[11px] font-semibold tracking-[0.16em] uppercase text-sky-100 hover:border-purple-400/70 transition-colors cursor-pointer"
+            >
+              <span>[P] PAUSE</span>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                controller?.toggleAudioMute();
+              }}
+              className="frost-panel rounded-full px-3.5 py-1.5 flex items-center gap-2 text-[10px] sm:text-[11px] font-semibold tracking-[0.16em] uppercase text-sky-100 hover:border-purple-400/70 transition-colors cursor-pointer"
+            >
+              <span
+                className={
+                  audioMuted
+                    ? 'w-2 h-2 rounded-full bg-rose-400 shadow-[0_0_8px_#FB7185]'
+                    : 'w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34D399]'
+                }
+              />
+              <span>{audioMuted ? '[M] AUDIO: OFF' : '[M] AUDIO: ON'}</span>
+            </button>
+          </div>
 
           {/* Center Aim Reticle */}
           <div

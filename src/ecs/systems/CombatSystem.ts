@@ -215,7 +215,7 @@ export class CombatSystem implements ISystem {
           telegraphDuration: 0,
           activeDuration: PLAYER_CONFIG.pulseDuration,
           currentRadius: PLAYER_CONFIG.pulseStartScale,
-          maxRadius: PLAYER_CONFIG.pulseMaxRadius,
+          maxRadius: PLAYER_CONFIG.umbralPulseRadius,
           hitThickness: 0,
           angle: 0,
           startAngle: 0,
@@ -231,30 +231,12 @@ export class CombatSystem implements ISystem {
       this.audio.playUmbralPulse();
       this.callbacks.addCameraShake(PLAYER_CONFIG.pulseCameraShake);
 
-      // Clear nearby enemy projectiles within Umbral Pulse shockwave
-      const enemyProjectiles = this.world.query('projectile', 'transform');
-      const clearedIds: EntityId[] = [];
-      for (let i = 0; i < enemyProjectiles.length; i++) {
-        const ep = enemyProjectiles[i];
-        if (!ep || ep.projectile.faction === 'PLAYER') continue;
-        const d = Math.hypot(
-          ep.transform.position.x - transform.position.x,
-          ep.transform.position.z - transform.position.z,
-        );
-        if (d <= PLAYER_CONFIG.pulseMaxRadius) {
-          this.vfx.spawnFrostShatterBurst(
-            new THREE.Vector3(
-              ep.transform.position.x,
-              ep.transform.position.y,
-              ep.transform.position.z,
-            ),
-            6,
-            5.0,
-          );
-          clearedIds.push(ep.id);
-        }
-      }
-      clearedIds.forEach((id) => this.world.destroyEntity(id));
+      // Clear nearby enemy projectiles within widened Umbral Pulse shockwave radius
+      this.clearEnemyProjectilesWithinRadius(
+        transform.position.x,
+        transform.position.z,
+        PLAYER_CONFIG.umbralPulseRadius,
+      );
 
       // Bidirectional Hit Check: Umbral Pulse damages boss if within shockwave radius
       const boss = this.world.queryFirst(
@@ -268,7 +250,7 @@ export class CombatSystem implements ISystem {
           transform.position.x - boss.transform.position.x,
           transform.position.z - boss.transform.position.z,
         );
-        if (dist <= PLAYER_CONFIG.pulseMaxRadius + boss.hurtbox.radius) {
+        if (dist <= PLAYER_CONFIG.umbralPulseRadius + boss.hurtbox.radius) {
           this.damageBoss(BOSS_CONFIG.pulseDamage, null);
         }
       }
@@ -507,7 +489,23 @@ export class CombatSystem implements ISystem {
       const { hazardZone: hz, transform } = entity;
       hz.elapsed += dt;
 
-      if (hz.kind === 'UMBRAL_PULSE' || hz.kind === 'PHASE_SHOCKWAVE') {
+      if (hz.kind === 'UMBRAL_PULSE') {
+        const t = THREE.MathUtils.clamp(hz.elapsed / hz.activeDuration, 0, 1);
+        const ease = 1 - Math.pow(1 - t, 2.5);
+        hz.currentRadius = THREE.MathUtils.lerp(
+          PLAYER_CONFIG.pulseStartScale,
+          hz.maxRadius,
+          ease,
+        );
+        this.clearEnemyProjectilesWithinRadius(
+          transform.position.x,
+          transform.position.z,
+          hz.currentRadius,
+        );
+        if (hz.elapsed >= hz.activeDuration) {
+          toDestroy.push(entity.id);
+        }
+      } else if (hz.kind === 'PHASE_SHOCKWAVE') {
         if (hz.elapsed >= hz.activeDuration) {
           toDestroy.push(entity.id);
         }
@@ -651,6 +649,36 @@ export class CombatSystem implements ISystem {
         this.audio.stopLaserLoop();
       }
     }
+  }
+
+  private clearEnemyProjectilesWithinRadius(
+    originX: number,
+    originZ: number,
+    radius: number,
+  ): void {
+    const enemyProjectiles = this.world.query('projectile', 'transform');
+    const clearedIds: EntityId[] = [];
+    for (let i = 0; i < enemyProjectiles.length; i++) {
+      const ep = enemyProjectiles[i];
+      if (!ep || ep.projectile.faction === 'PLAYER') continue;
+      const d = Math.hypot(
+        ep.transform.position.x - originX,
+        ep.transform.position.z - originZ,
+      );
+      if (d <= radius) {
+        this.vfx.spawnFrostShatterBurst(
+          new THREE.Vector3(
+            ep.transform.position.x,
+            ep.transform.position.y,
+            ep.transform.position.z,
+          ),
+          6,
+          5.0,
+        );
+        clearedIds.push(ep.id);
+      }
+    }
+    clearedIds.forEach((id) => this.world.destroyEntity(id));
   }
 
   private damageBoss(amount: number, hitPoint: THREE.Vector3 | null): void {

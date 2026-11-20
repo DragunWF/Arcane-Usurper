@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import {
+  AUDIO_CONFIG,
   AUDIO_MODES,
   BOSS_CONFIG,
   BOSS_EXPRESSIONS,
@@ -83,7 +84,11 @@ export interface GameStoreState {
   tauntTriggerCount: number;
   tauntDizzyTimer: number;
 
-  // Audio & System Status
+  // Audio, Pause & System Status
+  isPaused: boolean;
+  musicVolume: number;
+  sfxVolume: number;
+  restartRequestToken: number;
   audioMuted: boolean;
   audioMode: AudioMode;
   errorMessage: string | null;
@@ -94,6 +99,10 @@ export interface GameStoreState {
   setEncoreTier: (encoreTier: number) => void;
   incrementEncoreTier: () => void;
   setPointerLocked: (locked: boolean) => void;
+  setPaused: (isPaused: boolean) => void;
+  setMusicVolume: (volume: number) => void;
+  setSfxVolume: (volume: number) => void;
+  triggerRestart: () => void;
   setBossIdentity: (id: string, displayName: string, title: string, maxHp: number) => void;
   setBossPhase: (phase: BossPhase, subtitle?: string) => void;
   setBossExpression: (expression: BossExpression) => void;
@@ -168,6 +177,10 @@ const INITIAL_STATE = {
   tauntTriggerCount: 0,
   tauntDizzyTimer: 0,
 
+  isPaused: false,
+  musicVolume: AUDIO_CONFIG.defaultMusicVolume,
+  sfxVolume: AUDIO_CONFIG.defaultSfxVolume,
+  restartRequestToken: 0,
   audioMuted: false,
   audioMode: AUDIO_MODES.SILENT as AudioMode,
   errorMessage: null as string | null,
@@ -182,6 +195,16 @@ export const useGameStore = create<GameStoreState>((set) => ({
   incrementEncoreTier: () =>
     set((state) => ({ encoreTier: state.encoreTier + 1 })),
   setPointerLocked: (isPointerLocked) => set({ isPointerLocked }),
+  setPaused: (isPaused) => set({ isPaused }),
+  setMusicVolume: (volume) =>
+    set({ musicVolume: Math.max(0, Math.min(1, volume)) }),
+  setSfxVolume: (volume) =>
+    set({ sfxVolume: Math.max(0, Math.min(1, volume)) }),
+  triggerRestart: () =>
+    set((state) => ({
+      isPaused: false,
+      restartRequestToken: state.restartRequestToken + 1,
+    })),
 
   setBossIdentity: (bossId, bossDisplayName, bossTitle, bossMaxHp) =>
     set({
@@ -284,6 +307,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
       );
       return {
         gameState: GAME_STATES.BOSS_COMBAT,
+        isPaused: false,
         encoreTier: nextTier,
         playerHp: PLAYER_CONFIG.maxHp,
         playerMaxHp: PLAYER_CONFIG.maxHp,
@@ -311,5 +335,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
     set((state) => ({
       ...INITIAL_STATE,
       audioMuted: state.audioMuted,
+      musicVolume: state.musicVolume,
+      sfxVolume: state.sfxVolume,
     })),
 }));

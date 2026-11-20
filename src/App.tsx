@@ -4,6 +4,7 @@ import { useGameStore } from './state/useGameStore';
 import { CombatHUD } from './ui/CombatHUD';
 import { DioramaHUD } from './ui/DioramaHUD';
 import { FinisherHUD } from './ui/FinisherHUD';
+import { PauseMenu } from './ui/PauseMenu';
 
 /**
  * Root React shell mounting the imperative WebGL canvas container and 2D HUD overlay.
@@ -46,6 +47,7 @@ export function App() {
       <CombatHUD controller={controller} />
       <FinisherHUD controller={controller} />
       <DioramaHUD controller={controller} />
+      <PauseMenu controller={controller} />
     </div>
   );
 }

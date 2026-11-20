@@ -354,7 +354,7 @@ export class VfxFactory implements IVfxSpawner {
     const group = new THREE.Group();
     group.position.set(origin.x, 0.14, origin.z);
 
-    const ringGeo = new THREE.RingGeometry(0.72, 1.0, 48);
+    const ringGeo = new THREE.RingGeometry(0.74, 1.0, 56);
     const ringMat = new THREE.MeshBasicMaterial({
       color: PALETTE.glowViolet,
       transparent: true,
@@ -367,7 +367,7 @@ export class VfxFactory implements IVfxSpawner {
     ringMesh.rotation.x = -Math.PI / 2;
     group.add(ringMesh);
 
-    const torusGeo = new THREE.TorusGeometry(0.92, 0.085, 8, 44);
+    const torusGeo = new THREE.TorusGeometry(0.96, 0.075, 8, 48);
     const torusMat = new THREE.MeshBasicMaterial({
       color: PALETTE.pulseLavender,
       transparent: true,
@@ -380,7 +380,12 @@ export class VfxFactory implements IVfxSpawner {
     torusMesh.position.y = 0.22;
     group.add(torusMesh);
 
-    const flashLight = new THREE.PointLight(PALETTE.glowViolet, 12.0, 16, 1.6);
+    const flashLight = new THREE.PointLight(
+      PALETTE.glowViolet,
+      12.0,
+      PLAYER_CONFIG.pulseFlashLightDistance,
+      1.6,
+    );
     flashLight.position.y = 0.9;
     group.add(flashLight);
 
