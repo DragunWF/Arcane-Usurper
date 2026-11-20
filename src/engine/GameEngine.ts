@@ -263,6 +263,7 @@ export class GameEngine implements IGameController {
           this.state = next;
         },
         getEncoreTier: () => useGameStore.getState().encoreTier,
+        getActiveRealm: () => useGameStore.getState().activeRealm,
         addCameraShake: (amount) => this.cameraRig.addShake(amount),
         onPlayerDamaged: (amount) => this.combatSystem.applyPlayerDamage(amount),
         onPlayerHealed: () => this.renderSyncSystem.flushHudSnapshot(),
@@ -272,6 +273,7 @@ export class GameEngine implements IGameController {
         },
         onPortalWarpComplete: () => this.enterSummitFromPortal(),
       },
+      this.sceneManager.sunkenAqueductLevel,
     );
 
     this.bossAISystem = new BossAISystem(
@@ -677,6 +679,7 @@ export class GameEngine implements IGameController {
       isRealm2
         ? this.sceneManager.sunkenAqueductLevel
         : this.sceneManager.icePalaceLevel,
+      realm,
     );
     this.bossRig.root.visible = false;
 
@@ -738,7 +741,7 @@ export class GameEngine implements IGameController {
     store.setAudioMode(nextAudioMode);
 
     this.sound.setMode(nextAudioMode);
-    this.chamberSystem.enterChambers(encoreTier);
+    this.chamberSystem.enterChambers(encoreTier, realm);
     this.renderSyncSystem.flushHudSnapshot();
   }
 
@@ -967,7 +970,10 @@ export class GameEngine implements IGameController {
     this.finisherSystem.resetState();
     this.vfx.clearTransientVfx();
 
-    this.sceneManager.setEnvironment(ENVIRONMENT_IDS.SUMMIT);
+    const isRealm2 = useGameStore.getState().activeRealm === 2;
+    this.sceneManager.setEnvironment(
+      isRealm2 ? ENVIRONMENT_IDS.SUNKEN_SUMMIT : ENVIRONMENT_IDS.SUMMIT,
+    );
     this.bossRig.root.visible = true;
 
     this.inputSystem.resetTransientInputs();
@@ -1050,11 +1056,14 @@ export class GameEngine implements IGameController {
       CAMERA_CONFIG.combatInitialPitch,
     );
     this.sceneManager.setPhaseAtmosphere(BOSS_PHASES.PHASE_1);
-    this.sound.setMode(AUDIO_MODES.COMBAT_P1);
+    const bossAudioMode = isRealm2
+      ? AUDIO_MODES.SUNKEN_BOSS
+      : AUDIO_MODES.COMBAT_P1;
+    this.sound.setMode(bossAudioMode);
 
     const store = useGameStore.getState();
     store.resetForDuel(nextTier);
-    store.setAudioMode(AUDIO_MODES.COMBAT_P1);
+    store.setAudioMode(bossAudioMode);
     this.renderSyncSystem.flushHudSnapshot();
   }
 
@@ -1091,7 +1100,10 @@ export class GameEngine implements IGameController {
     this.finisherSystem.resetState();
     if (this.state === GAME_STATES.CHAMBER_COMBAT) {
       this.chamberSystem.cleanupChambers();
-      this.sceneManager.setEnvironment(ENVIRONMENT_IDS.SUMMIT);
+      const isRealm2 = useGameStore.getState().activeRealm === 2;
+      this.sceneManager.setEnvironment(
+        isRealm2 ? ENVIRONMENT_IDS.SUNKEN_SUMMIT : ENVIRONMENT_IDS.SUMMIT,
+      );
       this.bossRig.root.visible = true;
     }
     this.dioramaSystem.enterDefeatDiorama();

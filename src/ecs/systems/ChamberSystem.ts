@@ -10,11 +10,16 @@ import {
   SERVANT_CONFIG,
   SIPHON_GALLERY_CONFIG,
   SOUL_WISP_KINDS,
+  SUNKEN_CHAMBER_CONFIG,
+  SUNKEN_SERVANT_CONFIG,
+  type ChamberWaveRecipe,
   type GameState,
   type PortalState,
   type ServantArchetype,
+  type ServantArchetypeStats,
   type ServantAnimState,
   type SoulWispKind,
+  type SunkenChamberWaveRecipe,
 } from '../../config/gameConfig';
 import type { IArenaGeometry } from '../../engine/SceneManager';
 import type { IAudioTrigger } from '../../engine/SoundEngine';
@@ -44,6 +49,7 @@ export interface IChamberCallbacks {
   getGameState: () => GameState;
   setGameState: (next: GameState) => void;
   getEncoreTier: () => number;
+  getActiveRealm: () => 1 | 2;
   addCameraShake: (amount: number) => void;
   onPlayerDamaged: (amount: number) => void;
   onPlayerHealed: () => void;
@@ -100,6 +106,8 @@ export class ChamberSystem implements ISystem {
   private portalSparkTimer = 0;
   private lastNearPortal = false;
   private currentEncoreTier = 0;
+  private activeRealm: 1 | 2 = 1;
+  private readonly chamberLevels = new Map<1 | 2, IChamberLevel>();
 
   // Reusable scratch vectors (zero per-frame GC churn)
   private readonly scratchOrigin = new THREE.Vector3();
@@ -114,10 +122,15 @@ export class ChamberSystem implements ISystem {
     audio: IAudioTrigger,
     vfx: IVfxSpawner,
     callbacks: IChamberCallbacks,
+    sunkenAqueduct?: IChamberLevel,
   ) {
     this.world = world;
     this.scene = scene;
     this.icePalace = icePalace;
+    this.chamberLevels.set(1, icePalace);
+    if (sunkenAqueduct) {
+      this.chamberLevels.set(2, sunkenAqueduct);
+    }
     this.arena = arena;
     this.audio = audio;
     this.vfx = vfx;
@@ -127,16 +140,77 @@ export class ChamberSystem implements ISystem {
   /**
    * Swaps the active chamber environment target (Realm I IcePalaceLevel or Realm II SunkenAqueductLevel).
    */
-  public setActiveLevel(level: IChamberLevel): void {
+  public setActiveLevel(level: IChamberLevel, realm?: 1 | 2): void {
     this.icePalace = level;
+    if (realm) {
+      this.activeRealm = realm;
+      this.chamberLevels.set(realm, level);
+    }
+  }
+
+  private getActiveWaves(): readonly (ChamberWaveRecipe | SunkenChamberWaveRecipe)[] {
+    return this.activeRealm === 2
+      ? SUNKEN_CHAMBER_CONFIG.WAVES
+      : CHAMBER_CONFIG.WAVES;
+  }
+
+  private getActiveWaveEscalationDelay(): number {
+    return this.activeRealm === 2
+      ? SUNKEN_CHAMBER_CONFIG.waveEscalationDelay
+      : CHAMBER_CONFIG.waveEscalationDelay;
+  }
+
+  private getActivePortalInteractionRadius(): number {
+    return this.activeRealm === 2
+      ? SUNKEN_CHAMBER_CONFIG.portalInteractionRadius
+      : CHAMBER_CONFIG.portalInteractionRadius;
+  }
+
+  private getActivePortalWarpDuration(): number {
+    return this.activeRealm === 2
+      ? SUNKEN_CHAMBER_CONFIG.portalWarpDuration
+      : CHAMBER_CONFIG.portalWarpDuration;
+  }
+
+  private getStatsForArchetype(archetype: ServantArchetype): ServantArchetypeStats {
+    if (archetype === SERVANT_ARCHETYPES.TIDEGUARD_HOPLITE) {
+      return SUNKEN_SERVANT_CONFIG.TIDEGUARD_HOPLITE;
+    }
+    if (archetype === SERVANT_ARCHETYPES.ABYSSAL_SIREN_WEAVER) {
+      return SUNKEN_SERVANT_CONFIG.ABYSSAL_SIREN_WEAVER;
+    }
+    if (archetype === SERVANT_ARCHETYPES.RAZORFIN_MANTA) {
+      return SUNKEN_SERVANT_CONFIG.RAZORFIN_MANTA;
+    }
+    if (archetype === SERVANT_ARCHETYPES.CORAL_BASTION) {
+      return SUNKEN_SERVANT_CONFIG.CORAL_BASTION;
+    }
+    if (archetype === SERVANT_ARCHETYPES.CRYO_ACOLYTE) {
+      return SERVANT_CONFIG.CRYO_ACOLYTE;
+    }
+    if (archetype === SERVANT_ARCHETYPES.RIME_HOUND) {
+      return SERVANT_CONFIG.RIME_HOUND;
+    }
+    if (archetype === SERVANT_ARCHETYPES.FROSTBITE_WARDEN) {
+      return SERVANT_CONFIG.FROSTBITE_WARDEN;
+    }
+    return SERVANT_CONFIG.GLACIAL_VANGUARD;
   }
 
   /**
-   * Initializes a fresh Royal Ice Chambers gauntlet run: registers the 8 destructible
-   * Frost Urns and spawns Wave 1 immediately via ServantFactory.
+   * Initializes a fresh Chamber gauntlet run (Realm I Royal Ice Chambers or Realm II Sunken Aqueduct):
+   * registers the 8 destructible Urns and spawns Wave 1 immediately via ServantFactory.
    */
-  public enterChambers(encoreTier: number): void {
+  public enterChambers(
+    encoreTier: number,
+    realm: 1 | 2 = this.callbacks.getActiveRealm(),
+  ): void {
     this.cleanupChambers();
+    this.activeRealm = realm;
+    const realmLevel = this.chamberLevels.get(realm);
+    if (realmLevel) {
+      this.icePalace = realmLevel;
+    }
     this.currentEncoreTier = encoreTier;
     this.currentWaveIndex = 0;
     this.pendingWaveIndex = null;
@@ -310,7 +384,8 @@ export class ChamberSystem implements ISystem {
 
   private evaluateWaveCompletion(): void {
     const living = this.countLivingServants();
-    const totalWaves = CHAMBER_CONFIG.WAVES.length;
+    const waves = this.getActiveWaves();
+    const totalWaves = waves.length;
     useGameStore
       .getState()
       .setChamberWaveProgress(this.currentWaveIndex + 1, totalWaves, living);
@@ -318,37 +393,53 @@ export class ChamberSystem implements ISystem {
     if (living > 0 || this.pendingWaveIndex !== null) return;
 
     const nextWave = this.currentWaveIndex + 1;
+    const store = useGameStore.getState();
+    const applyRealmRechargeBonus = (): void => {
+      if (this.activeRealm === 2) {
+        store.addSerenaCoreCharge(
+          SIPHON_GALLERY_CONFIG.chamberWaveRechargeBonus,
+        );
+      } else {
+        store.addMarinaCoreCharge(
+          SIPHON_GALLERY_CONFIG.chamberWaveRechargeBonus,
+        );
+      }
+    };
+
     if (nextWave < totalWaves) {
-      // Wave 1 cleared -> fill portal to 50%, chime, raise summoning glyphs, & recharge Marina's gallery core
+      // Wave 1 cleared -> fill portal to 50%, chime, raise summoning glyphs, & recharge sovereign core
       this.portalTargetCharge = Math.max(
         this.portalTargetCharge,
         (this.currentWaveIndex + 1) / totalWaves,
       );
       this.pendingWaveIndex = nextWave;
-      this.waveEscalationTimer = CHAMBER_CONFIG.waveEscalationDelay;
+      this.waveEscalationTimer = this.getActiveWaveEscalationDelay();
       this.audio.playSummonGlyphChime();
+      if (this.activeRealm === 2) {
+        this.audio.playBubblePop();
+      }
       this.spawnWaveSummonGlyphs(nextWave);
-      useGameStore
-        .getState()
-        .addMarinaCoreCharge(SIPHON_GALLERY_CONFIG.chamberWaveRechargeBonus);
+      applyRealmRechargeBonus();
     } else if (this.portalState !== PORTAL_STATES.IGNITED) {
-      // Wave 2 cleared -> ignite Astral Portal at 100% charge, shatter frost seal, & recharge Marina's gallery core!
+      // Wave 2 cleared -> ignite Astral / Tidal Portal at 100% charge & shatter seal!
       this.portalTargetCharge = 1.0;
       this.portalCharge = 1.0;
       this.portalState = PORTAL_STATES.IGNITED;
       this.audio.playPortalIgnite();
+      if (this.activeRealm === 2) {
+        this.audio.playTidalWave();
+      }
       this.callbacks.addCameraShake(0.24);
       this.vfx.spawnFrostShatterBurst(this.icePalace.portalPosition, 26, 8.5);
       this.icePalace.setPortalCharge(1.0, true, 0);
-      const store = useGameStore.getState();
       store.setPortalState(PORTAL_STATES.IGNITED);
-      store.addMarinaCoreCharge(SIPHON_GALLERY_CONFIG.chamberWaveRechargeBonus);
+      applyRealmRechargeBonus();
     }
   }
 
   private spawnWaveSummonGlyphs(waveIndex: number): void {
     this.clearSummonGlyphs();
-    const recipe = CHAMBER_CONFIG.WAVES[waveIndex];
+    const recipe = this.getActiveWaves()[waveIndex];
     if (!recipe) return;
 
     const spawnPoints = CHAMBER_CONFIG.servantSpawnPoints;
@@ -430,7 +521,8 @@ export class ChamberSystem implements ISystem {
   }
 
   private spawnWave(waveIndex: number): void {
-    const recipe = CHAMBER_CONFIG.WAVES[waveIndex];
+    const waves = this.getActiveWaves();
+    const recipe = waves[waveIndex];
     if (!recipe) return;
 
     this.currentWaveIndex = waveIndex;
@@ -460,9 +552,12 @@ export class ChamberSystem implements ISystem {
     }
 
     this.audio.playSummonGlyphChime();
+    if (this.activeRealm === 2) {
+      this.audio.playBubblePop();
+    }
     useGameStore
       .getState()
-      .setChamberWaveProgress(waveIndex + 1, CHAMBER_CONFIG.WAVES.length, spawned);
+      .setChamberWaveProgress(waveIndex + 1, waves.length, spawned);
   }
 
   private spawnServant(
@@ -471,7 +566,7 @@ export class ChamberSystem implements ISystem {
     z: number,
     slotIndex: number,
   ): void {
-    const stats = SERVANT_CONFIG[archetype];
+    const stats = this.getStatsForArchetype(archetype);
     const hpScale = Math.pow(
       CHAMBER_CONFIG.encoreServantHpMultiplierPerTier,
       this.currentEncoreTier,
@@ -723,7 +818,7 @@ export class ChamberSystem implements ISystem {
       if (!runtime) continue;
 
       const { servantAI: ai, transform, velocity } = entity;
-      const stats = SERVANT_CONFIG[ai.archetype];
+      const stats = this.getStatsForArchetype(ai.archetype);
       runtime.animTime += dt;
 
       // Dying dissolve phase
@@ -785,7 +880,10 @@ export class ChamberSystem implements ISystem {
 
       let animState: ServantAnimState = SERVANT_ANIM_STATES.IDLE;
 
-      if (ai.archetype === SERVANT_ARCHETYPES.GLACIAL_VANGUARD) {
+      if (
+        ai.archetype === SERVANT_ARCHETYPES.GLACIAL_VANGUARD ||
+        ai.archetype === SERVANT_ARCHETYPES.TIDEGUARD_HOPLITE
+      ) {
         animState = this.stepGlacialVanguard(
           entity,
           runtime,
@@ -799,7 +897,10 @@ export class ChamberSystem implements ISystem {
           dt,
           elapsed,
         );
-      } else if (ai.archetype === SERVANT_ARCHETYPES.CRYO_ACOLYTE) {
+      } else if (
+        ai.archetype === SERVANT_ARCHETYPES.CRYO_ACOLYTE ||
+        ai.archetype === SERVANT_ARCHETYPES.ABYSSAL_SIREN_WEAVER
+      ) {
         animState = this.stepCryoAcolyte(
           entity,
           runtime,
@@ -810,7 +911,10 @@ export class ChamberSystem implements ISystem {
           pPos.z,
           dt,
         );
-      } else if (ai.archetype === SERVANT_ARCHETYPES.RIME_HOUND) {
+      } else if (
+        ai.archetype === SERVANT_ARCHETYPES.RIME_HOUND ||
+        ai.archetype === SERVANT_ARCHETYPES.RAZORFIN_MANTA
+      ) {
         animState = this.stepRimeHound(
           entity,
           runtime,
@@ -822,7 +926,10 @@ export class ChamberSystem implements ISystem {
           playerSpeed,
           dt,
         );
-      } else if (ai.archetype === SERVANT_ARCHETYPES.FROSTBITE_WARDEN) {
+      } else if (
+        ai.archetype === SERVANT_ARCHETYPES.FROSTBITE_WARDEN ||
+        ai.archetype === SERVANT_ARCHETYPES.CORAL_BASTION
+      ) {
         animState = this.stepFrostbiteWarden(
           entity,
           runtime,
@@ -899,7 +1006,11 @@ export class ChamberSystem implements ISystem {
     dt: number,
     elapsed: number,
   ): ServantAnimState {
-    const stats = SERVANT_CONFIG.GLACIAL_VANGUARD;
+    const isHoplite =
+      runtime.archetype === SERVANT_ARCHETYPES.TIDEGUARD_HOPLITE;
+    const stats = isHoplite
+      ? SUNKEN_SERVANT_CONFIG.TIDEGUARD_HOPLITE
+      : SERVANT_CONFIG.GLACIAL_VANGUARD;
     const { servantAI: ai, transform, velocity } = entity;
 
     if (ai.state === SERVANT_AI_STATES.TELEGRAPH) {
@@ -918,7 +1029,11 @@ export class ChamberSystem implements ISystem {
         ai.state = SERVANT_AI_STATES.ATTACK;
         ai.stateTimer = CHAMBER_CONFIG.vanguardLungeDuration;
         runtime.hasDealtAttackDamage = false;
-        this.audio.playIceLance();
+        if (isHoplite) {
+          this.audio.playTidalWave();
+        } else {
+          this.audio.playIceLance();
+        }
       }
       return SERVANT_ANIM_STATES.TELEGRAPH;
     }
@@ -1061,7 +1176,10 @@ export class ChamberSystem implements ISystem {
     pz: number,
     dt: number,
   ): ServantAnimState {
-    const stats = SERVANT_CONFIG.CRYO_ACOLYTE;
+    const stats =
+      runtime.archetype === SERVANT_ARCHETYPES.ABYSSAL_SIREN_WEAVER
+        ? SUNKEN_SERVANT_CONFIG.ABYSSAL_SIREN_WEAVER
+        : SERVANT_CONFIG.CRYO_ACOLYTE;
     const { servantAI: ai, transform, velocity } = entity;
     this.faceTarget(transform, px, pz, dt, stats.turnSpeed);
 
@@ -1126,20 +1244,33 @@ export class ChamberSystem implements ISystem {
     px: number,
     pz: number,
   ): void {
-    const stats = SERVANT_CONFIG.CRYO_ACOLYTE;
+    const runtime = this.servantRuntimes.get(ownerId);
+    const isSirenWeaver =
+      runtime?.archetype === SERVANT_ARCHETYPES.ABYSSAL_SIREN_WEAVER;
+    const stats = isSirenWeaver
+      ? SUNKEN_SERVANT_CONFIG.ABYSSAL_SIREN_WEAVER
+      : SERVANT_CONFIG.CRYO_ACOLYTE;
     const count =
       this.currentEncoreTier > 0
-        ? CHAMBER_CONFIG.acolyteMaxBolts
-        : CHAMBER_CONFIG.acolyteMinBolts +
-          (Math.random() > 0.5 ? 2 : 0);
+        ? CHAMBER_CONFIG.acolyteMaxBolts + (isSirenWeaver ? 1 : 0)
+        : isSirenWeaver
+          ? 5
+          : CHAMBER_CONFIG.acolyteMinBolts + (Math.random() > 0.5 ? 2 : 0);
     const baseYaw = Math.atan2(px - ox, pz - oz);
-    const halfSpread = CHAMBER_CONFIG.acolyteFanSpread * 0.5;
+    const halfSpread =
+      (isSirenWeaver ? CHAMBER_CONFIG.acolyteFanSpread * 1.45 : CHAMBER_CONFIG.acolyteFanSpread) *
+      0.5;
+    const spiralTwist =
+      isSirenWeaver && runtime ? Math.sin(runtime.animTime * 2.2) * 0.28 : 0;
 
     for (let i = 0; i < count; i++) {
       const frac = count > 1 ? i / (count - 1) - 0.5 : 0;
-      const angle = baseYaw + frac * halfSpread * 2;
-      const vx = Math.sin(angle) * stats.boltSpeed;
-      const vz = Math.cos(angle) * stats.boltSpeed;
+      const angle = baseYaw + frac * halfSpread * 2 + spiralTwist;
+      const speed = isSirenWeaver
+        ? stats.boltSpeed * (0.86 + Math.abs(frac) * 0.34)
+        : stats.boltSpeed;
+      const vx = Math.sin(angle) * speed;
+      const vz = Math.cos(angle) * speed;
 
       this.scratchOrigin.set(
         ox + Math.sin(angle) * 0.75,
@@ -1166,7 +1297,7 @@ export class ChamberSystem implements ISystem {
           vx,
           vy: 0,
           vz,
-          maxSpeed: stats.boltSpeed,
+          maxSpeed: speed,
         },
         projectile: {
           faction: 'SERVANT',
@@ -1189,7 +1320,11 @@ export class ChamberSystem implements ISystem {
       });
     }
 
-    this.audio.playIceLance();
+    if (isSirenWeaver) {
+      this.audio.playBubblePop();
+    } else {
+      this.audio.playIceLance();
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -1214,7 +1349,10 @@ export class ChamberSystem implements ISystem {
     playerSpeed: number,
     dt: number,
   ): ServantAnimState {
-    const stats = SERVANT_CONFIG.RIME_HOUND;
+    const stats =
+      runtime.archetype === SERVANT_ARCHETYPES.RAZORFIN_MANTA
+        ? SUNKEN_SERVANT_CONFIG.RAZORFIN_MANTA
+        : SERVANT_CONFIG.RIME_HOUND;
     const { servantAI: ai, transform, velocity } = entity;
 
     if (ai.state === SERVANT_AI_STATES.TELEGRAPH) {
@@ -1323,7 +1461,14 @@ export class ChamberSystem implements ISystem {
     pz: number,
     dt: number,
   ): ServantAnimState {
-    const stats = SERVANT_CONFIG.FROSTBITE_WARDEN;
+    const isCoralBastion =
+      runtime.archetype === SERVANT_ARCHETYPES.CORAL_BASTION;
+    const stats = isCoralBastion
+      ? SUNKEN_SERVANT_CONFIG.CORAL_BASTION
+      : SERVANT_CONFIG.FROSTBITE_WARDEN;
+    const slamRadius = isCoralBastion
+      ? SUNKEN_SERVANT_CONFIG.CORAL_BASTION.geyserRadius
+      : SERVANT_CONFIG.FROSTBITE_WARDEN.slamRadius;
     const { servantAI: ai, transform, velocity } = entity;
     this.faceTarget(transform, px, pz, dt, stats.turnSpeed);
 
@@ -1332,11 +1477,15 @@ export class ChamberSystem implements ISystem {
       velocity.vz = 0;
       ai.telegraphTimer -= dt;
       if (ai.telegraphTimer <= 0) {
-        // Mace slams down -> shake + spawn delayed circular floor ice-pillar telegraph under player
+        // Heavy slam -> shake + spawn delayed circular floor ice-pillar / boiling geyser under player
         this.callbacks.addCameraShake(stats.slamCameraShake);
-        this.audio.playUmbralPulse();
+        if (isCoralBastion) {
+          this.audio.playGeyserErupt();
+        } else {
+          this.audio.playUmbralPulse();
+        }
         this.spawnWardenFloorPillar(px, pz, stats.damage);
-        if (dist <= stats.slamRadius) {
+        if (dist <= slamRadius) {
           this.callbacks.onPlayerDamaged(stats.damage);
         }
         ai.state = SERVANT_AI_STATES.ATTACK;
@@ -1441,7 +1590,7 @@ export class ChamberSystem implements ISystem {
       pPos.x - this.icePalace.portalPosition.x,
       pPos.z - this.icePalace.portalPosition.z,
     );
-    const isNear = dist <= CHAMBER_CONFIG.portalInteractionRadius;
+    const isNear = dist <= this.getActivePortalInteractionRadius();
 
     if (isNear !== this.lastNearPortal) {
       this.lastNearPortal = isNear;
@@ -1467,6 +1616,9 @@ export class ChamberSystem implements ISystem {
     this.portalWarpElapsed = 0;
     this.portalSparkTimer = 0;
     this.audio.playPortalWarp();
+    if (this.activeRealm === 2) {
+      this.audio.playTidalWave();
+    }
     this.callbacks.addCameraShake(0.2);
     this.callbacks.setGameState(GAME_STATES.PORTAL_TRANSITION);
     this.callbacks.onPortalWarpStarted();
@@ -1480,7 +1632,7 @@ export class ChamberSystem implements ISystem {
   private updatePortalWarpTransition(dt: number, elapsed: number): void {
     this.portalWarpElapsed += dt;
     const t = THREE.MathUtils.clamp(
-      this.portalWarpElapsed / CHAMBER_CONFIG.portalWarpDuration,
+      this.portalWarpElapsed / this.getActivePortalWarpDuration(),
       0,
       1,
     );

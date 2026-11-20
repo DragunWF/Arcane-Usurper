@@ -4,6 +4,7 @@ import {
   ARENA_CONFIG,
   BOSS_CONFIG,
   CHAMBER_CONFIG,
+  DESTRUCTIBLE_PROP_TYPES,
   GAME_STATES,
   LOBBY_CONFIG,
   NG_PLUS_CONFIG,
@@ -11,7 +12,9 @@ import {
   SERVANT_AI_STATES,
   SERVANT_ARCHETYPES,
   SERVANT_CONFIG,
+  SUNKEN_SERVANT_CONFIG,
   type GameState,
+  type ServantArchetype,
 } from '../../config/gameConfig';
 import {
   isPointInsideCompositeLobby,
@@ -842,36 +845,19 @@ export class CombatSystem implements ISystem {
       return true;
     }
 
-    // 2. Sealed Realm II (Sunken Sanctuary) & Realm III (Harmonic Citadel) Portals
-    const sealedPortals: readonly {
-      readonly realm: 2 | 3;
-      readonly x: number;
-      readonly z: number;
-    }[] = [
-      {
-        realm: 2,
-        x: LOBBY_CONFIG.realm2PortalPos.x,
-        z: LOBBY_CONFIG.realm2PortalPos.z,
-      },
-      {
-        realm: 3,
-        x: LOBBY_CONFIG.realm3PortalPos.x,
-        z: LOBBY_CONFIG.realm3PortalPos.z,
-      },
-    ];
-    for (let i = 0; i < sealedPortals.length; i++) {
-      const sp = sealedPortals[i];
-      if (!sp) continue;
-      const dist = Math.hypot(p.x - sp.x, p.z - sp.z);
-      if (
-        dist <= LOBBY_CONFIG.portalRingRadius + projectile.radius &&
-        p.y >= 0.2 &&
-        p.y <= LOBBY_CONFIG.portalCenterY + LOBBY_CONFIG.portalRingRadius
-      ) {
-        this.vBurstPos.set(p.x, p.y, p.z);
-        this.callbacks.onLobbySealedPortalHit?.(sp.realm, this.vBurstPos);
-        return true;
-      }
+    // 2. Sealed Realm III (Harmonic Citadel) Portal (Realm II is unsealed)
+    const dR3 = Math.hypot(
+      p.x - LOBBY_CONFIG.realm3PortalPos.x,
+      p.z - LOBBY_CONFIG.realm3PortalPos.z,
+    );
+    if (
+      dR3 <= LOBBY_CONFIG.portalRingRadius + projectile.radius &&
+      p.y >= 0.2 &&
+      p.y <= LOBBY_CONFIG.portalCenterY + LOBBY_CONFIG.portalRingRadius
+    ) {
+      this.vBurstPos.set(p.x, p.y, p.z);
+      this.callbacks.onLobbySealedPortalHit?.(3, this.vBurstPos);
+      return true;
     }
 
     return false;
@@ -899,19 +885,6 @@ export class CombatSystem implements ISystem {
         isEncore,
         this.vBurstPos,
       );
-    }
-
-    const dR2 = Math.hypot(
-      originX - LOBBY_CONFIG.realm2PortalPos.x,
-      originZ - LOBBY_CONFIG.realm2PortalPos.z,
-    );
-    if (dR2 <= pulseR + LOBBY_CONFIG.portalRingRadius) {
-      this.vBurstPos.set(
-        LOBBY_CONFIG.realm2PortalPos.x,
-        LOBBY_CONFIG.portalCenterY,
-        LOBBY_CONFIG.realm2PortalPos.z,
-      );
-      this.callbacks.onLobbySealedPortalHit?.(2, this.vBurstPos);
     }
 
     const dR3 = Math.hypot(
@@ -974,9 +947,11 @@ export class CombatSystem implements ISystem {
         projectile.hitEntityIds.push(s.id);
         this.vBurstPos.set(p.x, p.y, p.z);
 
+        const isTowerShieldArchetype = this.isTowerShieldServant(
+          s.servantAI.archetype,
+        );
         const isWardenShielded =
-          s.servantAI.archetype === SERVANT_ARCHETYPES.FROSTBITE_WARDEN &&
-          s.servantAI.guardBrokenTimer <= 0;
+          isTowerShieldArchetype && s.servantAI.guardBrokenTimer <= 0;
 
         if (isWardenShielded) {
           const distXZ = Math.hypot(dx, dz) || 1;
@@ -988,13 +963,17 @@ export class CombatSystem implements ISystem {
 
           if (frontDot > CHAMBER_CONFIG.wardenShieldDotThreshold) {
             if (projectile.kind === 'USURPED_BEAM') {
-              // Piercing NG+ Glacial Spear-Beam shatters Warden's hexagonal tower-shield
-              this.audio.playGuardBreak();
+              // Piercing NG+ Spear-Beam shatters Warden / Coral Bastion frontal tower-shield
+              if (s.servantAI.archetype === SERVANT_ARCHETYPES.CORAL_BASTION) {
+                this.audio.playCoralShatter();
+              } else {
+                this.audio.playGuardBreak();
+              }
               this.vfx.spawnFrostShatterBurst(this.vBurstPos, 18, 8.0);
               this.callbacks.onServantGuardBreak?.(s.id);
               this.damageServant(s, projectile.damage, this.vBurstPos);
             } else {
-              // Standard Void Bolt deflected with metallic ice-steel clang (0 damage)
+              // Standard Void Bolt deflected with shield clang (0 damage)
               this.audio.playShieldClang();
               this.vfx.spawnFrostShatterBurst(this.vBurstPos, 8, 5.8);
               return true;
@@ -1004,10 +983,11 @@ export class CombatSystem implements ISystem {
             this.damageServant(s, projectile.damage, this.vBurstPos);
           }
         } else {
-          const mult =
-            s.servantAI.guardBrokenTimer > 0
-              ? SERVANT_CONFIG.FROSTBITE_WARDEN.guardBrokenDamageMultiplier
-              : 1.0;
+          const guardMult =
+            s.servantAI.archetype === SERVANT_ARCHETYPES.CORAL_BASTION
+              ? SUNKEN_SERVANT_CONFIG.CORAL_BASTION.guardBrokenDamageMultiplier
+              : SERVANT_CONFIG.FROSTBITE_WARDEN.guardBrokenDamageMultiplier;
+          const mult = s.servantAI.guardBrokenTimer > 0 ? guardMult : 1.0;
           this.damageServant(s, Math.round(projectile.damage * mult), this.vBurstPos);
         }
 
@@ -1078,10 +1058,14 @@ export class CombatSystem implements ISystem {
           s.transform.position.z,
         );
         if (
-          s.servantAI.archetype === SERVANT_ARCHETYPES.FROSTBITE_WARDEN &&
+          this.isTowerShieldServant(s.servantAI.archetype) &&
           s.servantAI.guardBrokenTimer <= 0
         ) {
-          this.audio.playGuardBreak();
+          if (s.servantAI.archetype === SERVANT_ARCHETYPES.CORAL_BASTION) {
+            this.audio.playCoralShatter();
+          } else {
+            this.audio.playGuardBreak();
+          }
           this.vfx.spawnFrostShatterBurst(this.vBurstPos, 18, 8.2);
           this.callbacks.onServantGuardBreak?.(s.id);
         }
@@ -1131,10 +1115,17 @@ export class CombatSystem implements ISystem {
     }
   }
 
+  private isTowerShieldServant(archetype: ServantArchetype): boolean {
+    return (
+      archetype === SERVANT_ARCHETYPES.FROSTBITE_WARDEN ||
+      archetype === SERVANT_ARCHETYPES.CORAL_BASTION
+    );
+  }
+
   private shatterFrostUrn(
     urn: {
       id: EntityId;
-      destructibleProp: { hp: number; healValue: number };
+      destructibleProp: { propType: string; hp: number; healValue: number };
       transform: { position: { x: number; y: number; z: number } };
       meshRef: { object3D: THREE.Object3D };
     },
@@ -1150,7 +1141,11 @@ export class CombatSystem implements ISystem {
       urn.transform.position.z,
     );
     this.vfx.spawnFrostShatterBurst(pos, 14, 6.8);
-    this.audio.playUrnShatter();
+    if (urn.destructibleProp.propType === DESTRUCTIBLE_PROP_TYPES.PEARL_URN) {
+      this.audio.playCoralShatter();
+    } else {
+      this.audio.playUrnShatter();
+    }
     this.callbacks.onUrnShattered?.(pos, urn.destructibleProp.healValue);
     destroyQueue.push(urn.id);
   }
