@@ -15,6 +15,7 @@ import {
   PLAYER_CONFIG,
   PORTAL_STATES,
   REALM_IDS,
+  SERENA_CONFIG,
   SIPHON_GALLERY_CONFIG,
   type AudioMode,
   type BossExpression,
@@ -99,6 +100,63 @@ function persistMarinaCoreCharge(charge: number): void {
   }
 }
 
+function readInitialSerenaDefeated(): boolean {
+  try {
+    return (
+      typeof window !== 'undefined' &&
+      window.localStorage.getItem(SERENA_CONFIG.defeatedStorageKey) === 'true'
+    );
+  } catch {
+    return false;
+  }
+}
+
+function persistSerenaDefeated(defeated: boolean): void {
+  try {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(
+        SERENA_CONFIG.defeatedStorageKey,
+        defeated ? 'true' : 'false',
+      );
+    }
+  } catch {
+    // Ignore storage quota / sandboxed iframe restrictions
+  }
+}
+
+function readInitialSerenaCoreCharge(): number {
+  try {
+    if (typeof window === 'undefined') {
+      return SERENA_CONFIG.defaultCoreCharge;
+    }
+    const raw = window.localStorage.getItem(SERENA_CONFIG.coreChargeStorageKey);
+    if (raw === null) {
+      return SERENA_CONFIG.defaultCoreCharge;
+    }
+    const parsed = Number.parseFloat(raw);
+    if (!Number.isFinite(parsed)) {
+      return SERENA_CONFIG.defaultCoreCharge;
+    }
+    return Math.max(0, Math.min(1, parsed));
+  } catch {
+    return SERENA_CONFIG.defaultCoreCharge;
+  }
+}
+
+function persistSerenaCoreCharge(charge: number): void {
+  try {
+    if (typeof window !== 'undefined') {
+      const clamped = Math.max(0, Math.min(1, charge));
+      window.localStorage.setItem(
+        SERENA_CONFIG.coreChargeStorageKey,
+        clamped.toFixed(4),
+      );
+    }
+  } catch {
+    // Ignore storage quota / sandboxed iframe restrictions
+  }
+}
+
 /**
  * Throttled telemetry snapshot written by the 60 FPS ECS simulation (~15–20 Hz)
  * to keep React HUD re-renders lightweight and batched.
@@ -121,6 +179,7 @@ export interface GameStoreState {
   // Core Progression & State Machine
   gameState: GameState;
   realmId: RealmId;
+  activeRealm: 1 | 2;
   encoreTier: number;
 
   // Player Telemetry
@@ -137,6 +196,8 @@ export interface GameStoreState {
   // Obsidian Spire Sanctum (3D Hub Lobby) & Siphon Gallery Telemetry
   marinaDefeated: boolean;
   marinaCoreCharge: number;
+  serenaDefeated: boolean;
+  serenaCoreCharge: number;
   lobbyPrompt: LobbyPromptState | null;
   lobbyDummyHit: LobbyDummyHitState | null;
 
@@ -183,6 +244,7 @@ export interface GameStoreState {
   // Actions
   setGameState: (gameState: GameState) => void;
   setRealmId: (realmId: RealmId) => void;
+  setActiveRealm: (realm: 1 | 2) => void;
   setEncoreTier: (encoreTier: number) => void;
   incrementEncoreTier: () => void;
   setPointerLocked: (locked: boolean) => void;
@@ -208,6 +270,9 @@ export interface GameStoreState {
   setMarinaDefeated: (val: boolean) => void;
   setMarinaCoreCharge: (charge: number) => void;
   addMarinaCoreCharge: (delta: number) => void;
+  setSerenaDefeated: (val: boolean) => void;
+  setSerenaCoreCharge: (charge: number) => void;
+  addSerenaCoreCharge: (delta: number) => void;
   setLobbyPrompt: (prompt: LobbyPromptState | null) => void;
   setLobbyDummyHit: (hit: LobbyDummyHitState | null) => void;
   setFinisherPose: (pose: FinisherPoseId) => void;
@@ -236,6 +301,7 @@ function getSubtitleForPhase(phase: BossPhase): string {
 const INITIAL_STATE = {
   gameState: GAME_STATES.TITLE as GameState,
   realmId: REALM_IDS.GLACIAL_SPIRE as RealmId,
+  activeRealm: 1 as 1 | 2,
   encoreTier: 0,
 
   playerHp: PLAYER_CONFIG.maxHp,
@@ -250,6 +316,8 @@ const INITIAL_STATE = {
 
   marinaDefeated: readInitialMarinaDefeated(),
   marinaCoreCharge: readInitialMarinaCoreCharge(),
+  serenaDefeated: readInitialSerenaDefeated(),
+  serenaCoreCharge: readInitialSerenaCoreCharge(),
   lobbyPrompt: null as LobbyPromptState | null,
   lobbyDummyHit: null as LobbyDummyHitState | null,
 
@@ -295,6 +363,14 @@ export const useGameStore = create<GameStoreState>((set) => ({
 
   setGameState: (gameState) => set({ gameState }),
   setRealmId: (realmId) => set({ realmId }),
+  setActiveRealm: (activeRealm) =>
+    set({
+      activeRealm,
+      realmId:
+        activeRealm === 2
+          ? REALM_IDS.ABYSSAL_PALACE
+          : REALM_IDS.GLACIAL_SPIRE,
+    }),
   setEncoreTier: (encoreTier) => set({ encoreTier }),
   incrementEncoreTier: () =>
     set((state) => ({ encoreTier: state.encoreTier + 1 })),
@@ -369,6 +445,21 @@ export const useGameStore = create<GameStoreState>((set) => ({
       const clamped = Math.max(0, Math.min(1, state.marinaCoreCharge + delta));
       persistMarinaCoreCharge(clamped);
       return { marinaCoreCharge: clamped };
+    }),
+  setSerenaDefeated: (serenaDefeated) => {
+    persistSerenaDefeated(serenaDefeated);
+    set({ serenaDefeated });
+  },
+  setSerenaCoreCharge: (charge) => {
+    const clamped = Math.max(0, Math.min(1, charge));
+    persistSerenaCoreCharge(clamped);
+    set({ serenaCoreCharge: clamped });
+  },
+  addSerenaCoreCharge: (delta) =>
+    set((state) => {
+      const clamped = Math.max(0, Math.min(1, state.serenaCoreCharge + delta));
+      persistSerenaCoreCharge(clamped);
+      return { serenaCoreCharge: clamped };
     }),
   setLobbyPrompt: (lobbyPrompt) => set({ lobbyPrompt }),
   setLobbyDummyHit: (lobbyDummyHit) => set({ lobbyDummyHit }),
@@ -463,6 +554,8 @@ export const useGameStore = create<GameStoreState>((set) => ({
       ...INITIAL_STATE,
       marinaDefeated: state.marinaDefeated,
       marinaCoreCharge: state.marinaCoreCharge,
+      serenaDefeated: state.serenaDefeated,
+      serenaCoreCharge: state.serenaCoreCharge,
       audioMuted: state.audioMuted,
       musicVolume: state.musicVolume,
       sfxVolume: state.sfxVolume,

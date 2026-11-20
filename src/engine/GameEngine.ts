@@ -16,6 +16,7 @@ import {
   NG_PLUS_CONFIG,
   PLAYER_CONFIG,
   SIPHON_GALLERY_CONFIG,
+  SUNKEN_CHAMBER_CONFIG,
   type BossPhase,
   type DrainThrottleMode,
   type FinisherPoseId,
@@ -230,7 +231,11 @@ export class GameEngine implements IGameController {
       {
         getGameState: () => this.state,
         onEnterRealm1: () => {
-          this.enterChambersRun(useGameStore.getState().encoreTier);
+          this.enterChambersRun(useGameStore.getState().encoreTier, 1);
+          this.cameraRig.requestLock();
+        },
+        onEnterRealm2: () => {
+          this.enterChambersRun(useGameStore.getState().encoreTier, 2);
           this.cameraRig.requestLock();
         },
         onEnterLobbySiphon: () => {
@@ -645,9 +650,13 @@ export class GameEngine implements IGameController {
   }
 
   /**
-   * Launches a fresh Royal Ice Chambers gauntlet (Wave 1) with `hasReachedSummit = false`.
+   * Launches a fresh Chamber gauntlet (Wave 1) in Realm I (`CHAMBER`) or Realm II (`SUNKEN_CHAMBER`)
+   * with `hasReachedSummit = false`.
    */
-  public enterChambersRun(encoreTier: number): void {
+  public enterChambersRun(
+    encoreTier: number,
+    realm: 1 | 2 = useGameStore.getState().activeRealm,
+  ): void {
     this.sound.unlock();
     this.isPaused = false;
     this.cameraRig.isPaused = false;
@@ -660,8 +669,26 @@ export class GameEngine implements IGameController {
     this.inputSystem.resetTransientInputs();
     this.movementSystem.resetTransientState();
 
-    this.sceneManager.setEnvironment(ENVIRONMENT_IDS.CHAMBER);
+    const isRealm2 = realm === 2;
+    this.sceneManager.setEnvironment(
+      isRealm2 ? ENVIRONMENT_IDS.SUNKEN_CHAMBER : ENVIRONMENT_IDS.CHAMBER,
+    );
+    this.chamberSystem.setActiveLevel(
+      isRealm2
+        ? this.sceneManager.sunkenAqueductLevel
+        : this.sceneManager.icePalaceLevel,
+    );
     this.bossRig.root.visible = false;
+
+    const spawnX = isRealm2
+      ? SUNKEN_CHAMBER_CONFIG.playerSpawnX
+      : CHAMBER_CONFIG.playerSpawnX;
+    const spawnZ = isRealm2
+      ? SUNKEN_CHAMBER_CONFIG.playerSpawnZ
+      : CHAMBER_CONFIG.playerSpawnZ;
+    const spawnYaw = isRealm2
+      ? SUNKEN_CHAMBER_CONFIG.playerSpawnYaw
+      : CHAMBER_CONFIG.playerSpawnYaw;
 
     const player = this.world.queryFirst(
       'playerTag',
@@ -672,10 +699,10 @@ export class GameEngine implements IGameController {
       'playerCombat',
     );
     if (player) {
-      player.transform.position.x = CHAMBER_CONFIG.playerSpawnX;
+      player.transform.position.x = spawnX;
       player.transform.position.y = 0;
-      player.transform.position.z = CHAMBER_CONFIG.playerSpawnZ;
-      player.transform.rotationY = CHAMBER_CONFIG.playerSpawnYaw;
+      player.transform.position.z = spawnZ;
+      player.transform.rotationY = spawnYaw;
       player.velocity.vx = 0;
       player.velocity.vy = 0;
       player.velocity.vz = 0;
@@ -699,14 +726,18 @@ export class GameEngine implements IGameController {
       CAMERA_CONFIG.combatInitialPitch,
     );
 
+    const nextAudioMode = isRealm2
+      ? AUDIO_MODES.SUNKEN_CHAMBER
+      : AUDIO_MODES.CHAMBER;
     const store = useGameStore.getState();
+    store.setActiveRealm(realm);
     store.setEncoreTier(encoreTier);
     store.setHasReachedSummit(false);
     store.setPaused(false);
     store.setGameState(GAME_STATES.CHAMBER_COMBAT);
-    store.setAudioMode(AUDIO_MODES.CHAMBER);
+    store.setAudioMode(nextAudioMode);
 
-    this.sound.setMode(AUDIO_MODES.CHAMBER);
+    this.sound.setMode(nextAudioMode);
     this.chamberSystem.enterChambers(encoreTier);
     this.renderSyncSystem.flushHudSnapshot();
   }

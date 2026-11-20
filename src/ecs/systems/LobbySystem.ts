@@ -19,6 +19,7 @@ import type { ECSWorld, ISystem } from '../World';
 export interface ILobbyCallbacks {
   getGameState: () => GameState;
   onEnterRealm1: () => void;
+  onEnterRealm2: () => void;
   onEnterLobbySiphon: () => void;
   onEncoreTierToggled: (nextTier: number) => void;
   onSyncGalleryUnlocked: (unlocked: boolean) => void;
@@ -122,9 +123,22 @@ export class LobbySystem implements ISystem {
     if (!this.activePrompt) return;
 
     if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.REALM_1) {
+      const store = useGameStore.getState();
+      store.setActiveRealm(1);
+      store.setHasReachedSummit(false);
       this.audio.playPortalWarp();
       this.setPromptIfChanged(null);
       this.callbacks.onEnterRealm1();
+      return;
+    }
+
+    if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.REALM_2) {
+      const store = useGameStore.getState();
+      store.setActiveRealm(2);
+      store.setHasReachedSummit(false);
+      this.audio.playPortalWarp();
+      this.setPromptIfChanged(null);
+      this.callbacks.onEnterRealm2();
       return;
     }
 
@@ -284,9 +298,12 @@ export class LobbySystem implements ISystem {
     if (dR2 <= LOBBY_CONFIG.portalInteractRadius && dR2 < bestDist) {
       bestDist = dR2;
       bestPrompt = {
-        kind: LOBBY_PROMPT_KINDS.REALM_2_SEALED,
-        title: 'REALM II: THE SUNKEN SANCTUARY',
-        subtitle: 'SEALED (COMING SOON)',
+        kind: LOBBY_PROMPT_KINDS.REALM_2,
+        title: '[E] ENTER REALM II — THE SUNKEN SANCTUARY',
+        subtitle:
+          encoreTier > 0
+            ? `ENCORE NG+${encoreTier} • SUNKEN AQUEDUCT`
+            : 'SUNKEN AQUEDUCT → PEARL AMPHITHEATER',
       };
     }
 

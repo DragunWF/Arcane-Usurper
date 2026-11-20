@@ -36,6 +36,7 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
 
   if (gameState !== GAME_STATES.LOBBY) return null;
 
+  const isRealm2Active = lobbyPrompt?.kind === LOBBY_PROMPT_KINDS.REALM_2;
   const isSealedRealm2 =
     lobbyPrompt?.kind === LOBBY_PROMPT_KINDS.REALM_2_SEALED;
   const isSealedRealm3 =
@@ -178,13 +179,14 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
             <div
               className="font-display text-xs sm:text-sm md:text-base font-bold tracking-[0.18em] uppercase"
               style={{
-                color: isSealedRealm2
-                  ? PALETTE.hex.sunkenTeal
-                  : isSealedRealm3
-                    ? PALETTE.hex.harmonicEmerald
-                    : isSealedGallery
-                      ? PALETTE.hex.pulseLavender
-                      : PALETTE.hex.iceHighlights,
+                color:
+                  isRealm2Active || isSealedRealm2
+                    ? PALETTE.hex.biolumCyan
+                    : isSealedRealm3
+                      ? PALETTE.hex.harmonicEmerald
+                      : isSealedGallery
+                        ? PALETTE.hex.pulseLavender
+                        : PALETTE.hex.iceHighlights,
               }}
             >
               {lobbyPrompt.title}
@@ -194,9 +196,11 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
               style={{
                 color: isSealed
                   ? PALETTE.hex.drainedAshSilver
-                  : isMarinaDais
-                    ? PALETTE.hex.frostRunes
-                    : PALETTE.hex.pulseLavender,
+                  : isRealm2Active
+                    ? PALETTE.hex.atlanteanGold
+                    : isMarinaDais
+                      ? PALETTE.hex.frostRunes
+                      : PALETTE.hex.pulseLavender,
               }}
             >
               {lobbyPrompt.subtitle}

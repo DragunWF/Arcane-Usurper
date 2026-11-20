@@ -76,6 +76,8 @@ export const AUDIO_MODES = Object.freeze({
   VICTORY: 'VICTORY',
   DEFEAT: 'DEFEAT',
   CHAMBER: 'CHAMBER',
+  SUNKEN_CHAMBER: 'SUNKEN_CHAMBER',
+  SUNKEN_BOSS: 'SUNKEN_BOSS',
 } as const);
 
 export type AudioMode = (typeof AUDIO_MODES)[keyof typeof AUDIO_MODES];
@@ -84,13 +86,17 @@ export const ENVIRONMENT_IDS = Object.freeze({
   LOBBY: 'LOBBY',
   CHAMBER: 'CHAMBER',
   SUMMIT: 'SUMMIT',
+  SUNKEN_CHAMBER: 'SUNKEN_CHAMBER',
+  SUNKEN_SUMMIT: 'SUNKEN_SUMMIT',
 } as const);
 
 export type EnvironmentId =
   (typeof ENVIRONMENT_IDS)[keyof typeof ENVIRONMENT_IDS];
+export type SceneEnvironment = EnvironmentId;
 
 export const LOBBY_PROMPT_KINDS = Object.freeze({
   REALM_1: 'REALM_1',
+  REALM_2: 'REALM_2',
   REALM_2_SEALED: 'REALM_2_SEALED',
   REALM_3_SEALED: 'REALM_3_SEALED',
   TROPHY_PEDESTAL: 'TROPHY_PEDESTAL',
@@ -146,6 +152,7 @@ export type ServantAnimState =
 
 export const DESTRUCTIBLE_PROP_TYPES = Object.freeze({
   FROST_URN: 'FROST_URN',
+  PEARL_URN: 'PEARL_URN',
 } as const);
 
 export type DestructiblePropType =
@@ -184,6 +191,16 @@ export const SERVANT_ARCHETYPES = Object.freeze({
 
 export type ServantArchetype =
   (typeof SERVANT_ARCHETYPES)[keyof typeof SERVANT_ARCHETYPES];
+
+export const SUNKEN_SERVANT_ARCHETYPES = Object.freeze({
+  TIDEGUARD_HOPLITE: 'TIDEGUARD_HOPLITE',
+  ABYSSAL_SIREN_WEAVER: 'ABYSSAL_SIREN_WEAVER',
+  RAZORFIN_MANTA: 'RAZORFIN_MANTA',
+  CORAL_BASTION: 'CORAL_BASTION',
+} as const);
+
+export type SunkenServantArchetype =
+  (typeof SUNKEN_SERVANT_ARCHETYPES)[keyof typeof SUNKEN_SERVANT_ARCHETYPES];
 
 // ============================================================================
 // COLOR PALETTE TOKENS (Three.js numeric hex + CSS string hex)
@@ -272,6 +289,17 @@ export const PALETTE = Object.freeze({
   candleWax: 0xfde68a,
   galleryVelvet: 0x3b1354,
 
+  // Realm II — The Sunken Sanctuary (Atlantean Aqueduct & Pearl Amphitheater)
+  abyssalTeal: 0x041e2b,
+  biolumCyan: 0x06b6d4,
+  atlanteanGold: 0xeab308,
+  coralRose: 0xfb7185,
+  pearlWhite: 0xf8fafc,
+  seaStoneDark: 0x0a2534,
+  seaStoneMid: 0x103447,
+  kelpEmerald: 0x0d9488,
+  bronzeTrident: 0xb45309,
+
   // CSS Hex Strings for Canvas2D, Tailwind inline styles, and SVG tokens
   hex: Object.freeze({
     midnightSky: '#040711',
@@ -340,6 +368,15 @@ export const PALETTE = Object.freeze({
     crimsonPotion: '#E11D48',
     candleWax: '#FDE68A',
     galleryVelvet: '#3B1354',
+    abyssalTeal: '#041E2B',
+    biolumCyan: '#06B6D4',
+    atlanteanGold: '#EAB308',
+    coralRose: '#FB7185',
+    pearlWhite: '#F8FAFC',
+    seaStoneDark: '#0A2534',
+    seaStoneMid: '#103447',
+    kelpEmerald: '#0D9488',
+    bronzeTrident: '#B45309',
   } as const),
 
   // Canvas2D RGBA & Gradient Stop Tokens (Zero Inline Color Literals)
@@ -401,6 +438,14 @@ export const PALETTE = Object.freeze({
     sanctumNebulaViolet: 'rgba(139, 92, 246, 0.28)',
     sanctumNebulaIndigo: 'rgba(67, 56, 202, 0.24)',
     sanctumStarCore: 'rgba(248, 250, 252, 0.92)',
+
+    // Realm II — Sunken Sanctuary Canvas Tokens
+    causticCyanGlow: 'rgba(6, 182, 212, 0.36)',
+    causticCyanBright: 'rgba(248, 250, 252, 0.44)',
+    atlanteanGoldSoft: 'rgba(234, 179, 8, 0.55)',
+    atlanteanGoldBright: 'rgba(234, 179, 8, 0.92)',
+    pearlMosaicGlow: 'rgba(248, 250, 252, 0.65)',
+    seaTileJoint: 'rgba(4, 30, 43, 0.72)',
   } as const),
 } as const);
 
@@ -1428,6 +1473,321 @@ export const SIPHON_GALLERY_CONFIG = Object.freeze({
 } as const);
 
 // ============================================================================
+// REALM II — THE SUNKEN SANCTUARY (AQUEDUCT CHAMBERS, SERVANTS & SERENA)
+// ============================================================================
+
+export interface SunkenWaveEntry {
+  readonly archetype: SunkenServantArchetype;
+  readonly count: number;
+}
+
+export interface SunkenChamberWaveRecipe {
+  readonly servants: readonly SunkenWaveEntry[];
+}
+
+export const SUNKEN_CHAMBER_CONFIG = Object.freeze({
+  // Rectangular Flooded Atlantean Hall Bounds (matching Realm I Chamber scale)
+  width: 24,
+  length: 52,
+  wallHeight: 11.4,
+  wallThickness: 1.2,
+  movementWallPadding: 1.2,
+  playerSpawnX: 0,
+  playerSpawnZ: 22.0,
+  playerSpawnYaw: Math.PI,
+
+  // Fluted Coral-Overgrown Aqueduct Colonnade
+  pillarCountPerSide: 6,
+  pillarRowX: 8.4,
+  pillarStartZ: 18.5,
+  pillarSpacing: 7.4,
+  pillarRadius: 0.7,
+  pillarCollisionRadius: 0.9,
+  pillarHeight: 8.6,
+  archApexRise: 3.6,
+  archRibRadius: 0.24,
+  archTubularSegments: 24,
+  ceilingY: 13.8,
+
+  // Animated Water-Caustic Floor Overlay
+  causticY: 0.025,
+  causticScrollSpeedX: 0.045,
+  causticScrollSpeedY: 0.072,
+  causticOpacityBase: 0.42,
+  causticPulseAmp: 0.1,
+  floorTextureSize: 1024,
+  causticTextureSize: 512,
+
+  // Swaying Ribbon-Kelp Fronds along outer edges
+  kelpCountPerSide: 10,
+  kelpRowX: 10.4,
+  kelpStartZ: 21.0,
+  kelpSpacing: 4.4,
+  kelpHeight: 5.8,
+  kelpWidth: 0.55,
+  kelpSegmentsY: 10,
+  kelpSwayAmp: 0.28,
+  kelpSwaySpeed: 1.45,
+
+  // Rising Bioluminescent Plankton & Bubble Motes
+  bubbleMoteCount: 240,
+  bubbleRiseSpeed: 0.58,
+  bubbleSwayAmp: 0.42,
+
+  // 8 Destructible Luminous Pearl Urns
+  urnCount: 8,
+  urnHealAmount: 8,
+  urnHp: 1,
+  urnRowX: 7.25,
+  urnZPositions: Object.freeze([14.2, 4.6, -5.0, -13.4] as const),
+  urnHitRadius: 0.58,
+
+  // Coral-Encrusted Tidal Astral Portal Dais
+  daisZ: -20.6,
+  daisRadius: 5.4,
+  daisTierHeights: Object.freeze([0.1, 0.18] as const),
+  daisTierRadiusStep: 1.05,
+  portalZ: -22.3,
+  portalCenterY: 3.35,
+  portalRingRadius: 2.7,
+  portalTubeRadius: 0.3,
+  portalRuneSegmentCount: 12,
+  portalPylonOffsetX: 3.45,
+  portalPylonCollisionRadius: 0.75,
+  portalInteractionRadius: 4.0,
+  portalSealPulseSpeed: 2.0,
+  portalVortexSwirlSpeed: 1.7,
+  portalVortexArms: 6,
+  portalIgniteLerp: 4.0,
+  portalSpinSpeed: 0.38,
+
+  // Wave Escalation & Portal Flow
+  waveEscalationDelay: 1.5,
+  portalWarpDuration: 1.1,
+  portalIgniteDuration: 0.9,
+
+  // Underwater Atlantean Lighting
+  lighting: Object.freeze({
+    hemiIntensity: 1.25,
+    keyIntensity: 2.05,
+    rimIntensity: 1.35,
+    fogDensity: 0.0175,
+    shadowExtent: 28,
+    portalLightSealed: 1.8,
+    portalLightIgnited: 9.2,
+    portalLightDistance: 15.0,
+    portalLightDecay: 1.6,
+    brazierLightIntensity: 5.2,
+    brazierLightDistance: 10.0,
+    brazierLightDecay: 1.7,
+  } as const),
+
+  WAVES: Object.freeze([
+    Object.freeze({
+      servants: Object.freeze([
+        Object.freeze({ archetype: SUNKEN_SERVANT_ARCHETYPES.TIDEGUARD_HOPLITE, count: 2 }),
+        Object.freeze({ archetype: SUNKEN_SERVANT_ARCHETYPES.ABYSSAL_SIREN_WEAVER, count: 2 }),
+      ]),
+    }),
+    Object.freeze({
+      servants: Object.freeze([
+        Object.freeze({ archetype: SUNKEN_SERVANT_ARCHETYPES.CORAL_BASTION, count: 1 }),
+        Object.freeze({ archetype: SUNKEN_SERVANT_ARCHETYPES.RAZORFIN_MANTA, count: 2 }),
+        Object.freeze({ archetype: SUNKEN_SERVANT_ARCHETYPES.ABYSSAL_SIREN_WEAVER, count: 1 }),
+      ]),
+    }),
+  ] as readonly SunkenChamberWaveRecipe[]),
+} as const);
+
+export const SUNKEN_SERVANT_CONFIG = Object.freeze({
+  // Bronze-shielded Atlantean spearman: frontal phalanx shield + thrust telegraph
+  TIDEGUARD_HOPLITE: Object.freeze({
+    displayName: 'Tideguard Hoplite',
+    maxHp: 150,
+    moveSpeed: 3.3,
+    turnSpeed: 5.4,
+    damage: 17,
+    attackCooldown: 2.15,
+    attackTelegraph: 0.64,
+    attackRecovery: 0.55,
+    attackRange: 2.6,
+    preferredRange: 1.9,
+    aggroRadius: 30,
+    hitRadius: 0.74,
+    hitHeight: 2.25,
+    spawnDuration: 1.1,
+    scale: 1.0,
+    shieldBlockArcRad: Math.PI * 0.58,
+    shieldBlockDamageMultiplier: 0.15,
+    guardBreakHits: 4,
+    guardBreakDuration: 2.5,
+    guardBrokenDamageMultiplier: 1.5,
+  } as const),
+
+  // Floating oceanic caster: launches bioluminescent pearl-bubble volleys
+  ABYSSAL_SIREN_WEAVER: Object.freeze({
+    displayName: 'Abyssal Siren Weaver',
+    maxHp: 75,
+    moveSpeed: 3.1,
+    turnSpeed: 7.2,
+    damage: 11,
+    attackCooldown: 2.45,
+    attackTelegraph: 0.68,
+    attackRecovery: 0.5,
+    attackRange: 15.5,
+    preferredRange: 10.5,
+    aggroRadius: 30,
+    hitRadius: 0.56,
+    hitHeight: 1.98,
+    spawnDuration: 1.0,
+    scale: 0.96,
+    boltSpeed: 12.8,
+    boltRadius: 0.44,
+    boltLife: 2.8,
+    boltSpread: 0.24,
+    boltsPerVolley: 3,
+    boltHeight: 1.32,
+  } as const),
+
+  // Agile swimming ray-beast: weaves laterally before rapid hydro-slash swoop
+  RAZORFIN_MANTA: Object.freeze({
+    displayName: 'Razorfin Manta',
+    maxHp: 62,
+    moveSpeed: 6.6,
+    turnSpeed: 9.2,
+    damage: 13,
+    attackCooldown: 1.65,
+    attackTelegraph: 0.44,
+    attackRecovery: 0.58,
+    attackRange: 5.6,
+    preferredRange: 4.5,
+    aggroRadius: 30,
+    hitRadius: 0.65,
+    hitHeight: 1.15,
+    spawnDuration: 0.85,
+    scale: 1.04,
+    lungeSpeed: 15.8,
+    lungeDuration: 0.34,
+    circleAngularSpeed: 1.55,
+  } as const),
+
+  // Heavy coral-plated colossus: triggers pressurized hydro-geyser slams
+  CORAL_BASTION: Object.freeze({
+    displayName: 'Coral Bastion',
+    maxHp: 340,
+    moveSpeed: 2.35,
+    turnSpeed: 3.6,
+    damage: 25,
+    attackCooldown: 3.5,
+    attackTelegraph: 1.15,
+    attackRecovery: 0.92,
+    attackRange: 4.4,
+    preferredRange: 3.1,
+    aggroRadius: 30,
+    hitRadius: 1.08,
+    hitHeight: 2.95,
+    spawnDuration: 1.45,
+    scale: 1.36,
+    geyserRadius: 4.7,
+    armorDamageMultiplier: 0.7,
+    guardBreakDuration: 3.6,
+    guardBrokenDamageMultiplier: 1.5,
+    slamCameraShake: 0.24,
+  } as const),
+} as const);
+
+export const SERENA_CONFIG = Object.freeze({
+  id: 'serena',
+  displayName: 'SERENA',
+  title: 'Sovereign of the Sunken Sanctuary',
+  defeatedStorageKey: 'arcane_usurper_serena_defeated',
+  coreChargeStorageKey: 'arcane_usurper_serena_core_charge',
+  defaultCoreCharge: 1.0,
+
+  // Pearl Amphitheater Circular Arena Dimensions (matching Summit arena scale)
+  arenaRadius: 18.0,
+  playerClampRadius: 15.5,
+  aqueductRingRadius: 16.5,
+  aqueductArchCount: 12,
+  aqueductPillarRadius: 0.72,
+  aqueductPillarCollisionRadius: 0.85,
+  aqueductPillarHeight: 7.4,
+  anemoneCount: 8,
+  anemoneRingRadius: 14.8,
+  brazierCount: 6,
+  brazierRingRadius: 13.8,
+  bubbleCurtainCount: 340,
+  bubbleCurtainRadius: 24.0,
+  bubbleCurtainMaxHeight: 20.0,
+  mosaicTextureSize: 1024,
+
+  // Serena Boss Core Stats & 3-Phase Thresholds
+  maxHp: 1150,
+  moveSpeed: 4.6,
+  orbitRadius: 9.0,
+  floatHeight: 0.42,
+  hitRadius: 1.12,
+  phase2HpThreshold: 0.6,
+  phase3HpThreshold: 0.25,
+  staggerHpThreshold: 0.08,
+
+  // Phase 1: Tidal Sweep (sweeping hydro-crescent waves & trident surges)
+  tidalSweep: Object.freeze({
+    subtitle: 'PHASE I • TIDAL SWEEP',
+    waveCount: 5,
+    waveArcSpread: 0.95,
+    waveSpeed: 13.5,
+    waveDamage: 16,
+    waveRadius: 1.15,
+    attackCooldown: 2.3,
+    moveSpeedMultiplier: 1.0,
+  } as const),
+
+  // Phase 2: Siren's Chorale (expanding harmonic sonar rings & pearl-bubble fans)
+  sirensChorale: Object.freeze({
+    subtitle: "PHASE II • SIREN'S CHORALE",
+    ringCount: 3,
+    ringMaxRadius: 14.5,
+    ringSpeed: 8.5,
+    ringDamage: 18,
+    orbVolleyCount: 7,
+    orbSpeed: 12.2,
+    orbDamage: 13,
+    attackCooldown: 2.05,
+    moveSpeedMultiplier: 1.24,
+  } as const),
+
+  // Phase 3: Abyssal Undertow (inward vortex pull + pressurized geyser eruptions & spiral curtains)
+  abyssalUndertow: Object.freeze({
+    subtitle: 'PHASE III • ABYSSAL UNDERTOW',
+    undertowPullSpeed: 4.2,
+    undertowDuration: 3.4,
+    geyserCount: 5,
+    geyserTelegraphSec: 0.92,
+    geyserRadius: 2.45,
+    geyserDamage: 22,
+    curtainArms: 6,
+    curtainBulletSpeed: 8.6,
+    attackCooldown: 1.85,
+    moveSpeedMultiplier: 1.46,
+  } as const),
+
+  // Pearl Amphitheater Underwater Lighting
+  lighting: Object.freeze({
+    hemiIntensity: 1.35,
+    keyIntensity: 2.15,
+    rimIntensity: 1.3,
+    fogDensity: 0.0145,
+    shadowExtent: 24,
+    brazierLightIntensity: 5.5,
+    brazierLightDistance: 12.5,
+    brazierLightDecay: 1.7,
+    anemoneLightIntensity: 2.8,
+    anemoneLightDistance: 8.0,
+  } as const),
+} as const);
+
+// ============================================================================
 // CAMERA & RETICLE CONFIGURATION
 // ============================================================================
 
@@ -1558,7 +1918,41 @@ export const AUDIO_CONFIG = Object.freeze({
     VICTORY: 0.0001,
     DEFEAT: 0.05,
     CHAMBER: 0.03,
+    SUNKEN_CHAMBER: 0.026,
+    SUNKEN_BOSS: 0.042,
   } as const),
+
+  // Realm II — Sunken Sanctuary Music & Oceanic SFX Tables
+  sunkenChamberTempo: 96,
+  sunkenHarpArp: Object.freeze([
+    329.63, 392.0, 493.88, 587.33, 659.25, 587.33, 493.88, 392.0,
+    293.66, 369.99, 440.0, 587.33, 659.25, 587.33, 440.0, 369.99,
+  ] as const),
+  sunkenGlassBellNotes: Object.freeze([
+    987.77, 1174.66, 1318.51, 880.0,
+  ] as const),
+  sunkenHarpGain: 0.068,
+  sunkenHarpDuration: 0.62,
+  sunkenGlassBellGain: 0.045,
+  sunkenGlassBellDuration: 1.35,
+
+  sunkenBossTempo: 124,
+  sunkenBossSwellChords: Object.freeze([
+    164.81, 146.83, 130.81, 123.47,
+  ] as const),
+  sunkenBossMelody: Object.freeze([
+    659.25, 783.99, 987.77, 880.0, 783.99, 659.25, 587.33, 739.99,
+  ] as const),
+  sunkenBossSwellGain: 0.13,
+  sunkenBossSwellDuration: 1.15,
+  sunkenBossPercGain: 0.24,
+  sunkenBossMelodyGain: 0.082,
+
+  // Realm II Oceanic SFX Tables
+  bubblePopFreqs: Object.freeze([520, 880, 1320] as const),
+  coralShatterGrainCount: 6,
+  coralShatterBaseFreq: 1150,
+  coralShatterFreqSpread: 1850,
 
   // Obsidian Spire Sanctum ('LOBBY') Music Box & Warm Cello Pad Sequencer
   lobbyTempo: 76,

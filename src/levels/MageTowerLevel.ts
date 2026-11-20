@@ -123,11 +123,14 @@ export class MageTowerLevel {
     THREE.PointsMaterial
   > | null = null;
 
-  // Realm II & III Ward Barriers
-  private realm2WardGroup: THREE.Group | null = null;
-  private realm2WardMat: THREE.MeshBasicMaterial | null = null;
-  private realm2RippleTimer = 0;
+  // Realm II Active Bioluminescent Teal-and-Gold Vortex & Rising Bubbles
+  private realm2VortexMat: THREE.ShaderMaterial | null = null;
+  private realm2BubbleMotes: THREE.Points<
+    THREE.BufferGeometry,
+    THREE.PointsMaterial
+  > | null = null;
 
+  // Realm III Ward Barrier
   private realm3WardGroup: THREE.Group | null = null;
   private realm3WardMat: THREE.MeshBasicMaterial | null = null;
   private realm3RippleTimer = 0;
@@ -1325,7 +1328,7 @@ export class MageTowerLevel {
     this.root.add(r1Group);
 
     // -----------------------------------------------------------------------
-    // 2. Left — Realm II: The Sunken Sanctuary (Coral Arch & Teal Ward Chains)
+    // 2. Left — Realm II: The Sunken Sanctuary (Active Bioluminescent Teal-and-Gold Vortex)
     // -----------------------------------------------------------------------
     const r2Group = new THREE.Group();
     r2Group.position.set(
@@ -1336,29 +1339,32 @@ export class MageTowerLevel {
     r2Group.lookAt(0, 0, 0);
 
     const seaStoneMat = this.trackMat(
-      ToonAssets.createToonMaterial(PALETTE.glacialNavy, {
-        emissive: PALETTE.sunkenTeal,
-        emissiveIntensity: 0.16,
+      ToonAssets.createToonMaterial(PALETTE.seaStoneMid, {
+        emissive: PALETTE.biolumCyan,
+        emissiveIntensity: 0.22,
       }),
     );
     const tealCrystalMat = this.trackMat(
-      ToonAssets.createToonMaterial(PALETTE.sunkenTeal, {
-        emissive: PALETTE.sunkenTeal,
-        emissiveIntensity: 0.45,
+      ToonAssets.createToonMaterial(PALETTE.biolumCyan, {
+        emissive: PALETTE.atlanteanGold,
+        emissiveIntensity: 0.42,
       }),
     );
-    const tealRuneMat = this.trackMat(
-      new THREE.MeshBasicMaterial({ color: PALETTE.sunkenTeal }),
+    const coralBranchMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.coralRose, {
+        emissive: PALETTE.coralRose,
+        emissiveIntensity: 0.3,
+      }),
     );
     this.attachGroundedPortalPlinthAndPillars(
       r2Group,
-      PALETTE.sunkenTeal,
+      PALETTE.biolumCyan,
       tealCrystalMat,
       true,
     );
 
     const { group: r2Arch } = ToonAssets.createOutlinedMesh(
-      this.trackGeo(new THREE.TorusGeometry(ringR, tubeR, 8, 24)),
+      this.trackGeo(new THREE.TorusGeometry(ringR, tubeR, 8, 28)),
       seaStoneMat,
       1.05,
       true,
@@ -1366,14 +1372,17 @@ export class MageTowerLevel {
     r2Arch.position.y = centerY;
     r2Group.add(r2Arch);
 
-    // Sculpted Coral Branches & Bioluminescent Nodes
+    // Sculpted Coral Branches crowning the unsealed Sunken Sanctuary arch
     const coralBranchGeo = this.trackGeo(
       new THREE.CylinderGeometry(0.06, 0.14, 0.78, 6),
     );
     for (let i = -2; i <= 2; i++) {
       if (i === 0) continue;
       const ang = i * 0.55;
-      const coral = new THREE.Mesh(coralBranchGeo, seaStoneMat);
+      const coral = new THREE.Mesh(
+        coralBranchGeo,
+        Math.abs(i) === 1 ? coralBranchMat : seaStoneMat,
+      );
       coral.position.set(
         Math.sin(ang) * (ringR + 0.22),
         centerY + Math.cos(ang) * (ringR + 0.22),
@@ -1383,33 +1392,63 @@ export class MageTowerLevel {
       r2Group.add(coral);
     }
 
-    this.realm2WardGroup = new THREE.Group();
-    this.realm2WardGroup.position.set(0, centerY, 0.04);
-    this.realm2WardMat = this.trackMat(
-      new THREE.MeshBasicMaterial({
-        color: PALETTE.sunkenTeal,
+    // Active swirling bioluminescent teal-and-gold GLSL vortex
+    this.realm2VortexMat = this.trackMat(
+      new THREE.ShaderMaterial({
+        vertexShader: REALM1_VORTEX_VERTEX_SHADER,
+        fragmentShader: REALM1_VORTEX_FRAGMENT_SHADER,
+        uniforms: {
+          uTime: { value: 0 },
+          uColorCyan: { value: new THREE.Color(PALETTE.biolumCyan) },
+          uColorViolet: { value: new THREE.Color(PALETTE.atlanteanGold) },
+          uColorCore: { value: new THREE.Color(PALETTE.pearlWhite) },
+          uColorDeep: { value: new THREE.Color(PALETTE.abyssalTeal) },
+        },
         transparent: true,
-        opacity: 0.34,
         side: THREE.DoubleSide,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
     );
-    const r2Seal = new THREE.Mesh(
-      this.trackGeo(new THREE.CircleGeometry(ringR - 0.16, 24)),
-      this.realm2WardMat,
+    const r2VortexMesh = new THREE.Mesh(
+      this.trackGeo(new THREE.CircleGeometry(ringR - 0.14, 36)),
+      this.realm2VortexMat,
     );
-    this.realm2WardGroup.add(r2Seal);
+    r2VortexMesh.position.set(0, centerY, 0.04);
+    r2Group.add(r2VortexMesh);
 
-    // Crossed Ward Chains across Sunken Sanctuary Gate
-    const chainGeo = this.trackGeo(new THREE.BoxGeometry(ringR * 1.85, 0.08, 0.06));
-    const chain1 = new THREE.Mesh(chainGeo, tealRuneMat);
-    chain1.rotation.z = 0.52;
-    const chain2 = new THREE.Mesh(chainGeo, tealRuneMat);
-    chain2.rotation.z = -0.52;
-    this.realm2WardGroup.add(chain1, chain2);
+    const r2Light = new THREE.PointLight(
+      PALETTE.biolumCyan,
+      LOBBY_CONFIG.lighting.portalLightIntensity,
+      LOBBY_CONFIG.lighting.portalLightDistance,
+      1.7,
+    );
+    r2Light.position.set(0, centerY, 1.1);
+    r2Group.add(r2Light);
 
-    r2Group.add(this.realm2WardGroup);
+    // Rising bioluminescent bubble motes framing the unsealed Realm II alcove
+    const bubbleCount = LOBBY_CONFIG.realm1SnowMoteCount;
+    const bubblePos = new Float32Array(bubbleCount * 3);
+    for (let i = 0; i < bubbleCount; i++) {
+      bubblePos[i * 3 + 0] = (Math.random() - 0.5) * 3.4;
+      bubblePos[i * 3 + 1] = 0.2 + Math.random() * 4.4;
+      bubblePos[i * 3 + 2] = 0.2 + Math.random() * 1.4;
+    }
+    const bubbleGeo = this.trackGeo(new THREE.BufferGeometry());
+    bubbleGeo.setAttribute('position', new THREE.BufferAttribute(bubblePos, 3));
+    const bubbleMat = this.trackMat(
+      new THREE.PointsMaterial({
+        map: ToonAssets.getSnowTexture(),
+        color: PALETTE.biolumCyan,
+        size: 0.2,
+        transparent: true,
+        opacity: 0.82,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.realm2BubbleMotes = new THREE.Points(bubbleGeo, bubbleMat);
+    r2Group.add(this.realm2BubbleMotes);
     this.root.add(r2Group);
 
     // -----------------------------------------------------------------------
@@ -2530,12 +2569,10 @@ export class MageTowerLevel {
   }
 
   /**
-   * Triggers a glowing ward ripple on sealed Realm II (Sunken Sanctuary) or Realm III (Harmonic Citadel).
+   * Triggers a glowing ward ripple on sealed Realm III (Harmonic Citadel).
    */
-  public triggerWardRipple(realmIndex: 2 | 3 = 2): void {
-    if (realmIndex === 2) {
-      this.realm2RippleTimer = 0.65;
-    } else {
+  public triggerWardRipple(realmIndex: 2 | 3 = 3): void {
+    if (realmIndex === 3) {
       this.realm3RippleTimer = 0.65;
     }
   }
@@ -2627,18 +2664,20 @@ export class MageTowerLevel {
       posAttr.needsUpdate = true;
     }
 
-    // 7. Decay Realm II & III sealed ward ripple reactions
-    if (this.realm2WardMat && this.realm2WardGroup) {
-      if (this.realm2RippleTimer > 0) {
-        this.realm2RippleTimer = Math.max(0, this.realm2RippleTimer - dt);
-        const r = this.realm2RippleTimer / 0.65;
-        this.realm2WardMat.opacity = 0.34 + r * 0.52;
-        const s = 1 + Math.sin(time * 28) * 0.04 * r;
-        this.realm2WardGroup.scale.set(s, s, 1);
-      } else {
-        this.realm2WardMat.opacity = 0.28 + 0.08 * Math.sin(time * 2.2);
-        this.realm2WardGroup.scale.set(1, 1, 1);
+    // 7. Update Realm II active teal-gold vortex & rising bubbles + Realm III sealed ward ripple
+    if (this.realm2VortexMat) {
+      this.realm2VortexMat.uniforms.uTime!.value = time * 1.05;
+    }
+    if (this.realm2BubbleMotes) {
+      const posAttr = this.realm2BubbleMotes.geometry.getAttribute(
+        'position',
+      ) as THREE.BufferAttribute;
+      for (let i = 0; i < posAttr.count; i++) {
+        let y = posAttr.getY(i) + dt * 0.72;
+        if (y > 4.5) y = 0.2;
+        posAttr.setY(i, y);
       }
+      posAttr.needsUpdate = true;
     }
 
     if (this.realm3WardMat && this.realm3WardGroup) {

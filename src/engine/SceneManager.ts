@@ -7,12 +7,16 @@ import {
   ENVIRONMENT_IDS,
   LOBBY_CONFIG,
   PALETTE,
+  SERENA_CONFIG,
   SIPHON_GALLERY_CONFIG,
+  SUNKEN_CHAMBER_CONFIG,
   type BossPhase,
   type EnvironmentId,
 } from '../config/gameConfig';
 import { IcePalaceLevel } from '../levels/IcePalaceLevel';
 import { MageTowerLevel } from '../levels/MageTowerLevel';
+import { PearlAmphitheaterLevel } from '../levels/PearlAmphitheaterLevel';
+import { SunkenAqueductLevel } from '../levels/SunkenAqueductLevel';
 import { ToonAssets } from './ToonAssets';
 
 export { ToonAssets };
@@ -282,11 +286,19 @@ export class SceneManager implements IArenaGeometry {
   public readonly arenaGroup: THREE.Group;
   public readonly icePalaceLevel: IcePalaceLevel;
   public readonly mageTowerLevel: MageTowerLevel;
+  public readonly sunkenAqueductLevel: SunkenAqueductLevel;
+  public readonly pearlAmphitheaterLevel: PearlAmphitheaterLevel;
 
   private readonly _summitBounds: CircularArenaBounds = Object.freeze({
     kind: ARENA_BOUNDS_KINDS.CIRCULAR,
     radius: ARENA_CONFIG.radius,
     clampRadius: ARENA_CONFIG.playerClampRadius,
+  });
+
+  private readonly _sunkenSummitBounds: CircularArenaBounds = Object.freeze({
+    kind: ARENA_BOUNDS_KINDS.CIRCULAR,
+    radius: SERENA_CONFIG.arenaRadius,
+    clampRadius: SERENA_CONFIG.playerClampRadius,
   });
 
   private readonly _lobbyBounds: CircularArenaBounds = Object.freeze({
@@ -319,6 +331,23 @@ export class SceneManager implements IArenaGeometry {
     maxZ: CHAMBER_CONFIG.length * 0.5 - CHAMBER_CONFIG.movementWallPadding,
   });
 
+  private readonly _sunkenChamberBounds: RectangularArenaBounds = Object.freeze({
+    kind: ARENA_BOUNDS_KINDS.RECTANGULAR,
+    halfWidth: SUNKEN_CHAMBER_CONFIG.width * 0.5,
+    halfLength: SUNKEN_CHAMBER_CONFIG.length * 0.5,
+    minX: -(
+      SUNKEN_CHAMBER_CONFIG.width * 0.5 -
+      SUNKEN_CHAMBER_CONFIG.movementWallPadding
+    ),
+    maxX:
+      SUNKEN_CHAMBER_CONFIG.width * 0.5 -
+      SUNKEN_CHAMBER_CONFIG.movementWallPadding,
+    minZ: SUNKEN_CHAMBER_CONFIG.portalZ + 1.0,
+    maxZ:
+      SUNKEN_CHAMBER_CONFIG.length * 0.5 -
+      SUNKEN_CHAMBER_CONFIG.movementWallPadding,
+  });
+
   private _activeEnvironment: EnvironmentId = ENVIRONMENT_IDS.SUMMIT;
   private readonly _pillarColliders: PillarCollider[] = [];
   private readonly _pillarMeshes: THREE.Object3D[] = [];
@@ -346,6 +375,12 @@ export class SceneManager implements IArenaGeometry {
     if (this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER) {
       return this._chamberBounds;
     }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SUNKEN_CHAMBER) {
+      return this._sunkenChamberBounds;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SUNKEN_SUMMIT) {
+      return this._sunkenSummitBounds;
+    }
     if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
       return this.isLobbyGalleryUnlocked
         ? this._compositeLobbyBounds
@@ -372,6 +407,12 @@ export class SceneManager implements IArenaGeometry {
     if (this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER) {
       return this.icePalaceLevel.cameraColliders;
     }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SUNKEN_CHAMBER) {
+      return this.sunkenAqueductLevel.cameraColliders;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SUNKEN_SUMMIT) {
+      return this.pearlAmphitheaterLevel.cameraColliders;
+    }
     if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
       return this.mageTowerLevel.cameraColliders;
     }
@@ -382,6 +423,12 @@ export class SceneManager implements IArenaGeometry {
     if (this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER) {
       return this.icePalaceLevel.pillarColliders;
     }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SUNKEN_CHAMBER) {
+      return this.sunkenAqueductLevel.pillarColliders;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SUNKEN_SUMMIT) {
+      return this.pearlAmphitheaterLevel.pillarColliders;
+    }
     if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
       return this.mageTowerLevel.pillarColliders;
     }
@@ -391,6 +438,12 @@ export class SceneManager implements IArenaGeometry {
   public get pillarMeshes(): readonly THREE.Object3D[] {
     if (this._activeEnvironment === ENVIRONMENT_IDS.CHAMBER) {
       return this.icePalaceLevel.pillarMeshes;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SUNKEN_CHAMBER) {
+      return this.sunkenAqueductLevel.pillarMeshes;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SUNKEN_SUMMIT) {
+      return this.pearlAmphitheaterLevel.pillarMeshes;
     }
     if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
       return this.mageTowerLevel.pillarMeshes;
@@ -443,6 +496,15 @@ export class SceneManager implements IArenaGeometry {
     this.mageTowerLevel = new MageTowerLevel();
     this.mageTowerLevel.root.visible = false;
     this.scene.add(this.mageTowerLevel.root);
+
+    // Build Realm II: Sunken Aqueduct & Pearl Amphitheater environment groups
+    this.sunkenAqueductLevel = new SunkenAqueductLevel();
+    this.sunkenAqueductLevel.root.visible = false;
+    this.scene.add(this.sunkenAqueductLevel.root);
+
+    this.pearlAmphitheaterLevel = new PearlAmphitheaterLevel();
+    this.pearlAmphitheaterLevel.root.visible = false;
+    this.scene.add(this.pearlAmphitheaterLevel.root);
   }
 
   /**
@@ -967,10 +1029,14 @@ export class SceneManager implements IArenaGeometry {
     const isChamber = env === ENVIRONMENT_IDS.CHAMBER;
     const isLobby = env === ENVIRONMENT_IDS.LOBBY;
     const isSummit = env === ENVIRONMENT_IDS.SUMMIT;
+    const isSunkenChamber = env === ENVIRONMENT_IDS.SUNKEN_CHAMBER;
+    const isSunkenSummit = env === ENVIRONMENT_IDS.SUNKEN_SUMMIT;
 
     this.arenaGroup.visible = isSummit;
     this.icePalaceLevel.root.visible = isChamber;
     this.mageTowerLevel.root.visible = isLobby;
+    this.sunkenAqueductLevel.root.visible = isSunkenChamber;
+    this.pearlAmphitheaterLevel.root.visible = isSunkenSummit;
 
     if (isLobby) {
       const LL = LOBBY_CONFIG.lighting;
@@ -1000,6 +1066,64 @@ export class SceneManager implements IArenaGeometry {
       if (this.frostRim) {
         this.frostRim.color.setHex(PALETTE.frostRunes);
         this.frostRim.intensity = LL.rimIntensity;
+      }
+    } else if (isSunkenChamber) {
+      const SL = SUNKEN_CHAMBER_CONFIG.lighting;
+      this.scene.background = new THREE.Color(PALETTE.abyssalTeal);
+      this.scene.fog = new THREE.FogExp2(PALETTE.abyssalTeal, SL.fogDensity);
+
+      if (this.hemiLight) {
+        this.hemiLight.color.setHex(PALETTE.biolumCyan);
+        this.hemiLight.groundColor.setHex(PALETTE.abyssalTeal);
+        this.hemiLight.intensity = SL.hemiIntensity;
+      }
+      if (this.moonLight) {
+        this.moonLight.color.setHex(PALETTE.pearlWhite);
+        this.moonLight.intensity = SL.keyIntensity;
+        this.moonLight.position.set(8, 22, 10);
+        const d = SL.shadowExtent;
+        this.moonLight.shadow.camera.left = -d;
+        this.moonLight.shadow.camera.right = d;
+        this.moonLight.shadow.camera.top = d;
+        this.moonLight.shadow.camera.bottom = -d;
+        this.moonLight.shadow.camera.updateProjectionMatrix();
+      }
+      if (this.amethystRim) {
+        this.amethystRim.color.setHex(PALETTE.atlanteanGold);
+        this.amethystRim.intensity = SL.rimIntensity;
+      }
+      if (this.frostRim) {
+        this.frostRim.color.setHex(PALETTE.biolumCyan);
+        this.frostRim.intensity = SL.rimIntensity;
+      }
+    } else if (isSunkenSummit) {
+      const AL = SERENA_CONFIG.lighting;
+      this.scene.background = new THREE.Color(PALETTE.abyssalTeal);
+      this.scene.fog = new THREE.FogExp2(PALETTE.abyssalTeal, AL.fogDensity);
+
+      if (this.hemiLight) {
+        this.hemiLight.color.setHex(PALETTE.biolumCyan);
+        this.hemiLight.groundColor.setHex(PALETTE.seaStoneDark);
+        this.hemiLight.intensity = AL.hemiIntensity;
+      }
+      if (this.moonLight) {
+        this.moonLight.color.setHex(PALETTE.pearlWhite);
+        this.moonLight.intensity = AL.keyIntensity;
+        this.moonLight.position.set(12, 28, 12);
+        const d = AL.shadowExtent;
+        this.moonLight.shadow.camera.left = -d;
+        this.moonLight.shadow.camera.right = d;
+        this.moonLight.shadow.camera.top = d;
+        this.moonLight.shadow.camera.bottom = -d;
+        this.moonLight.shadow.camera.updateProjectionMatrix();
+      }
+      if (this.amethystRim) {
+        this.amethystRim.color.setHex(PALETTE.coralRose);
+        this.amethystRim.intensity = AL.rimIntensity;
+      }
+      if (this.frostRim) {
+        this.frostRim.color.setHex(PALETTE.atlanteanGold);
+        this.frostRim.intensity = AL.rimIntensity;
       }
     } else if (isChamber) {
       const CL = CHAMBER_CONFIG.lighting;
@@ -1126,6 +1250,14 @@ export class SceneManager implements IArenaGeometry {
       this.icePalaceLevel.update(dt, elapsed);
       return;
     }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SUNKEN_CHAMBER) {
+      this.sunkenAqueductLevel.update(dt, elapsed);
+      return;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SUNKEN_SUMMIT) {
+      this.pearlAmphitheaterLevel.update(dt, elapsed);
+      return;
+    }
 
     this.auroraIntensityScale +=
       (this.targetAuroraScale - this.auroraIntensityScale) *
@@ -1215,6 +1347,8 @@ export class SceneManager implements IArenaGeometry {
   public dispose(): void {
     this.mageTowerLevel.dispose();
     this.icePalaceLevel.dispose();
+    this.sunkenAqueductLevel.dispose();
+    this.pearlAmphitheaterLevel.dispose();
     this.renderer.dispose();
     if (this.renderer.domElement.parentElement) {
       this.renderer.domElement.parentElement.removeChild(

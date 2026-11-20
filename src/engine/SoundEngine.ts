@@ -45,6 +45,10 @@ export interface IAudioTrigger {
   playHarmonicWardPulse(): void;
   playDummyCrystalHit(): void;
   playTrophyToggle(): void;
+  playTidalWave(): void;
+  playBubblePop(): void;
+  playGeyserErupt(): void;
+  playCoralShatter(): void;
   dispose(): void;
 }
 
@@ -318,6 +322,12 @@ export class SoundEngine implements IAudioTrigger {
     if (this._mode === AUDIO_MODES.CHAMBER) {
       return (60 / AUDIO_CONFIG.chamberTempo) * 0.25;
     }
+    if (this._mode === AUDIO_MODES.SUNKEN_CHAMBER) {
+      return (60 / AUDIO_CONFIG.sunkenChamberTempo) * 0.25;
+    }
+    if (this._mode === AUDIO_MODES.SUNKEN_BOSS) {
+      return (60 / AUDIO_CONFIG.sunkenBossTempo) * 0.5;
+    }
     if (this._mode === AUDIO_MODES.LOBBY) {
       return (60 / AUDIO_CONFIG.lobbyTempo) * 0.5;
     }
@@ -522,7 +532,243 @@ export class SoundEngine implements IAudioTrigger {
           );
         }
       }
+    } else if (this._mode === AUDIO_MODES.SUNKEN_CHAMBER) {
+      // Flowing Atlantean harp arpeggios + resonant glass-bell pulse (routed through musicGain)
+      const harpNotes = AUDIO_CONFIG.sunkenHarpArp;
+      const harpFreq = harpNotes[step % harpNotes.length];
+      if (harpFreq !== undefined) {
+        const accent = step % 4 === 0 ? 1.2 : 0.92;
+        this.synthAtlanteanHarp(
+          time,
+          harpFreq,
+          AUDIO_CONFIG.sunkenHarpGain * accent,
+          AUDIO_CONFIG.sunkenHarpDuration,
+        );
+      }
+
+      if (step % 8 === 0 || step % 8 === 5) {
+        const bells = AUDIO_CONFIG.sunkenGlassBellNotes;
+        const bellFreq = bells[Math.floor(step / 8) % bells.length];
+        if (bellFreq !== undefined) {
+          this.synthGlassBell(
+            time,
+            bellFreq,
+            AUDIO_CONFIG.sunkenGlassBellGain,
+            AUDIO_CONFIG.sunkenGlassBellDuration,
+          );
+        }
+      }
+
+      if (step % 16 === 0) {
+        const bassRoot = AUDIO_CONFIG.sunkenBossSwellChords[
+          Math.floor(step / 16) % AUDIO_CONFIG.sunkenBossSwellChords.length
+        ];
+        if (bassRoot !== undefined) {
+          this.synthOceanicSwell(time, bassRoot * 0.5, 0.085, 1.8);
+        }
+      }
+    } else if (this._mode === AUDIO_MODES.SUNKEN_BOSS) {
+      // Dramatic orchestral synth swells + sub-bass oceanic percussion (routed through musicGain)
+      if (step % 4 === 0) {
+        const chords = AUDIO_CONFIG.sunkenBossSwellChords;
+        const root = chords[Math.floor(step / 4) % chords.length];
+        if (root !== undefined) {
+          this.synthOceanicSwell(
+            time,
+            root,
+            AUDIO_CONFIG.sunkenBossSwellGain,
+            AUDIO_CONFIG.sunkenBossSwellDuration,
+          );
+          this.synthOceanicSwell(
+            time,
+            root * 1.5,
+            AUDIO_CONFIG.sunkenBossSwellGain * 0.55,
+            AUDIO_CONFIG.sunkenBossSwellDuration,
+          );
+        }
+      }
+
+      if (step % 2 === 0) {
+        this.synthOceanicPercussion(
+          time,
+          step % 4 === 0
+            ? AUDIO_CONFIG.sunkenBossPercGain
+            : AUDIO_CONFIG.sunkenBossPercGain * 0.65,
+          step % 4 === 0 ? 74 : 58,
+        );
+      }
+
+      const mel = AUDIO_CONFIG.sunkenBossMelody;
+      const melFreq = mel[step % mel.length];
+      if (melFreq !== undefined) {
+        this.synthGlassBell(
+          time,
+          melFreq,
+          AUDIO_CONFIG.sunkenBossMelodyGain,
+          0.52,
+        );
+      }
     }
+  }
+
+  /**
+   * Flowing plucked harp voice routed through musicGain for the Sunken Aqueduct.
+   */
+  private synthAtlanteanHarp(
+    time: number,
+    freq: number,
+    peakGain: number,
+    duration: number,
+  ): void {
+    if (!this.ctx || !this.musicGain) return;
+    const tri = this.ctx.createOscillator();
+    const sine = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const env = this.ctx.createGain();
+
+    tri.type = 'triangle';
+    tri.frequency.setValueAtTime(freq, time);
+    sine.type = 'sine';
+    sine.frequency.setValueAtTime(freq * 2.0, time);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(2800, time);
+    filter.frequency.exponentialRampToValueAtTime(520, time + duration);
+
+    env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, time);
+    env.gain.linearRampToValueAtTime(peakGain, time + 0.008);
+    env.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      time + duration,
+    );
+
+    const overtoneGain = this.ctx.createGain();
+    overtoneGain.gain.value = 0.28;
+
+    tri.connect(filter);
+    sine.connect(overtoneGain);
+    overtoneGain.connect(filter);
+    filter.connect(env);
+    env.connect(this.musicGain);
+
+    tri.start(time);
+    sine.start(time);
+    tri.stop(time + duration + 0.03);
+    sine.stop(time + duration + 0.03);
+  }
+
+  /**
+   * Resonant aquatic glass-bell voice routed through musicGain.
+   */
+  private synthGlassBell(
+    time: number,
+    freq: number,
+    peakGain: number,
+    duration: number,
+  ): void {
+    if (!this.ctx || !this.musicGain) return;
+    const osc1 = this.ctx.createOscillator();
+    const osc2 = this.ctx.createOscillator();
+    const env = this.ctx.createGain();
+
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(freq, time);
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(freq * 2.756, time);
+
+    const harmonicGain = this.ctx.createGain();
+    harmonicGain.gain.setValueAtTime(0.26, time);
+    harmonicGain.gain.exponentialRampToValueAtTime(0.01, time + duration * 0.45);
+
+    env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, time);
+    env.gain.linearRampToValueAtTime(peakGain, time + 0.014);
+    env.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      time + duration,
+    );
+
+    osc1.connect(env);
+    osc2.connect(harmonicGain);
+    harmonicGain.connect(env);
+    env.connect(this.musicGain);
+
+    osc1.start(time);
+    osc2.start(time);
+    osc1.stop(time + duration + 0.04);
+    osc2.stop(time + duration + 0.04);
+  }
+
+  /**
+   * Dramatic detuned orchestral synth swell routed through musicGain for Serena's boss theme.
+   */
+  private synthOceanicSwell(
+    time: number,
+    freq: number,
+    peakGain: number,
+    duration: number,
+  ): void {
+    if (!this.ctx || !this.musicGain) return;
+    const osc1 = this.ctx.createOscillator();
+    const osc2 = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const env = this.ctx.createGain();
+
+    osc1.type = 'sawtooth';
+    osc1.frequency.setValueAtTime(freq, time);
+    osc1.detune.setValueAtTime(-7, time);
+
+    osc2.type = 'sawtooth';
+    osc2.frequency.setValueAtTime(freq, time);
+    osc2.detune.setValueAtTime(7, time);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(220, time);
+    filter.frequency.exponentialRampToValueAtTime(1150, time + duration * 0.42);
+    filter.frequency.exponentialRampToValueAtTime(260, time + duration);
+    filter.Q.value = 1.6;
+
+    env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, time);
+    env.gain.linearRampToValueAtTime(peakGain, time + duration * 0.34);
+    env.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      time + duration,
+    );
+
+    osc1.connect(filter);
+    osc2.connect(filter);
+    filter.connect(env);
+    env.connect(this.musicGain);
+
+    osc1.start(time);
+    osc2.start(time);
+    osc1.stop(time + duration + 0.05);
+    osc2.stop(time + duration + 0.05);
+  }
+
+  /**
+   * Deep sub-bass oceanic war-drum percussion routed through musicGain.
+   */
+  private synthOceanicPercussion(
+    time: number,
+    peakGain: number,
+    startFreq: number,
+  ): void {
+    if (!this.ctx || !this.musicGain) return;
+    const osc = this.ctx.createOscillator();
+    const env = this.ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(startFreq, time);
+    osc.frequency.exponentialRampToValueAtTime(28, time + 0.24);
+
+    env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, time);
+    env.gain.linearRampToValueAtTime(peakGain, time + 0.01);
+    env.gain.exponentialRampToValueAtTime(AUDIO_CONFIG.minGainFloor, time + 0.3);
+
+    osc.connect(env);
+    env.connect(this.musicGain);
+    osc.start(time);
+    osc.stop(time + 0.32);
   }
 
   /**
@@ -1459,6 +1705,77 @@ export class SoundEngine implements IAudioTrigger {
         0.68,
       );
     });
+  }
+
+  // =========================================================================
+  // REALM II — SUNKEN SANCTUARY OCEANIC SOUND EFFECTS (routed through sfxGain)
+  // =========================================================================
+
+  /**
+   * Sweeping hydro-crest roar + deep rolling oceanic surge for Tidal Sweep attacks.
+   */
+  public playTidalWave(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    this.playNoiseBurst(now, 'bandpass', 260, 1450, 1.5, 0.24, 0.72);
+    this.playNoiseBurst(now + 0.14, 'lowpass', 1100, 220, 1.1, 0.2, 0.65);
+    this.playTone(now, 'sine', 120, 48, 0.22, 0.06, 0.58);
+  }
+
+  /**
+   * Crisp upward-chirping aquatic bubble pops for Siren Weaver orbs & Pearl Urns.
+   */
+  public playBubblePop(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    AUDIO_CONFIG.bubblePopFreqs.forEach((freq, i) => {
+      this.playTone(
+        now + i * 0.035,
+        'sine',
+        freq * 0.68,
+        freq * 1.45,
+        0.13 - i * 0.025,
+        0.004,
+        0.09,
+      );
+    });
+  }
+
+  /**
+   * Pressurized hydro-jet eruption + boiling spray hiss for Coral Bastion & Abyssal Undertow geysers.
+   */
+  public playGeyserErupt(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    this.playTone(now, 'sine', 96, 36, 0.34, 0.01, 0.42);
+    this.playNoiseBurst(now, 'bandpass', 380, 3400, 1.8, 0.28, 0.58);
+    this.playNoiseBurst(now + 0.08, 'highpass', 2400, 4800, 0.9, 0.14, 0.44);
+  }
+
+  /**
+   * Calcified stony-ceramic fracture crunch when shattering Luminous Pearl Urns or Coral shields.
+   */
+  public playCoralShatter(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    this.playNoiseBurst(now, 'bandpass', 2100, 680, 1.6, 0.22, 0.2);
+    this.playTone(now, 'triangle', 320, 115, 0.16, 0.004, 0.15);
+    for (let i = 0; i < AUDIO_CONFIG.coralShatterGrainCount; i++) {
+      const offset = 0.015 + i * 0.024 + Math.random() * 0.01;
+      const freq =
+        AUDIO_CONFIG.coralShatterBaseFreq +
+        Math.random() * AUDIO_CONFIG.coralShatterFreqSpread;
+      this.playTone(
+        now + offset,
+        'triangle',
+        freq,
+        freq * 0.72,
+        0.08,
+        0.003,
+        0.1,
+      );
+    }
+    this.playBubblePop();
   }
 
   /**

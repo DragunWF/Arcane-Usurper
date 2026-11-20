@@ -19,7 +19,21 @@ import {
 import type { IArenaGeometry } from '../../engine/SceneManager';
 import type { IAudioTrigger } from '../../engine/SoundEngine';
 import type { IVfxSpawner } from '../../engine/VfxFactory';
-import type { IcePalaceLevel } from '../../levels/IcePalaceLevel';
+import type {
+  FrostUrnSpawnRecord,
+  IcePalaceLevel,
+} from '../../levels/IcePalaceLevel';
+
+/**
+ * Narrow chamber-level contract (ISP & DIP) implemented by both Realm I (`IcePalaceLevel`)
+ * and Realm II (`SunkenAqueductLevel`) so `ChamberSystem` operates seamlessly across realms.
+ */
+export interface IChamberLevel {
+  readonly portalPosition: THREE.Vector3;
+  readonly urnSpawns: readonly FrostUrnSpawnRecord[];
+  resetUrns(): void;
+  setPortalCharge(ratio: number, ignited: boolean, time: number): void;
+}
 import type { ServantRigAdapter } from '../../rigs/servants/ServantBase';
 import { createServantRig } from '../../rigs/servants/ServantFactory';
 import { useGameStore } from '../../state/useGameStore';
@@ -67,7 +81,7 @@ interface SummonGlyphRecord {
 export class ChamberSystem implements ISystem {
   private readonly world: ECSWorld;
   private readonly scene: THREE.Scene;
-  private readonly icePalace: IcePalaceLevel;
+  private icePalace: IChamberLevel;
   private readonly arena: IArenaGeometry;
   private readonly audio: IAudioTrigger;
   private readonly vfx: IVfxSpawner;
@@ -95,7 +109,7 @@ export class ChamberSystem implements ISystem {
   constructor(
     world: ECSWorld,
     scene: THREE.Scene,
-    icePalace: IcePalaceLevel,
+    icePalace: IcePalaceLevel | IChamberLevel,
     arena: IArenaGeometry,
     audio: IAudioTrigger,
     vfx: IVfxSpawner,
@@ -108,6 +122,13 @@ export class ChamberSystem implements ISystem {
     this.audio = audio;
     this.vfx = vfx;
     this.callbacks = callbacks;
+  }
+
+  /**
+   * Swaps the active chamber environment target (Realm I IcePalaceLevel or Realm II SunkenAqueductLevel).
+   */
+  public setActiveLevel(level: IChamberLevel): void {
+    this.icePalace = level;
   }
 
   /**
