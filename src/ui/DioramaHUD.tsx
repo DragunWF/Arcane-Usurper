@@ -85,6 +85,13 @@ export function DioramaHUD({ controller }: DioramaHUDProps) {
               >
                 [ENTER ENCORE STAGE (NG+)]
               </button>
+              <button
+                type="button"
+                onClick={() => controller?.returnToSanctum()}
+                className="px-6 py-3 rounded-xl frost-panel border-purple-400/65 hover:border-purple-200 font-display text-xs sm:text-sm font-bold tracking-[0.18em] text-purple-100 uppercase cursor-pointer transition-all hover:scale-[1.02]"
+              >
+                [RETURN TO SANCTUM]
+              </button>
             </div>
             <div className="px-3.5 py-1 rounded-full frost-panel text-[10px] sm:text-[11px] tracking-[0.16em] uppercase text-sky-200/75">
               Drag to Orbit 360&deg; &bull; Scroll to Zoom
@@ -129,13 +136,22 @@ export function DioramaHUD({ controller }: DioramaHUDProps) {
           </div>
 
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-3 px-4">
-            <button
-              type="button"
-              onClick={() => controller?.retryStage()}
-              className="pointer-events-auto ascend-btn px-7 py-3.5 rounded-xl font-display text-xs sm:text-sm font-bold tracking-[0.2em] text-sky-50 uppercase cursor-pointer"
-            >
-              [SHATTER THE FROST / RETRY STAGE]
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-3 pointer-events-auto">
+              <button
+                type="button"
+                onClick={() => controller?.retryStage()}
+                className="ascend-btn px-7 py-3.5 rounded-xl font-display text-xs sm:text-sm font-bold tracking-[0.2em] text-sky-50 uppercase cursor-pointer"
+              >
+                [SHATTER THE FROST / RETRY STAGE]
+              </button>
+              <button
+                type="button"
+                onClick={() => controller?.returnToSanctum()}
+                className="px-6 py-3.5 rounded-xl frost-panel border-purple-400/65 hover:border-purple-200 font-display text-xs sm:text-sm font-bold tracking-[0.18em] text-purple-100 uppercase cursor-pointer transition-all hover:scale-[1.02]"
+              >
+                [RETURN TO SANCTUM]
+              </button>
+            </div>
             <div className="px-3.5 py-1 rounded-full frost-panel text-[10px] sm:text-[11px] tracking-[0.16em] uppercase text-sky-200/75">
               Drag to Orbit 360&deg; &bull; Scroll to Zoom &bull; Press [R] to
               Retry

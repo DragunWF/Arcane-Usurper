@@ -5,6 +5,7 @@ import {
   BOSS_CONFIG,
   CHAMBER_CONFIG,
   GAME_STATES,
+  LOBBY_CONFIG,
   NG_PLUS_CONFIG,
   PLAYER_CONFIG,
   SERVANT_AI_STATES,
@@ -36,6 +37,15 @@ export interface ICombatCallbacks {
   onServantGuardBreak?: (entityId: EntityId) => void;
   onServantDefeated?: (entityId: EntityId) => void;
   onUrnShattered?: (origin: THREE.Vector3, healValue: number) => void;
+  onLobbyDummyHit?: (
+    damage: number,
+    isEncore: boolean,
+    hitPoint: THREE.Vector3,
+  ) => void;
+  onLobbySealedPortalHit?: (
+    realmIndex: 2 | 3,
+    hitPoint: THREE.Vector3,
+  ) => void;
 }
 
 /**
@@ -79,7 +89,9 @@ export class CombatSystem implements ISystem {
   public update(dt: number, _elapsed: number): void {
     const state = this.callbacks.getGameState();
     const isCombatActive =
-      state === GAME_STATES.BOSS_COMBAT || state === GAME_STATES.CHAMBER_COMBAT;
+      state === GAME_STATES.LOBBY ||
+      state === GAME_STATES.BOSS_COMBAT ||
+      state === GAME_STATES.CHAMBER_COMBAT;
 
     if (isCombatActive) {
       this.processPlayerCasts(state);
@@ -272,6 +284,12 @@ export class CombatSystem implements ISystem {
           transform.position.x,
           transform.position.z,
         );
+      } else if (state === GAME_STATES.LOBBY) {
+        this.applyUmbralPulseToLobbyTargets(
+          transform.position.x,
+          transform.position.z,
+          playerCombat.encoreTier >= 1,
+        );
       }
     }
   }
@@ -340,6 +358,11 @@ export class CombatSystem implements ISystem {
         // Hit Chamber Servants & Destructible Frost Urns (CHAMBER_COMBAT)
         if (!hit && state === GAME_STATES.CHAMBER_COMBAT) {
           hit = this.resolvePlayerProjectileVsChamber(entity, toDestroy);
+        }
+
+        // Hit Sanctum Abyssal Target Crystal & Sealed Realm Portals (LOBBY)
+        if (!hit && state === GAME_STATES.LOBBY) {
+          hit = this.resolvePlayerProjectileVsLobby(entity);
         }
 
         // Perimeter Pillars
@@ -766,6 +789,123 @@ export class CombatSystem implements ISystem {
       }
     }
     clearedIds.forEach((id) => this.world.destroyEntity(id));
+  }
+
+  private resolvePlayerProjectileVsLobby(projEntity: {
+    projectile: {
+      kind: string;
+      damage: number;
+      radius: number;
+    };
+    transform: { position: { x: number; y: number; z: number } };
+  }): boolean {
+    const { projectile, transform } = projEntity;
+    const p = transform.position;
+    const isEncore = projectile.kind === 'USURPED_BEAM';
+
+    // 1. Abyssal Target Crystal in Eastern Alcove
+    const dDummy = Math.hypot(
+      p.x - LOBBY_CONFIG.dummyPos.x,
+      p.z - LOBBY_CONFIG.dummyPos.z,
+    );
+    if (
+      dDummy <= LOBBY_CONFIG.dummyRadius + projectile.radius &&
+      p.y >= 0.2 &&
+      p.y <= 2.9
+    ) {
+      this.vBurstPos.set(p.x, p.y, p.z);
+      this.callbacks.onLobbyDummyHit?.(
+        projectile.damage,
+        isEncore,
+        this.vBurstPos,
+      );
+      return true;
+    }
+
+    // 2. Sealed Realm II (Sunken Sanctuary) & Realm III (Harmonic Citadel) Portals
+    const sealedPortals: readonly {
+      readonly realm: 2 | 3;
+      readonly x: number;
+      readonly z: number;
+    }[] = [
+      {
+        realm: 2,
+        x: LOBBY_CONFIG.realm2PortalPos.x,
+        z: LOBBY_CONFIG.realm2PortalPos.z,
+      },
+      {
+        realm: 3,
+        x: LOBBY_CONFIG.realm3PortalPos.x,
+        z: LOBBY_CONFIG.realm3PortalPos.z,
+      },
+    ];
+    for (let i = 0; i < sealedPortals.length; i++) {
+      const sp = sealedPortals[i];
+      if (!sp) continue;
+      const dist = Math.hypot(p.x - sp.x, p.z - sp.z);
+      if (
+        dist <= LOBBY_CONFIG.portalRingRadius + projectile.radius &&
+        p.y >= 0.2 &&
+        p.y <= LOBBY_CONFIG.portalCenterY + LOBBY_CONFIG.portalRingRadius
+      ) {
+        this.vBurstPos.set(p.x, p.y, p.z);
+        this.callbacks.onLobbySealedPortalHit?.(sp.realm, this.vBurstPos);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private applyUmbralPulseToLobbyTargets(
+    originX: number,
+    originZ: number,
+    isEncore: boolean,
+  ): void {
+    const pulseR = PLAYER_CONFIG.umbralPulseRadius;
+
+    const dDummy = Math.hypot(
+      originX - LOBBY_CONFIG.dummyPos.x,
+      originZ - LOBBY_CONFIG.dummyPos.z,
+    );
+    if (dDummy <= pulseR + LOBBY_CONFIG.dummyRadius) {
+      this.vBurstPos.set(
+        LOBBY_CONFIG.dummyPos.x,
+        LOBBY_CONFIG.dummyCenterY,
+        LOBBY_CONFIG.dummyPos.z,
+      );
+      this.callbacks.onLobbyDummyHit?.(
+        PLAYER_CONFIG.pulseDamage,
+        isEncore,
+        this.vBurstPos,
+      );
+    }
+
+    const dR2 = Math.hypot(
+      originX - LOBBY_CONFIG.realm2PortalPos.x,
+      originZ - LOBBY_CONFIG.realm2PortalPos.z,
+    );
+    if (dR2 <= pulseR + LOBBY_CONFIG.portalRingRadius) {
+      this.vBurstPos.set(
+        LOBBY_CONFIG.realm2PortalPos.x,
+        LOBBY_CONFIG.portalCenterY,
+        LOBBY_CONFIG.realm2PortalPos.z,
+      );
+      this.callbacks.onLobbySealedPortalHit?.(2, this.vBurstPos);
+    }
+
+    const dR3 = Math.hypot(
+      originX - LOBBY_CONFIG.realm3PortalPos.x,
+      originZ - LOBBY_CONFIG.realm3PortalPos.z,
+    );
+    if (dR3 <= pulseR + LOBBY_CONFIG.portalRingRadius) {
+      this.vBurstPos.set(
+        LOBBY_CONFIG.realm3PortalPos.x,
+        LOBBY_CONFIG.portalCenterY,
+        LOBBY_CONFIG.realm3PortalPos.z,
+      );
+      this.callbacks.onLobbySealedPortalHit?.(3, this.vBurstPos);
+    }
   }
 
   private resolvePlayerProjectileVsChamber(

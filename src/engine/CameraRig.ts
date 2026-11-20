@@ -6,6 +6,7 @@ import {
   CAMERA_CONFIG,
   ENVIRONMENT_IDS,
   GAME_STATES,
+  LOBBY_CONFIG,
   PALETTE,
   type GameState,
 } from '../config/gameConfig';
@@ -61,12 +62,16 @@ export class CameraRig {
   private readonly springRaycaster = new THREE.Raycaster();
   private readonly floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
-  // Spring-arm wall/pillar collision state
+  // Spring-arm wall/pillar collision & Title-to-Lobby glide state
   private currentSpringDist: number = Math.hypot(
     CAMERA_CONFIG.followDistance,
     CAMERA_CONFIG.followHeight - CAMERA_CONFIG.combatShoulderPivotY,
   );
   private _cameraDistanceToPivot: number = CAMERA_CONFIG.followDistance;
+  private enterGlideElapsed = 0;
+  private enterGlideDuration = 0;
+  private readonly glideStartPos = new THREE.Vector3();
+  private readonly glideStartLookAt = new THREE.Vector3();
 
   // Reusable scratch objects (zero per-frame GC churn)
   private readonly desiredPos = new THREE.Vector3();
@@ -291,6 +296,28 @@ export class CameraRig {
     this.clampCombatPitch();
   }
 
+  /**
+   * Starts a smooth shoulder-behind glide from the live orbiting Title camera into
+   * playable third-person Sanctum control over `duration` seconds.
+   */
+  public startEnterLobbyGlide(
+    duration: number = LOBBY_CONFIG.enterGlideDuration,
+  ): void {
+    this.glideStartPos.copy(this.currentPosition);
+    this.glideStartLookAt.copy(this.currentLookAt);
+    this.enterGlideElapsed = 0;
+    this.enterGlideDuration = Math.max(0.05, duration);
+    this.setCombatAngles(
+      CAMERA_CONFIG.combatInitialYaw,
+      CAMERA_CONFIG.combatInitialPitch,
+    );
+  }
+
+  public cancelEnterLobbyGlide(): void {
+    this.enterGlideDuration = 0;
+    this.enterGlideElapsed = 0;
+  }
+
   public resetSphericalOrbit(
     azimuth = 0,
     elevation: number = CAMERA_CONFIG.finisherDefaultElevation,
@@ -479,11 +506,22 @@ export class CameraRig {
     if (this.activeMode === 'TITLE') {
       this.orbitRimGroup.visible = false;
       this._cameraDistanceToPivot = CAMERA_CONFIG.playerFadeStartDist + 1;
-      this.titleOrbitAngle += dt * CAMERA_CONFIG.titleOrbitSpeed;
-      const r = CAMERA_CONFIG.titleOrbitRadius;
+      const isLobbyBackdrop =
+        arena?.activeEnvironment === ENVIRONMENT_IDS.LOBBY;
+      const orbitSpeed = isLobbyBackdrop
+        ? LOBBY_CONFIG.titleOrbitSpeed
+        : CAMERA_CONFIG.titleOrbitSpeed;
+      const r = isLobbyBackdrop
+        ? LOBBY_CONFIG.titleOrbitRadius
+        : CAMERA_CONFIG.titleOrbitRadius;
+      const orbitH = isLobbyBackdrop
+        ? LOBBY_CONFIG.titleOrbitHeight
+        : CAMERA_CONFIG.titleOrbitHeight;
+
+      this.titleOrbitAngle += dt * orbitSpeed;
       this.desiredPos.set(
         targetPos.x + Math.sin(this.titleOrbitAngle) * r,
-        targetPos.y + CAMERA_CONFIG.titleOrbitHeight,
+        targetPos.y + orbitH,
         targetPos.z + Math.cos(this.titleOrbitAngle) * r,
       );
       this.desiredLookAt.set(
@@ -659,14 +697,37 @@ export class CameraRig {
         targetPos.z - Math.cos(this.yaw) * CAMERA_CONFIG.lookAheadOffset,
       );
 
-      const posSmooth = isCompressing
-        ? 1 - Math.exp(-Math.max(0, dt) * CAMERA_CONFIG.springCompressLerp)
-        : Math.min(1, dt * CAMERA_CONFIG.smoothFactor);
-      this.currentPosition.lerp(this.desiredPos, posSmooth);
-      this.currentLookAt.lerp(
-        this.desiredLookAt,
-        Math.min(1, dt * CAMERA_CONFIG.smoothFactor),
-      );
+      if (this.enterGlideDuration > 0) {
+        this.enterGlideElapsed += dt;
+        const rawT = THREE.MathUtils.clamp(
+          this.enterGlideElapsed / this.enterGlideDuration,
+          0,
+          1,
+        );
+        const smoothT = rawT * rawT * (3 - 2 * rawT);
+        this.currentPosition.lerpVectors(
+          this.glideStartPos,
+          this.desiredPos,
+          smoothT,
+        );
+        this.currentLookAt.lerpVectors(
+          this.glideStartLookAt,
+          this.desiredLookAt,
+          smoothT,
+        );
+        if (rawT >= 1) {
+          this.enterGlideDuration = 0;
+        }
+      } else {
+        const posSmooth = isCompressing
+          ? 1 - Math.exp(-Math.max(0, dt) * CAMERA_CONFIG.springCompressLerp)
+          : Math.min(1, dt * CAMERA_CONFIG.smoothFactor);
+        this.currentPosition.lerp(this.desiredPos, posSmooth);
+        this.currentLookAt.lerp(
+          this.desiredLookAt,
+          Math.min(1, dt * CAMERA_CONFIG.smoothFactor),
+        );
+      }
 
       // Hard-clamp final smoothed camera inside enclosed box so fast turns never clip a wall
       if (bounds && bounds.kind === ARENA_BOUNDS_KINDS.RECTANGULAR) {

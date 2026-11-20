@@ -12,6 +12,7 @@ import {
   ENVIRONMENT_IDS,
   FINISHER_POSE_IDS,
   GAME_STATES,
+  LOBBY_CONFIG,
   NG_PLUS_CONFIG,
   PLAYER_CONFIG,
   type BossPhase,
@@ -25,6 +26,7 @@ import { CombatSystem } from '../ecs/systems/CombatSystem';
 import { DioramaSystem } from '../ecs/systems/DioramaSystem';
 import { FinisherSystem } from '../ecs/systems/FinisherSystem';
 import { InputSystem } from '../ecs/systems/InputSystem';
+import { LobbySystem } from '../ecs/systems/LobbySystem';
 import { MovementSystem } from '../ecs/systems/MovementSystem';
 import { RenderSyncSystem } from '../ecs/systems/RenderSyncSystem';
 import { ECSWorld } from '../ecs/World';
@@ -43,6 +45,9 @@ import { VfxFactory } from './VfxFactory';
  */
 export interface IGameController {
   startGame(): void;
+  enterSanctum(): void;
+  returnToSanctum(): void;
+  triggerLobbyInteract(): void;
   resetDuel(encoreTier?: number): void;
   setPaused(paused: boolean): void;
   resumeGame(): void;
@@ -82,6 +87,7 @@ export class GameEngine implements IGameController {
 
   private readonly inputSystem: InputSystem;
   private readonly movementSystem: MovementSystem;
+  private readonly lobbySystem: LobbySystem;
   private readonly chamberSystem: ChamberSystem;
   private readonly bossAISystem: BossAISystem;
   private readonly combatSystem: CombatSystem;
@@ -140,13 +146,14 @@ export class GameEngine implements IGameController {
       }
     });
 
-    // Sync PointerLock changes into Zustand HUD store & auto-pause if exited unexpectedly in active combat
+    // Sync PointerLock changes into Zustand HUD store & auto-pause if exited unexpectedly in active play
     this.cameraRig.onPointerLockChange = (locked) => {
       useGameStore.getState().setPointerLocked(locked);
       if (
         !locked &&
         !this.isPaused &&
-        (this.state === GAME_STATES.CHAMBER_COMBAT ||
+        (this.state === GAME_STATES.LOBBY ||
+          this.state === GAME_STATES.CHAMBER_COMBAT ||
           this.state === GAME_STATES.BOSS_COMBAT)
       ) {
         this.lastAutoPauseTimestamp = performance.now();
@@ -183,6 +190,7 @@ export class GameEngine implements IGameController {
         isPaused: () => this.isPaused,
         isPointerLocked: () => this.cameraRig.isPointerLocked,
         requestPointerLock: () => this.cameraRig.requestLock(),
+        onStartGame: () => this.enterSanctum(),
         onTogglePause: () => this.togglePause(),
         onToggleAudioMute: () => this.toggleAudioMute(),
         onQuickRetry: () => this.retryStage(),
@@ -207,6 +215,24 @@ export class GameEngine implements IGameController {
           }
         },
         onFinisherApproachComplete: () => this.startSiphonFinisher(),
+      },
+    );
+
+    this.lobbySystem = new LobbySystem(
+      this.world,
+      this.sceneManager.mageTowerLevel,
+      this.mageRig,
+      this.sound,
+      this.vfx,
+      {
+        getGameState: () => this.state,
+        onEnterRealm1: () => {
+          this.enterChambersRun(useGameStore.getState().encoreTier);
+          this.cameraRig.requestLock();
+        },
+        onEncoreTierToggled: () => {
+          this.renderSyncSystem.flushHudSnapshot();
+        },
       },
     );
 
@@ -283,6 +309,10 @@ export class GameEngine implements IGameController {
           this.chamberSystem.handleServantDefeated(id),
         onUrnShattered: (origin, healValue) =>
           this.chamberSystem.handleUrnShattered(origin, healValue),
+        onLobbyDummyHit: (damage, isEncore, hitPoint) =>
+          this.lobbySystem.handleDummyHit(damage, isEncore, hitPoint),
+        onLobbySealedPortalHit: (realmIndex, hitPoint) =>
+          this.lobbySystem.handleSealedPortalHit(realmIndex, hitPoint),
       },
     );
 
@@ -343,7 +373,7 @@ export class GameEngine implements IGameController {
     };
     window.addEventListener('resize', this.handleResize);
 
-    // Sync initial store identity & HUD snapshot
+    // Sync initial store identity & mount live Obsidian Spire Sanctum backdrop for TITLE
     const store = useGameStore.getState();
     store.resetToTitle();
     store.setBossIdentity(
@@ -352,8 +382,53 @@ export class GameEngine implements IGameController {
       this.bossRig.title,
       BOSS_CONFIG.maxHp,
     );
+    this.sceneManager.setEnvironment(ENVIRONMENT_IDS.LOBBY);
+    this.bossRig.root.visible = false;
+    this.positionPlayerInSanctum(store.encoreTier);
+    this.lobbySystem.syncSanctumState();
+    this.sound.setMode(AUDIO_MODES.LOBBY);
+    store.setAudioMode(AUDIO_MODES.LOBBY);
     this.renderSyncSystem.flushHudSnapshot();
     this.startLoop();
+  }
+
+  private positionPlayerInSanctum(encoreTier: number): void {
+    const player = this.world.queryFirst(
+      'playerTag',
+      'transform',
+      'velocity',
+      'health',
+      'stamina',
+      'playerCombat',
+    );
+    if (player) {
+      player.transform.position.x = LOBBY_CONFIG.playerSpawn.x;
+      player.transform.position.y = LOBBY_CONFIG.playerSpawn.y;
+      player.transform.position.z = LOBBY_CONFIG.playerSpawn.z;
+      player.transform.rotationY = LOBBY_CONFIG.playerSpawnYaw;
+      player.velocity.vx = 0;
+      player.velocity.vy = 0;
+      player.velocity.vz = 0;
+      player.health.current = PLAYER_CONFIG.maxHp;
+      player.health.max = PLAYER_CONFIG.maxHp;
+      player.health.invulnTimer = 0;
+      player.health.isInvulnerable = false;
+      player.stamina.current = PLAYER_CONFIG.maxStamina;
+      player.playerCombat.dashTimer = 0;
+      player.playerCombat.dashCooldown = 0;
+      player.playerCombat.boltCooldown = 0;
+      player.playerCombat.pulseCooldown = 0;
+      player.playerCombat.aimFaceTimer = 0;
+      player.playerCombat.encoreTier = encoreTier;
+    }
+    this.mageRig.resetCombatPose();
+    this.mageRig.setEncoreTier(encoreTier);
+    this.mageRig.root.position.set(
+      LOBBY_CONFIG.playerSpawn.x,
+      LOBBY_CONFIG.playerSpawn.y,
+      LOBBY_CONFIG.playerSpawn.z,
+    );
+    this.mageRig.root.rotation.y = LOBBY_CONFIG.playerSpawnYaw;
   }
 
   private spawnCoreEntities(): void {
@@ -475,10 +550,81 @@ export class GameEngine implements IGameController {
   }
 
   public startGame(): void {
+    this.enterSanctum();
+  }
+
+  /**
+   * Glides the camera smoothly behind the Dark Mage's shoulder from the live TITLE orbit
+   * into the walkable Obsidian Spire Sanctum ('LOBBY').
+   */
+  public enterSanctum(): void {
     if (this.state !== GAME_STATES.TITLE) return;
     this.sound.unlock();
-    this.enterChambersRun(0);
+    this.isPaused = false;
+    this.cameraRig.isPaused = false;
+    this.state = GAME_STATES.LOBBY;
+
+    this.sceneManager.setEnvironment(ENVIRONMENT_IDS.LOBBY);
+    this.bossRig.root.visible = false;
+    this.sound.setMode(AUDIO_MODES.LOBBY);
+    this.lobbySystem.syncSanctumState();
+    this.cameraRig.startEnterLobbyGlide(LOBBY_CONFIG.enterGlideDuration);
+
+    const store = useGameStore.getState();
+    store.setGameState(GAME_STATES.LOBBY);
+    store.setAudioMode(AUDIO_MODES.LOBBY);
+    store.setPaused(false);
+    this.renderSyncSystem.flushHudSnapshot();
+
     this.cameraRig.requestLock();
+  }
+
+  /**
+   * Cleans up any active encounter/diorama and returns the Dark Mage to the walkable
+   * Obsidian Spire Sanctum ('LOBBY') with PointerLock engaged.
+   */
+  public returnToSanctum(): void {
+    this.sound.unlock();
+    this.isPaused = false;
+    this.cameraRig.isPaused = false;
+    this.cameraRig.cancelEnterLobbyGlide();
+    this.state = GAME_STATES.LOBBY;
+
+    this.chamberSystem.cleanupChambers();
+    this.clearAllCombatEntities();
+    this.dioramaSystem.cleanupPuppetVisuals();
+    this.finisherSystem.resetState();
+    this.vfx.clearTransientVfx();
+    this.inputSystem.resetTransientInputs();
+    this.movementSystem.resetTransientState();
+
+    const store = useGameStore.getState();
+    const tier = store.encoreTier;
+    this.sceneManager.setEnvironment(ENVIRONMENT_IDS.LOBBY);
+    this.bossRig.root.visible = false;
+    this.positionPlayerInSanctum(tier);
+    this.lobbySystem.syncSanctumState();
+
+    this.cameraRig.setCombatAngles(
+      CAMERA_CONFIG.combatInitialYaw,
+      CAMERA_CONFIG.combatInitialPitch,
+    );
+    this.sound.setMode(AUDIO_MODES.LOBBY);
+
+    store.setPaused(false);
+    store.setGameState(GAME_STATES.LOBBY);
+    store.setAudioMode(AUDIO_MODES.LOBBY);
+    store.setLobbyDummyHit(null);
+    this.renderSyncSystem.flushHudSnapshot();
+
+    this.cameraRig.requestLock();
+  }
+
+  public triggerLobbyInteract(): void {
+    if (this.state === GAME_STATES.LOBBY) {
+      this.sound.unlock();
+      this.lobbySystem.executeActiveInteraction();
+    }
   }
 
   /**
@@ -633,6 +779,7 @@ export class GameEngine implements IGameController {
     this.sound.unlock();
     this.setPaused(false);
     if (
+      this.state === GAME_STATES.LOBBY ||
       this.state === GAME_STATES.CHAMBER_COMBAT ||
       this.state === GAME_STATES.BOSS_COMBAT
     ) {
@@ -962,6 +1109,7 @@ export class GameEngine implements IGameController {
       // Run ECS Simulation Pipeline in deterministic order
       this.inputSystem.update(dt, this.elapsed);
       this.movementSystem.update(dt, this.elapsed);
+      this.lobbySystem.update(dt, this.elapsed);
       this.chamberSystem.update(dt, this.elapsed);
       this.bossAISystem.update(dt, this.elapsed);
       this.combatSystem.update(dt, this.elapsed);
@@ -978,7 +1126,13 @@ export class GameEngine implements IGameController {
       }
 
       if (this.state === GAME_STATES.TITLE) {
-        this.cameraRig.update(dt, this.state, this.titleCameraTarget);
+        this.cameraRig.update(
+          dt,
+          this.state,
+          this.titleCameraTarget,
+          null,
+          this.sceneManager,
+        );
       } else if (
         this.state === GAME_STATES.SIPHON_FINISHER ||
         this.state === GAME_STATES.ENDLESS_SAVOR

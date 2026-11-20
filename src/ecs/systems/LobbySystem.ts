@@ -1,0 +1,279 @@
+import * as THREE from 'three';
+import {
+  GAME_STATES,
+  LOBBY_CONFIG,
+  LOBBY_PROMPT_KINDS,
+  type GameState,
+} from '../../config/gameConfig';
+import type { IAudioTrigger } from '../../engine/SoundEngine';
+import type { IVfxSpawner } from '../../engine/VfxFactory';
+import type { MageTowerLevel } from '../../levels/MageTowerLevel';
+import type { DarkMageRig } from '../../rigs/DarkMageRig';
+import {
+  useGameStore,
+  type LobbyPromptState,
+} from '../../state/useGameStore';
+import type { ECSWorld, ISystem } from '../World';
+
+export interface ILobbyCallbacks {
+  getGameState: () => GameState;
+  onEnterRealm1: () => void;
+  onEncoreTierToggled: (nextTier: number) => void;
+}
+
+/**
+ * Governs the playable 3D **Obsidian Spire Sanctum** Hub Lobby (SRP & DIP):
+ * - Syncs Stolen Trophy Pedestal visibility & frost aura from persisted `marinaDefeated` state
+ * - Evaluates proximity prompts for Realm I (Active), Realms II & III (Sealed), and the
+ *   Stolen Frost Tiara Trophy Pedestal (Encore NG+ toggle)
+ * - Handles `[E]` interactions, Target Crystal hit feedback, and sealed portal ward reactions.
+ */
+export class LobbySystem implements ISystem {
+  private readonly world: ECSWorld;
+  private readonly mageTower: MageTowerLevel;
+  private readonly mageRig: DarkMageRig;
+  private readonly audio: IAudioTrigger;
+  private readonly vfx: IVfxSpawner;
+  private readonly callbacks: ILobbyCallbacks;
+
+  private activePrompt: LobbyPromptState | null = null;
+  private readonly scratchBurst = new THREE.Vector3();
+
+  constructor(
+    world: ECSWorld,
+    mageTower: MageTowerLevel,
+    mageRig: DarkMageRig,
+    audio: IAudioTrigger,
+    vfx: IVfxSpawner,
+    callbacks: ILobbyCallbacks,
+  ) {
+    this.world = world;
+    this.mageTower = mageTower;
+    this.mageRig = mageRig;
+    this.audio = audio;
+    this.vfx = vfx;
+    this.callbacks = callbacks;
+  }
+
+  /**
+   * Synchronizes the Sanctum's trophy pedestal & player visual aura when entering TITLE/LOBBY.
+   */
+  public syncSanctumState(): void {
+    const store = useGameStore.getState();
+    this.mageTower.setTrophyVisible(store.marinaDefeated, store.encoreTier);
+    this.mageRig.setEncoreTier(store.encoreTier);
+    this.setPromptIfChanged(null);
+  }
+
+  /**
+   * Invoked by CombatSystem when a Void Bolt, NG+ Spear-Beam, or Umbral Pulse strikes
+   * the Abyssal Target Crystal in the eastern alcove.
+   */
+  public handleDummyHit(
+    damage: number,
+    isEncore: boolean,
+    hitPoint: THREE.Vector3,
+  ): void {
+    this.mageTower.triggerDummyHit();
+    this.audio.playDummyCrystalHit();
+    this.vfx.spawnImpactBurst(hitPoint, 10);
+    if (isEncore) {
+      this.vfx.spawnFrostShatterBurst(hitPoint, 8, 5.5);
+    }
+
+    useGameStore.getState().setLobbyDummyHit({
+      damage,
+      isEncore,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
+   * Invoked by CombatSystem when a spell strikes one of the two sealed Realm portals.
+   */
+  public handleSealedPortalHit(
+    realmIndex: 2 | 3,
+    hitPoint: THREE.Vector3,
+  ): void {
+    this.mageTower.triggerWardRipple(realmIndex);
+    this.vfx.spawnFrostShatterBurst(hitPoint, 8, 5.0);
+    if (realmIndex === 2) {
+      this.audio.playSunkenWardChime();
+    } else {
+      this.audio.playHarmonicWardPulse();
+    }
+  }
+
+  /**
+   * Triggers the currently highlighted Sanctum `[E]` interaction (via keyboard or HUD click).
+   */
+  public executeActiveInteraction(): void {
+    if (!this.activePrompt) return;
+
+    if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.REALM_1) {
+      this.audio.playPortalWarp();
+      this.setPromptIfChanged(null);
+      this.callbacks.onEnterRealm1();
+      return;
+    }
+
+    if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.REALM_2_SEALED) {
+      this.mageTower.triggerWardRipple(2);
+      this.audio.playSunkenWardChime();
+      return;
+    }
+
+    if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.REALM_3_SEALED) {
+      this.mageTower.triggerWardRipple(3);
+      this.audio.playHarmonicWardPulse();
+      return;
+    }
+
+    if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.TROPHY_PEDESTAL) {
+      const store = useGameStore.getState();
+      if (!store.marinaDefeated) return;
+      const nextTier = store.encoreTier > 0 ? 0 : 1;
+      store.setEncoreTier(nextTier);
+
+      const player = this.world.queryFirst('playerTag', 'playerCombat');
+      if (player) {
+        player.playerCombat.encoreTier = nextTier;
+      }
+
+      this.mageRig.setEncoreTier(nextTier);
+      this.mageTower.setTrophyVisible(true, nextTier);
+      this.audio.playTrophyToggle();
+      this.callbacks.onEncoreTierToggled(nextTier);
+
+      this.scratchBurst.set(
+        LOBBY_CONFIG.trophyPedestalPos.x,
+        1.65,
+        LOBBY_CONFIG.trophyPedestalPos.z,
+      );
+      this.vfx.spawnFrostShatterBurst(this.scratchBurst, 14, 6.2);
+      this.vfx.spawnImpactBurst(this.scratchBurst, 10);
+    }
+  }
+
+  public update(_dt: number, _elapsed: number): void {
+    const state = this.callbacks.getGameState();
+    const store = useGameStore.getState();
+
+    if (state === GAME_STATES.TITLE) {
+      this.mageTower.setTrophyVisible(store.marinaDefeated, store.encoreTier);
+      if (this.activePrompt !== null) {
+        this.setPromptIfChanged(null);
+      }
+      return;
+    }
+
+    if (state !== GAME_STATES.LOBBY) {
+      if (this.activePrompt !== null) {
+        this.setPromptIfChanged(null);
+      }
+      return;
+    }
+
+    this.mageTower.setTrophyVisible(store.marinaDefeated, store.encoreTier);
+
+    const player = this.world.queryFirst(
+      'playerTag',
+      'transform',
+      'health',
+      'playerIntent',
+    );
+    if (!player) return;
+
+    // Keep player topped off safely inside the Sanctum
+    player.health.current = player.health.max;
+
+    const px = player.transform.position.x;
+    const pz = player.transform.position.z;
+    const encoreTier = store.encoreTier;
+
+    // Determine closest interactable within range
+    let bestPrompt: LobbyPromptState | null = null;
+    let bestDist = Infinity;
+
+    const dR1 = Math.hypot(
+      px - LOBBY_CONFIG.realm1PortalPos.x,
+      pz - LOBBY_CONFIG.realm1PortalPos.z,
+    );
+    if (dR1 <= LOBBY_CONFIG.portalInteractRadius && dR1 < bestDist) {
+      bestDist = dR1;
+      bestPrompt = {
+        kind: LOBBY_PROMPT_KINDS.REALM_1,
+        title: '[E] ENTER REALM I — THE GLACIAL SPIRE',
+        subtitle:
+          encoreTier > 0
+            ? `ENCORE NG+${encoreTier} • ROYAL ICE CHAMBERS`
+            : 'ROYAL ICE CHAMBERS → MARINA’S SUMMIT',
+      };
+    }
+
+    const dR2 = Math.hypot(
+      px - LOBBY_CONFIG.realm2PortalPos.x,
+      pz - LOBBY_CONFIG.realm2PortalPos.z,
+    );
+    if (dR2 <= LOBBY_CONFIG.portalInteractRadius && dR2 < bestDist) {
+      bestDist = dR2;
+      bestPrompt = {
+        kind: LOBBY_PROMPT_KINDS.REALM_2_SEALED,
+        title: 'REALM II: THE SUNKEN SANCTUARY',
+        subtitle: 'SEALED (COMING SOON)',
+      };
+    }
+
+    const dR3 = Math.hypot(
+      px - LOBBY_CONFIG.realm3PortalPos.x,
+      pz - LOBBY_CONFIG.realm3PortalPos.z,
+    );
+    if (dR3 <= LOBBY_CONFIG.portalInteractRadius && dR3 < bestDist) {
+      bestDist = dR3;
+      bestPrompt = {
+        kind: LOBBY_PROMPT_KINDS.REALM_3_SEALED,
+        title: 'REALM III: THE HARMONIC CITADEL',
+        subtitle: 'SEALED (COMING SOON)',
+      };
+    }
+
+    if (store.marinaDefeated) {
+      const dTrophy = Math.hypot(
+        px - LOBBY_CONFIG.trophyPedestalPos.x,
+        pz - LOBBY_CONFIG.trophyPedestalPos.z,
+      );
+      if (dTrophy <= LOBBY_CONFIG.trophyInteractRadius && dTrophy < bestDist) {
+        bestDist = dTrophy;
+        bestPrompt = {
+          kind: LOBBY_PROMPT_KINDS.TROPHY_PEDESTAL,
+          title: '[E] STOLEN FROST TIARA — TOGGLE ENCORE (NG+)',
+          subtitle:
+            encoreTier > 0
+              ? `ENCORE USURPER: ACTIVE (NG+${encoreTier})`
+              : 'ENCORE USURPER: OFF (STANDARD)',
+        };
+      }
+    }
+
+    this.setPromptIfChanged(bestPrompt);
+
+    if (bestPrompt && player.playerIntent.portalInteractRequested) {
+      this.executeActiveInteraction();
+    }
+  }
+
+  private setPromptIfChanged(next: LobbyPromptState | null): void {
+    const prev = this.activePrompt;
+    const same =
+      prev === next ||
+      (prev !== null &&
+        next !== null &&
+        prev.kind === next.kind &&
+        prev.title === next.title &&
+        prev.subtitle === next.subtitle);
+    if (same) return;
+
+    this.activePrompt = next;
+    useGameStore.getState().setLobbyPrompt(next);
+  }
+}

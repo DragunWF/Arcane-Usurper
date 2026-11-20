@@ -84,13 +84,14 @@ export class MovementSystem implements ISystem {
     const state = this.callbacks.getGameState();
 
     if (
+      state === GAME_STATES.LOBBY ||
       state === GAME_STATES.BOSS_COMBAT ||
       state === GAME_STATES.CHAMBER_COMBAT
     ) {
       this.updatePlayerMovement(dt, state);
       if (state === GAME_STATES.BOSS_COMBAT) {
         this.updateBossMovement(dt, state);
-      } else {
+      } else if (state === GAME_STATES.CHAMBER_COMBAT) {
         this.updateServantsMovement(dt);
       }
     } else if (state === GAME_STATES.STAGGER) {
@@ -252,7 +253,10 @@ export class MovementSystem implements ISystem {
     }
 
     // Soft body separation from Boss (summit combat & stagger only)
-    if (state !== GAME_STATES.CHAMBER_COMBAT) {
+    if (
+      state !== GAME_STATES.CHAMBER_COMBAT &&
+      state !== GAME_STATES.LOBBY
+    ) {
       const boss = this.world.queryFirst('bossPhase', 'transform', 'hurtbox');
       if (boss) {
         const bx = boss.transform.position.x;

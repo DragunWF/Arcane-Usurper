@@ -4,7 +4,9 @@ import { useGameStore } from './state/useGameStore';
 import { CombatHUD } from './ui/CombatHUD';
 import { DioramaHUD } from './ui/DioramaHUD';
 import { FinisherHUD } from './ui/FinisherHUD';
+import { LobbyHUD } from './ui/LobbyHUD';
 import { PauseMenu } from './ui/PauseMenu';
+import { TitleOverlay } from './ui/TitleOverlay';
 
 /**
  * Root React shell mounting the imperative WebGL canvas container and 2D HUD overlay.
@@ -44,6 +46,8 @@ export function App() {
         id="game-canvas-container"
         className="fixed inset-0 w-full h-full overflow-hidden"
       />
+      <TitleOverlay controller={controller} />
+      <LobbyHUD controller={controller} />
       <CombatHUD controller={controller} />
       <FinisherHUD controller={controller} />
       <DioramaHUD controller={controller} />

@@ -83,6 +83,7 @@ export class RenderSyncSystem implements ISystem {
 
       const approaching = this.callbacks.isFinisherApproaching();
       const isActiveLocomotion =
+        state === GAME_STATES.LOBBY ||
         state === GAME_STATES.BOSS_COMBAT ||
         state === GAME_STATES.CHAMBER_COMBAT ||
         state === GAME_STATES.STAGGER;
@@ -99,14 +100,16 @@ export class RenderSyncSystem implements ISystem {
       }
     }
 
-    // 3. Sync Boss Rig Transform & Procedural Pose (hidden in Chambers, yields to Finisher/Diorama)
-    const isChamberState =
+    // 3. Sync Boss Rig Transform & Procedural Pose (hidden in Title/Lobby/Chambers, yields to Finisher/Diorama)
+    const isBossHiddenState =
+      state === GAME_STATES.TITLE ||
+      state === GAME_STATES.LOBBY ||
       state === GAME_STATES.CHAMBER_COMBAT ||
       state === GAME_STATES.PORTAL_TRANSITION;
-    this.bossRig.root.visible = !isChamberState;
+    this.bossRig.root.visible = !isBossHiddenState;
 
     const boss = this.world.queryFirst('bossPhase', 'transform');
-    if (boss && !isDioramaOrFinisher && !isChamberState) {
+    if (boss && !isDioramaOrFinisher && !isBossHiddenState) {
       const bPos = boss.transform.position;
       this.bossRig.root.position.set(bPos.x, bPos.y, bPos.z);
       this.bossRig.root.rotation.y = boss.transform.rotationY;

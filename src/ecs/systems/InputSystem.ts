@@ -14,6 +14,7 @@ export interface IInputCallbacks {
   isPaused: () => boolean;
   isPointerLocked: () => boolean;
   requestPointerLock: () => void;
+  onStartGame: () => void;
   onTogglePause: () => void;
   onToggleAudioMute: () => void;
   onQuickRetry: () => void;
@@ -80,10 +81,19 @@ export class InputSystem implements ISystem {
 
       const state = this.callbacks.getGameState();
 
-      if (e.code === 'KeyP' && !e.repeat) {
-        if (state !== GAME_STATES.TITLE) {
-          this.callbacks.onTogglePause();
+      if (state === GAME_STATES.TITLE) {
+        if (e.code === 'Enter' && !e.repeat) {
+          this.callbacks.onStartGame();
         }
+        return;
+      }
+
+      if (
+        (e.code === 'KeyP' ||
+          (e.code === 'Escape' && state === GAME_STATES.LOBBY)) &&
+        !e.repeat
+      ) {
+        this.callbacks.onTogglePause();
         return;
       }
 
@@ -101,12 +111,15 @@ export class InputSystem implements ISystem {
         return;
       }
 
-      // Execute Arcane Siphon Kiss ([E]) in STAGGER or Ascend Astral Portal ([E]) in CHAMBER_COMBAT
+      // Execute Arcane Siphon Kiss ([E]) in STAGGER or Portal/Trophy Interact ([E]) in LOBBY/CHAMBER_COMBAT
       if (e.code === 'KeyE' && state === GAME_STATES.STAGGER) {
         this.queuedFinisherExecute = true;
         return;
       }
-      if (e.code === 'KeyE' && state === GAME_STATES.CHAMBER_COMBAT) {
+      if (
+        e.code === 'KeyE' &&
+        (state === GAME_STATES.CHAMBER_COMBAT || state === GAME_STATES.LOBBY)
+      ) {
         this.queuedPortalInteract = true;
         return;
       }
@@ -132,6 +145,7 @@ export class InputSystem implements ISystem {
       }
 
       const isPlayable =
+        state === GAME_STATES.LOBBY ||
         state === GAME_STATES.CHAMBER_COMBAT ||
         state === GAME_STATES.BOSS_COMBAT ||
         state === GAME_STATES.STAGGER;
@@ -161,6 +175,7 @@ export class InputSystem implements ISystem {
       }
 
       const isPlayable =
+        state === GAME_STATES.LOBBY ||
         state === GAME_STATES.CHAMBER_COMBAT ||
         state === GAME_STATES.BOSS_COMBAT ||
         state === GAME_STATES.STAGGER;
@@ -174,6 +189,7 @@ export class InputSystem implements ISystem {
           this.callbacks.requestPointerLock();
         }
         if (
+          state === GAME_STATES.LOBBY ||
           state === GAME_STATES.BOSS_COMBAT ||
           state === GAME_STATES.CHAMBER_COMBAT
         ) {
@@ -181,6 +197,7 @@ export class InputSystem implements ISystem {
         }
       } else if (e.button === 2) {
         if (
+          state === GAME_STATES.LOBBY ||
           state === GAME_STATES.BOSS_COMBAT ||
           state === GAME_STATES.CHAMBER_COMBAT
         ) {

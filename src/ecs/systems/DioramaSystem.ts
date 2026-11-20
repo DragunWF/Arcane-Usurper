@@ -217,6 +217,7 @@ export class DioramaSystem implements ISystem {
     this.callbacks.setAtmosphereStagger();
 
     const store = useGameStore.getState();
+    store.setMarinaDefeated(true);
     store.exitEndlessSavor();
     store.setAudioMode(AUDIO_MODES.VICTORY);
 

@@ -76,13 +76,17 @@ export function PauseMenu({ controller }: PauseMenuProps) {
               }}
             />
             <span className="text-[10px] sm:text-[11px] font-semibold tracking-[0.24em] uppercase text-sky-200">
-              {gameState === GAME_STATES.CHAMBER_COMBAT
+              {gameState === GAME_STATES.LOBBY
                 ? encoreTier > 0
-                  ? `Royal Ice Chambers • Encore NG+${encoreTier}`
-                  : 'Royal Ice Chambers • Temporal Stasis'
-                : encoreTier > 0
-                  ? `Glacial Spire Summit • Encore NG+${encoreTier}`
-                  : 'Glacial Spire Summit • Temporal Stasis'}
+                  ? `Obsidian Spire Sanctum • Encore NG+${encoreTier}`
+                  : 'Obsidian Spire Sanctum • Temporal Stasis'
+                : gameState === GAME_STATES.CHAMBER_COMBAT
+                  ? encoreTier > 0
+                    ? `Royal Ice Chambers • Encore NG+${encoreTier}`
+                    : 'Royal Ice Chambers • Temporal Stasis'
+                  : encoreTier > 0
+                    ? `Glacial Spire Summit • Encore NG+${encoreTier}`
+                    : 'Glacial Spire Summit • Temporal Stasis'}
             </span>
           </div>
 
@@ -187,22 +191,40 @@ export function PauseMenu({ controller }: PauseMenuProps) {
             [P] RESUME
           </button>
 
-          <button
-            type="button"
-            onClick={() => controller?.restartStage()}
-            className="w-full py-3 px-6 rounded-xl font-display text-xs sm:text-sm font-bold tracking-[0.18em] text-sky-100 uppercase cursor-pointer border transition-all hover:scale-[1.01]"
-            style={{
-              backgroundColor: PALETTE.hex.shadowSlate,
-              borderColor: PALETTE.hex.frostRunes,
-              boxShadow: PALETTE.rgba.pauseRestartShadow,
-            }}
-          >
-            {gameState === GAME_STATES.CHAMBER_COMBAT
-              ? 'RESTART CHAMBERS'
-              : hasReachedSummit
-                ? 'RESTART SUMMIT DUEL'
-                : 'RESTART STAGE'}
-          </button>
+          {gameState !== GAME_STATES.LOBBY && (
+            <button
+              type="button"
+              onClick={() => controller?.restartStage()}
+              className="w-full py-3 px-6 rounded-xl font-display text-xs sm:text-sm font-bold tracking-[0.18em] text-sky-100 uppercase cursor-pointer border transition-all hover:scale-[1.01]"
+              style={{
+                backgroundColor: PALETTE.hex.shadowSlate,
+                borderColor: PALETTE.hex.frostRunes,
+                boxShadow: PALETTE.rgba.pauseRestartShadow,
+              }}
+            >
+              {gameState === GAME_STATES.CHAMBER_COMBAT
+                ? 'RESTART CHAMBERS'
+                : hasReachedSummit
+                  ? 'RESTART SUMMIT DUEL'
+                  : 'RESTART STAGE'}
+            </button>
+          )}
+
+          {(gameState === GAME_STATES.CHAMBER_COMBAT ||
+            gameState === GAME_STATES.BOSS_COMBAT ||
+            gameState === GAME_STATES.STAGGER) && (
+            <button
+              type="button"
+              onClick={() => controller?.returnToSanctum()}
+              className="w-full py-3 px-6 rounded-xl font-display text-xs sm:text-sm font-bold tracking-[0.18em] text-purple-100 uppercase cursor-pointer border transition-all hover:scale-[1.01]"
+              style={{
+                backgroundColor: PALETTE.hex.abyssalCloak,
+                borderColor: PALETTE.hex.amethystTrim,
+              }}
+            >
+              [RETURN TO SANCTUM]
+            </button>
+          )}
         </div>
       </div>
     </div>

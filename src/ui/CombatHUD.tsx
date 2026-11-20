@@ -100,42 +100,6 @@ export function CombatHUD({ controller }: CombatHUDProps) {
       {/* Subtle Atmospheric Vignette */}
       <div className="fixed inset-0 vignette-overlay z-10" />
 
-      {/* TITLE OVERLAY */}
-      {gameState === GAME_STATES.TITLE && (
-        <div className="fixed inset-0 z-30 flex flex-col items-center justify-between py-10 px-6 sm:py-14 pointer-events-none transition-opacity duration-500">
-          <div className="text-center animate-float-slow mt-2 sm:mt-4">
-            <div className="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-full frost-panel mb-4">
-              <span className="w-2 h-2 rounded-full bg-purple-400 shadow-[0_0_10px_#A855F7]" />
-              <span className="text-[11px] sm:text-xs font-semibold tracking-[0.28em] uppercase text-sky-200">
-                Summit of the Glacial Spire
-              </span>
-              <span className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_10px_#38BDF8]" />
-            </div>
-            <h1 className="font-display text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-[0.14em] text-transparent bg-clip-text bg-gradient-to-b from-sky-100 via-sky-200 to-purple-400 drop-shadow-[0_6px_28px_rgba(139,92,246,0.45)]">
-              ARCANE USURPER
-            </h1>
-            <p className="mt-2.5 text-xs sm:text-sm tracking-[0.22em] uppercase text-sky-300/80 font-medium">
-              Arcane Action Combat Prototype
-            </p>
-          </div>
-
-          <div className="flex flex-col items-center gap-4 mb-4 sm:mb-8 pointer-events-auto">
-            <button
-              type="button"
-              onClick={() => controller?.startGame()}
-              className="ascend-btn px-8 sm:px-11 py-4 rounded-xl font-display text-sm sm:text-base font-bold tracking-[0.22em] text-sky-50 uppercase cursor-pointer"
-            >
-              [ASCEND THE GLACIAL SPIRE]
-            </button>
-            <p className="text-[11px] sm:text-xs tracking-[0.14em] text-sky-200/65 text-center max-w-md">
-              Click the arena after ascending to lock camera orbit &bull; Press{' '}
-              <span className="text-purple-300 font-semibold">ESC</span> to
-              release cursor
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* COMBAT & STAGGER HUD */}
       {showCombatHud && (
         <div className="fixed inset-0 z-20 pointer-events-none">

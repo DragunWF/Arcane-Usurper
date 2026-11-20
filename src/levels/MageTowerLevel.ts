@@ -988,6 +988,13 @@ export class MageTowerLevel {
   }
 
   /**
+   * Alias for LobbySystem / CombatSystem clarity when the Abyssal Target Crystal is struck.
+   */
+  public triggerDummyHit(): void {
+    this.triggerHitReaction();
+  }
+
+  /**
    * Builds the Three Realm Portals along the northern arc of the Sanctum:
    * - Center (Realm I — The Glacial Spire, Active)
    * - Left (Realm II — The Sunken Sanctuary, Sealed Coral/Teal Ward)
