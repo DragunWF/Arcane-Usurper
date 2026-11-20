@@ -20,6 +20,7 @@ export interface ILobbyCallbacks {
   getGameState: () => GameState;
   onEnterRealm1: () => void;
   onEnterRealm2: () => void;
+  onEnterRealm3: () => void;
   onEnterLobbySiphon: (target: 'marina' | 'serena') => void;
   onEncoreTierToggled: (nextTier: number) => void;
   onSyncGalleryUnlocked: (unlocked: boolean) => void;
@@ -153,6 +154,16 @@ export class LobbySystem implements ISystem {
       this.audio.playPortalWarp();
       this.setPromptIfChanged(null);
       this.callbacks.onEnterRealm2();
+      return;
+    }
+
+    if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.REALM_3) {
+      const store = useGameStore.getState();
+      store.setActiveRealm(3);
+      store.setHasReachedSummit(false);
+      this.audio.playPortalWarp();
+      this.setPromptIfChanged(null);
+      this.callbacks.onEnterRealm3();
       return;
     }
 
@@ -394,9 +405,12 @@ export class LobbySystem implements ISystem {
     if (dR3 <= LOBBY_CONFIG.portalInteractRadius && dR3 < bestDist) {
       bestDist = dR3;
       bestPrompt = {
-        kind: LOBBY_PROMPT_KINDS.REALM_3_SEALED,
-        title: 'REALM III: THE HARMONIC CITADEL',
-        subtitle: 'SEALED (COMING SOON)',
+        kind: LOBBY_PROMPT_KINDS.REALM_3,
+        title: '[E] ENTER REALM III — THE HARMONIC CITADEL',
+        subtitle:
+          encoreTier > 0
+            ? `ENCORE NG+${encoreTier} • CYBER BACKSTAGE`
+            : 'CYBER BACKSTAGE → CONCERT STAGE',
       };
     }
 

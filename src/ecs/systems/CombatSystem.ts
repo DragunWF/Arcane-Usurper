@@ -1178,6 +1178,11 @@ export class CombatSystem implements ISystem {
     this.vfx.spawnFrostShatterBurst(pos, 14, 6.8);
     if (urn.destructibleProp.propType === DESTRUCTIBLE_PROP_TYPES.PEARL_URN) {
       this.audio.playCoralShatter();
+    } else if (
+      urn.destructibleProp.propType ===
+      DESTRUCTIBLE_PROP_TYPES.ACOUSTIC_CAPACITOR
+    ) {
+      this.audio.playCapacitorShatter();
     } else {
       this.audio.playUrnShatter();
     }

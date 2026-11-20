@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import {
   CHAMBER_CONFIG,
   GAME_STATES,
+  HARMONIC_CHAMBER_CONFIG,
+  HARMONIC_SERVANT_CONFIG,
   PALETTE,
   PORTAL_STATES,
   SERVANT_AI_STATES,
@@ -14,6 +16,7 @@ import {
   SUNKEN_SERVANT_CONFIG,
   type ChamberWaveRecipe,
   type GameState,
+  type HarmonicChamberWaveRecipe,
   type PortalState,
   type ServantArchetype,
   type ServantArchetypeStats,
@@ -49,7 +52,7 @@ export interface IChamberCallbacks {
   getGameState: () => GameState;
   setGameState: (next: GameState) => void;
   getEncoreTier: () => number;
-  getActiveRealm: () => 1 | 2;
+  getActiveRealm: () => 1 | 2 | 3;
   addCameraShake: (amount: number) => void;
   onPlayerDamaged: (amount: number) => void;
   onPlayerHealed: () => void;
@@ -106,8 +109,8 @@ export class ChamberSystem implements ISystem {
   private portalSparkTimer = 0;
   private lastNearPortal = false;
   private currentEncoreTier = 0;
-  private activeRealm: 1 | 2 = 1;
-  private readonly chamberLevels = new Map<1 | 2, IChamberLevel>();
+  private activeRealm: 1 | 2 | 3 = 1;
+  private readonly chamberLevels = new Map<1 | 2 | 3, IChamberLevel>();
 
   // Reusable scratch vectors (zero per-frame GC churn)
   private readonly scratchOrigin = new THREE.Vector3();
@@ -123,6 +126,7 @@ export class ChamberSystem implements ISystem {
     vfx: IVfxSpawner,
     callbacks: IChamberCallbacks,
     sunkenAqueduct?: IChamberLevel,
+    cyberBackstage?: IChamberLevel,
   ) {
     this.world = world;
     this.scene = scene;
@@ -131,6 +135,9 @@ export class ChamberSystem implements ISystem {
     if (sunkenAqueduct) {
       this.chamberLevels.set(2, sunkenAqueduct);
     }
+    if (cyberBackstage) {
+      this.chamberLevels.set(3, cyberBackstage);
+    }
     this.arena = arena;
     this.audio = audio;
     this.vfx = vfx;
@@ -138,9 +145,9 @@ export class ChamberSystem implements ISystem {
   }
 
   /**
-   * Swaps the active chamber environment target (Realm I IcePalaceLevel or Realm II SunkenAqueductLevel).
+   * Swaps the active chamber environment target (Realm I IcePalaceLevel, Realm II SunkenAqueductLevel, or Realm III CyberBackstageLevel).
    */
-  public setActiveLevel(level: IChamberLevel, realm?: 1 | 2): void {
+  public setActiveLevel(level: IChamberLevel, realm?: 1 | 2 | 3): void {
     this.icePalace = level;
     if (realm) {
       this.activeRealm = realm;
@@ -148,31 +155,59 @@ export class ChamberSystem implements ISystem {
     }
   }
 
-  private getActiveWaves(): readonly (ChamberWaveRecipe | SunkenChamberWaveRecipe)[] {
+  private getActiveWaves(): readonly (
+    | ChamberWaveRecipe
+    | SunkenChamberWaveRecipe
+    | HarmonicChamberWaveRecipe
+  )[] {
+    if (this.activeRealm === 3) {
+      return HARMONIC_CHAMBER_CONFIG.WAVES;
+    }
     return this.activeRealm === 2
       ? SUNKEN_CHAMBER_CONFIG.WAVES
       : CHAMBER_CONFIG.WAVES;
   }
 
   private getActiveWaveEscalationDelay(): number {
+    if (this.activeRealm === 3) {
+      return HARMONIC_CHAMBER_CONFIG.waveEscalationDelay;
+    }
     return this.activeRealm === 2
       ? SUNKEN_CHAMBER_CONFIG.waveEscalationDelay
       : CHAMBER_CONFIG.waveEscalationDelay;
   }
 
   private getActivePortalInteractionRadius(): number {
+    if (this.activeRealm === 3) {
+      return HARMONIC_CHAMBER_CONFIG.portalInteractionRadius;
+    }
     return this.activeRealm === 2
       ? SUNKEN_CHAMBER_CONFIG.portalInteractionRadius
       : CHAMBER_CONFIG.portalInteractionRadius;
   }
 
   private getActivePortalWarpDuration(): number {
+    if (this.activeRealm === 3) {
+      return HARMONIC_CHAMBER_CONFIG.portalWarpDuration;
+    }
     return this.activeRealm === 2
       ? SUNKEN_CHAMBER_CONFIG.portalWarpDuration
       : CHAMBER_CONFIG.portalWarpDuration;
   }
 
   private getStatsForArchetype(archetype: ServantArchetype): ServantArchetypeStats {
+    if (archetype === SERVANT_ARCHETYPES.PULSE_STRIKER) {
+      return HARMONIC_SERVANT_CONFIG.PULSE_STRIKER;
+    }
+    if (archetype === SERVANT_ARCHETYPES.SYNTH_CANTOR) {
+      return HARMONIC_SERVANT_CONFIG.SYNTH_CANTOR;
+    }
+    if (archetype === SERVANT_ARCHETYPES.FREQUENCY_DRONE) {
+      return HARMONIC_SERVANT_CONFIG.FREQUENCY_DRONE;
+    }
+    if (archetype === SERVANT_ARCHETYPES.AEGIS_MONOLITH) {
+      return HARMONIC_SERVANT_CONFIG.AEGIS_MONOLITH;
+    }
     if (archetype === SERVANT_ARCHETYPES.TIDEGUARD_HOPLITE) {
       return SUNKEN_SERVANT_CONFIG.TIDEGUARD_HOPLITE;
     }
@@ -198,12 +233,12 @@ export class ChamberSystem implements ISystem {
   }
 
   /**
-   * Initializes a fresh Chamber gauntlet run (Realm I Royal Ice Chambers or Realm II Sunken Aqueduct):
-   * registers the 8 destructible Urns and spawns Wave 1 immediately via ServantFactory.
+   * Initializes a fresh Chamber gauntlet run (Realm I Royal Ice Chambers, Realm II Sunken Aqueduct, or Realm III Cyber Backstage):
+   * registers the 8 destructible Urns/Canisters and spawns Wave 1 immediately via ServantFactory.
    */
   public enterChambers(
     encoreTier: number,
-    realm: 1 | 2 = this.callbacks.getActiveRealm(),
+    realm: 1 | 2 | 3 = this.callbacks.getActiveRealm(),
   ): void {
     this.cleanupChambers();
     this.activeRealm = realm;

@@ -12,7 +12,9 @@ import {
   ENVIRONMENT_IDS,
   FINISHER_POSE_IDS,
   GAME_STATES,
+  HARMONIC_CHAMBER_CONFIG,
   LOBBY_CONFIG,
+  MIKU_CONFIG,
   NG_PLUS_CONFIG,
   PLAYER_CONFIG,
   SERENA_CONFIG,
@@ -247,6 +249,10 @@ export class GameEngine implements IGameController {
           this.enterChambersRun(useGameStore.getState().encoreTier, 2);
           this.cameraRig.requestLock();
         },
+        onEnterRealm3: () => {
+          this.enterChambersRun(useGameStore.getState().encoreTier, 3);
+          this.cameraRig.requestLock();
+        },
         onEnterLobbySiphon: (target) => {
           this.enterLobbySiphon(target);
         },
@@ -283,6 +289,7 @@ export class GameEngine implements IGameController {
         onPortalWarpComplete: () => this.enterSummitFromPortal(),
       },
       this.sceneManager.sunkenAqueductLevel,
+      this.sceneManager.cyberBackstageLevel,
     );
 
     this.bossAISystem = new BossAISystem(
@@ -672,10 +679,16 @@ export class GameEngine implements IGameController {
    * Swaps the active sovereign BossRigAdapter cleanly for Realm I (Marina) or Realm II (Serena),
    * updating all decoupled ECS systems, ECS boss identity traits, and Zustand Boss HUD metadata.
    */
-  private activateBossForRealm(realm: 1 | 2, encoreTier: number): BossRigAdapter {
+  private activateBossForRealm(
+    realm: 1 | 2 | 3,
+    encoreTier: number,
+  ): BossRigAdapter {
     const isRealm2 = realm === 2;
+    const isRealm3 = realm === 3;
     const nextRig: BossRigAdapter = isRealm2 ? this.serenaRig : this.marinaRig;
-    const inactiveRig: BossRigAdapter = isRealm2 ? this.marinaRig : this.serenaRig;
+    const inactiveRig: BossRigAdapter = isRealm2
+      ? this.marinaRig
+      : this.serenaRig;
 
     inactiveRig.root.visible = false;
     this.bossRig = nextRig;
@@ -686,7 +699,11 @@ export class GameEngine implements IGameController {
     this.dioramaSystem.setBossRig(nextRig);
     this.renderSyncSystem.setBossRig(nextRig);
 
-    const baseMaxHp = isRealm2 ? SERENA_CONFIG.maxHp : BOSS_CONFIG.maxHp;
+    const baseMaxHp = isRealm3
+      ? MIKU_CONFIG.maxHp
+      : isRealm2
+        ? SERENA_CONFIG.maxHp
+        : BOSS_CONFIG.maxHp;
     const scaledMaxHp = Math.round(
       baseMaxHp * Math.pow(NG_PLUS_CONFIG.bossHpMultiplierPerTier, encoreTier),
     );
@@ -696,9 +713,11 @@ export class GameEngine implements IGameController {
       boss.bossPhase.bossId = nextRig.id;
       boss.bossPhase.displayName = nextRig.displayName;
       boss.bossPhase.title = nextRig.title;
-      boss.hurtbox.radius = isRealm2
-        ? SERENA_CONFIG.hitRadius
-        : BOSS_CONFIG.hitRadius;
+      boss.hurtbox.radius = isRealm3
+        ? MIKU_CONFIG.hitRadius
+        : isRealm2
+          ? SERENA_CONFIG.hitRadius
+          : BOSS_CONFIG.hitRadius;
       boss.meshRef.object3D = nextRig.root;
     }
 
@@ -715,12 +734,12 @@ export class GameEngine implements IGameController {
   }
 
   /**
-   * Launches a fresh Chamber gauntlet (Wave 1) in Realm I (`CHAMBER`) or Realm II (`SUNKEN_CHAMBER`)
-   * with `hasReachedSummit = false`.
+   * Launches a fresh Chamber gauntlet (Wave 1) in Realm I (`CHAMBER`), Realm II (`SUNKEN_CHAMBER`),
+   * or Realm III (`HARMONIC_CHAMBER`) with `hasReachedSummit = false`.
    */
   public enterChambersRun(
     encoreTier: number,
-    realm: 1 | 2 = useGameStore.getState().activeRealm,
+    realm: 1 | 2 | 3 = useGameStore.getState().activeRealm,
   ): void {
     this.sound.unlock();
     this.isPaused = false;
@@ -735,28 +754,41 @@ export class GameEngine implements IGameController {
     this.movementSystem.resetTransientState();
 
     const isRealm2 = realm === 2;
+    const isRealm3 = realm === 3;
     this.activateBossForRealm(realm, encoreTier);
     this.sceneManager.setEnvironment(
-      isRealm2 ? ENVIRONMENT_IDS.SUNKEN_CHAMBER : ENVIRONMENT_IDS.CHAMBER,
+      isRealm3
+        ? ENVIRONMENT_IDS.HARMONIC_CHAMBER
+        : isRealm2
+          ? ENVIRONMENT_IDS.SUNKEN_CHAMBER
+          : ENVIRONMENT_IDS.CHAMBER,
     );
     this.chamberSystem.setActiveLevel(
-      isRealm2
-        ? this.sceneManager.sunkenAqueductLevel
-        : this.sceneManager.icePalaceLevel,
+      isRealm3
+        ? this.sceneManager.cyberBackstageLevel
+        : isRealm2
+          ? this.sceneManager.sunkenAqueductLevel
+          : this.sceneManager.icePalaceLevel,
       realm,
     );
     this.marinaRig.root.visible = false;
     this.serenaRig.root.visible = false;
 
-    const spawnX = isRealm2
-      ? SUNKEN_CHAMBER_CONFIG.playerSpawnX
-      : CHAMBER_CONFIG.playerSpawnX;
-    const spawnZ = isRealm2
-      ? SUNKEN_CHAMBER_CONFIG.playerSpawnZ
-      : CHAMBER_CONFIG.playerSpawnZ;
-    const spawnYaw = isRealm2
-      ? SUNKEN_CHAMBER_CONFIG.playerSpawnYaw
-      : CHAMBER_CONFIG.playerSpawnYaw;
+    const spawnX = isRealm3
+      ? HARMONIC_CHAMBER_CONFIG.playerSpawnX
+      : isRealm2
+        ? SUNKEN_CHAMBER_CONFIG.playerSpawnX
+        : CHAMBER_CONFIG.playerSpawnX;
+    const spawnZ = isRealm3
+      ? HARMONIC_CHAMBER_CONFIG.playerSpawnZ
+      : isRealm2
+        ? SUNKEN_CHAMBER_CONFIG.playerSpawnZ
+        : CHAMBER_CONFIG.playerSpawnZ;
+    const spawnYaw = isRealm3
+      ? HARMONIC_CHAMBER_CONFIG.playerSpawnYaw
+      : isRealm2
+        ? SUNKEN_CHAMBER_CONFIG.playerSpawnYaw
+        : CHAMBER_CONFIG.playerSpawnYaw;
 
     const player = this.world.queryFirst(
       'playerTag',
@@ -794,9 +826,11 @@ export class GameEngine implements IGameController {
       CAMERA_CONFIG.combatInitialPitch,
     );
 
-    const nextAudioMode = isRealm2
-      ? AUDIO_MODES.SUNKEN_CHAMBER
-      : AUDIO_MODES.CHAMBER;
+    const nextAudioMode = isRealm3
+      ? AUDIO_MODES.HARMONIC_CHAMBER
+      : isRealm2
+        ? AUDIO_MODES.SUNKEN_CHAMBER
+        : AUDIO_MODES.CHAMBER;
     const store = useGameStore.getState();
     store.setActiveRealm(realm);
     store.setEncoreTier(encoreTier);
@@ -1037,17 +1071,26 @@ export class GameEngine implements IGameController {
 
     const activeRealm = useGameStore.getState().activeRealm;
     const isRealm2 = activeRealm === 2;
+    const isRealm3 = activeRealm === 3;
     const nextTier = encoreTier ?? useGameStore.getState().encoreTier;
     this.activateBossForRealm(activeRealm, nextTier);
     this.sceneManager.setEnvironment(
-      isRealm2 ? ENVIRONMENT_IDS.SUNKEN_SUMMIT : ENVIRONMENT_IDS.SUMMIT,
+      isRealm3
+        ? ENVIRONMENT_IDS.HARMONIC_SUMMIT
+        : isRealm2
+          ? ENVIRONMENT_IDS.SUNKEN_SUMMIT
+          : ENVIRONMENT_IDS.SUMMIT,
     );
     this.bossRig.root.visible = true;
 
     this.inputSystem.resetTransientInputs();
     this.movementSystem.resetTransientState();
 
-    const baseBossMaxHp = isRealm2 ? SERENA_CONFIG.maxHp : BOSS_CONFIG.maxHp;
+    const baseBossMaxHp = isRealm3
+      ? MIKU_CONFIG.maxHp
+      : isRealm2
+        ? SERENA_CONFIG.maxHp
+        : BOSS_CONFIG.maxHp;
     const scaledBossMaxHp = Math.round(
       baseBossMaxHp *
         Math.pow(NG_PLUS_CONFIG.bossHpMultiplierPerTier, nextTier),
@@ -1124,18 +1167,22 @@ export class GameEngine implements IGameController {
       CAMERA_CONFIG.combatInitialPitch,
     );
     this.sceneManager.setPhaseAtmosphere(BOSS_PHASES.PHASE_1);
-    const bossAudioMode = isRealm2
-      ? AUDIO_MODES.SUNKEN_BOSS
-      : AUDIO_MODES.COMBAT_P1;
+    const bossAudioMode = isRealm3
+      ? AUDIO_MODES.HARMONIC_BOSS
+      : isRealm2
+        ? AUDIO_MODES.SUNKEN_BOSS
+        : AUDIO_MODES.COMBAT_P1;
     this.sound.setMode(bossAudioMode);
 
     const store = useGameStore.getState();
     store.resetForDuel(
       nextTier,
       baseBossMaxHp,
-      isRealm2
-        ? SERENA_CONFIG.tidalSweep.subtitle
-        : BOSS_CONFIG.phase1.subtitle,
+      isRealm3
+        ? MIKU_CONFIG.reverberationArc.subtitle
+        : isRealm2
+          ? SERENA_CONFIG.tidalSweep.subtitle
+          : BOSS_CONFIG.phase1.subtitle,
     );
     store.setAudioMode(bossAudioMode);
     this.renderSyncSystem.flushHudSnapshot();
@@ -1145,6 +1192,12 @@ export class GameEngine implements IGameController {
     this.sceneManager.setPhaseAtmosphere(phase);
     const store = useGameStore.getState();
     store.setBossPhase(phase);
+
+    if (store.activeRealm === 3) {
+      this.sound.setMode(AUDIO_MODES.HARMONIC_BOSS);
+      store.setAudioMode(AUDIO_MODES.HARMONIC_BOSS);
+      return;
+    }
 
     if (store.activeRealm === 2) {
       this.sound.setMode(AUDIO_MODES.SUNKEN_BOSS);
@@ -1184,8 +1237,13 @@ export class GameEngine implements IGameController {
     if (this.state === GAME_STATES.CHAMBER_COMBAT) {
       this.chamberSystem.cleanupChambers();
       const isRealm2 = activeRealm === 2;
+      const isRealm3 = activeRealm === 3;
       this.sceneManager.setEnvironment(
-        isRealm2 ? ENVIRONMENT_IDS.SUNKEN_SUMMIT : ENVIRONMENT_IDS.SUMMIT,
+        isRealm3
+          ? ENVIRONMENT_IDS.HARMONIC_SUMMIT
+          : isRealm2
+            ? ENVIRONMENT_IDS.SUNKEN_SUMMIT
+            : ENVIRONMENT_IDS.SUMMIT,
       );
       this.bossRig.root.visible = true;
     }

@@ -5,7 +5,9 @@ import {
   BOSS_PHASES,
   CHAMBER_CONFIG,
   ENVIRONMENT_IDS,
+  HARMONIC_CHAMBER_CONFIG,
   LOBBY_CONFIG,
+  MIKU_CONFIG,
   PALETTE,
   SERENA_CONFIG,
   SIPHON_GALLERY_CONFIG,
@@ -13,6 +15,8 @@ import {
   type BossPhase,
   type EnvironmentId,
 } from '../config/gameConfig';
+import { AstralConcertStageLevel } from '../levels/AstralConcertStageLevel';
+import { CyberBackstageLevel } from '../levels/CyberBackstageLevel';
 import { IcePalaceLevel } from '../levels/IcePalaceLevel';
 import { MageTowerLevel } from '../levels/MageTowerLevel';
 import { PearlAmphitheaterLevel } from '../levels/PearlAmphitheaterLevel';
@@ -288,6 +292,8 @@ export class SceneManager implements IArenaGeometry {
   public readonly mageTowerLevel: MageTowerLevel;
   public readonly sunkenAqueductLevel: SunkenAqueductLevel;
   public readonly pearlAmphitheaterLevel: PearlAmphitheaterLevel;
+  public readonly cyberBackstageLevel: CyberBackstageLevel;
+  public readonly astralConcertStageLevel: AstralConcertStageLevel;
 
   private readonly _summitBounds: CircularArenaBounds = Object.freeze({
     kind: ARENA_BOUNDS_KINDS.CIRCULAR,
@@ -299,6 +305,12 @@ export class SceneManager implements IArenaGeometry {
     kind: ARENA_BOUNDS_KINDS.CIRCULAR,
     radius: SERENA_CONFIG.arenaRadius,
     clampRadius: SERENA_CONFIG.playerClampRadius,
+  });
+
+  private readonly _harmonicSummitBounds: CircularArenaBounds = Object.freeze({
+    kind: ARENA_BOUNDS_KINDS.CIRCULAR,
+    radius: MIKU_CONFIG.arenaRadius,
+    clampRadius: MIKU_CONFIG.playerClampRadius,
   });
 
   private readonly _lobbyBounds: CircularArenaBounds = Object.freeze({
@@ -348,6 +360,24 @@ export class SceneManager implements IArenaGeometry {
       SUNKEN_CHAMBER_CONFIG.movementWallPadding,
   });
 
+  private readonly _harmonicChamberBounds: RectangularArenaBounds =
+    Object.freeze({
+      kind: ARENA_BOUNDS_KINDS.RECTANGULAR,
+      halfWidth: HARMONIC_CHAMBER_CONFIG.width * 0.5,
+      halfLength: HARMONIC_CHAMBER_CONFIG.length * 0.5,
+      minX: -(
+        HARMONIC_CHAMBER_CONFIG.width * 0.5 -
+        HARMONIC_CHAMBER_CONFIG.movementWallPadding
+      ),
+      maxX:
+        HARMONIC_CHAMBER_CONFIG.width * 0.5 -
+        HARMONIC_CHAMBER_CONFIG.movementWallPadding,
+      minZ: HARMONIC_CHAMBER_CONFIG.portalZ + 1.0,
+      maxZ:
+        HARMONIC_CHAMBER_CONFIG.length * 0.5 -
+        HARMONIC_CHAMBER_CONFIG.movementWallPadding,
+    });
+
   private _activeEnvironment: EnvironmentId = ENVIRONMENT_IDS.SUMMIT;
   private readonly _pillarColliders: PillarCollider[] = [];
   private readonly _pillarMeshes: THREE.Object3D[] = [];
@@ -381,6 +411,12 @@ export class SceneManager implements IArenaGeometry {
     if (this._activeEnvironment === ENVIRONMENT_IDS.SUNKEN_SUMMIT) {
       return this._sunkenSummitBounds;
     }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.HARMONIC_CHAMBER) {
+      return this._harmonicChamberBounds;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.HARMONIC_SUMMIT) {
+      return this._harmonicSummitBounds;
+    }
     if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
       return this.isLobbyGalleryUnlocked
         ? this._compositeLobbyBounds
@@ -413,6 +449,12 @@ export class SceneManager implements IArenaGeometry {
     if (this._activeEnvironment === ENVIRONMENT_IDS.SUNKEN_SUMMIT) {
       return this.pearlAmphitheaterLevel.cameraColliders;
     }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.HARMONIC_CHAMBER) {
+      return this.cyberBackstageLevel.cameraColliders;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.HARMONIC_SUMMIT) {
+      return this.astralConcertStageLevel.cameraColliders;
+    }
     if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
       return this.mageTowerLevel.cameraColliders;
     }
@@ -429,6 +471,12 @@ export class SceneManager implements IArenaGeometry {
     if (this._activeEnvironment === ENVIRONMENT_IDS.SUNKEN_SUMMIT) {
       return this.pearlAmphitheaterLevel.pillarColliders;
     }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.HARMONIC_CHAMBER) {
+      return this.cyberBackstageLevel.pillarColliders;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.HARMONIC_SUMMIT) {
+      return this.astralConcertStageLevel.pillarColliders;
+    }
     if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
       return this.mageTowerLevel.pillarColliders;
     }
@@ -444,6 +492,12 @@ export class SceneManager implements IArenaGeometry {
     }
     if (this._activeEnvironment === ENVIRONMENT_IDS.SUNKEN_SUMMIT) {
       return this.pearlAmphitheaterLevel.pillarMeshes;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.HARMONIC_CHAMBER) {
+      return this.cyberBackstageLevel.pillarMeshes;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.HARMONIC_SUMMIT) {
+      return this.astralConcertStageLevel.pillarMeshes;
     }
     if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
       return this.mageTowerLevel.pillarMeshes;
@@ -505,6 +559,15 @@ export class SceneManager implements IArenaGeometry {
     this.pearlAmphitheaterLevel = new PearlAmphitheaterLevel();
     this.pearlAmphitheaterLevel.root.visible = false;
     this.scene.add(this.pearlAmphitheaterLevel.root);
+
+    // Build Realm III: Cyber Backstage & Astral Concert Stage environment groups
+    this.cyberBackstageLevel = new CyberBackstageLevel();
+    this.cyberBackstageLevel.root.visible = false;
+    this.scene.add(this.cyberBackstageLevel.root);
+
+    this.astralConcertStageLevel = new AstralConcertStageLevel();
+    this.astralConcertStageLevel.root.visible = false;
+    this.scene.add(this.astralConcertStageLevel.root);
   }
 
   /**
@@ -1031,12 +1094,16 @@ export class SceneManager implements IArenaGeometry {
     const isSummit = env === ENVIRONMENT_IDS.SUMMIT;
     const isSunkenChamber = env === ENVIRONMENT_IDS.SUNKEN_CHAMBER;
     const isSunkenSummit = env === ENVIRONMENT_IDS.SUNKEN_SUMMIT;
+    const isHarmonicChamber = env === ENVIRONMENT_IDS.HARMONIC_CHAMBER;
+    const isHarmonicSummit = env === ENVIRONMENT_IDS.HARMONIC_SUMMIT;
 
     this.arenaGroup.visible = isSummit;
     this.icePalaceLevel.root.visible = isChamber;
     this.mageTowerLevel.root.visible = isLobby;
     this.sunkenAqueductLevel.root.visible = isSunkenChamber;
     this.pearlAmphitheaterLevel.root.visible = isSunkenSummit;
+    this.cyberBackstageLevel.root.visible = isHarmonicChamber;
+    this.astralConcertStageLevel.root.visible = isHarmonicSummit;
 
     if (isLobby) {
       const LL = LOBBY_CONFIG.lighting;
@@ -1124,6 +1191,64 @@ export class SceneManager implements IArenaGeometry {
       if (this.frostRim) {
         this.frostRim.color.setHex(PALETTE.atlanteanGold);
         this.frostRim.intensity = AL.rimIntensity;
+      }
+    } else if (isHarmonicChamber) {
+      const HL = HARMONIC_CHAMBER_CONFIG.lighting;
+      this.scene.background = new THREE.Color(PALETTE.cyberObsidian);
+      this.scene.fog = new THREE.FogExp2(PALETTE.cyberObsidian, HL.fogDensity);
+
+      if (this.hemiLight) {
+        this.hemiLight.color.setHex(PALETTE.mikuCyan);
+        this.hemiLight.groundColor.setHex(PALETTE.cyberObsidian);
+        this.hemiLight.intensity = HL.hemiIntensity;
+      }
+      if (this.moonLight) {
+        this.moonLight.color.setHex(PALETTE.pureWhite);
+        this.moonLight.intensity = HL.keyIntensity;
+        this.moonLight.position.set(8, 22, 10);
+        const d = HL.shadowExtent;
+        this.moonLight.shadow.camera.left = -d;
+        this.moonLight.shadow.camera.right = d;
+        this.moonLight.shadow.camera.top = d;
+        this.moonLight.shadow.camera.bottom = -d;
+        this.moonLight.shadow.camera.updateProjectionMatrix();
+      }
+      if (this.amethystRim) {
+        this.amethystRim.color.setHex(PALETTE.harmonicMagenta);
+        this.amethystRim.intensity = HL.rimIntensity;
+      }
+      if (this.frostRim) {
+        this.frostRim.color.setHex(PALETTE.harmonicEmerald);
+        this.frostRim.intensity = HL.rimIntensity;
+      }
+    } else if (isHarmonicSummit) {
+      const ML = MIKU_CONFIG.lighting;
+      this.scene.background = new THREE.Color(PALETTE.cyberObsidian);
+      this.scene.fog = new THREE.FogExp2(PALETTE.cyberObsidian, ML.fogDensity);
+
+      if (this.hemiLight) {
+        this.hemiLight.color.setHex(PALETTE.mikuCyan);
+        this.hemiLight.groundColor.setHex(PALETTE.cyberStageDark);
+        this.hemiLight.intensity = ML.hemiIntensity;
+      }
+      if (this.moonLight) {
+        this.moonLight.color.setHex(PALETTE.pureWhite);
+        this.moonLight.intensity = ML.keyIntensity;
+        this.moonLight.position.set(12, 28, 12);
+        const d = ML.shadowExtent;
+        this.moonLight.shadow.camera.left = -d;
+        this.moonLight.shadow.camera.right = d;
+        this.moonLight.shadow.camera.top = d;
+        this.moonLight.shadow.camera.bottom = -d;
+        this.moonLight.shadow.camera.updateProjectionMatrix();
+      }
+      if (this.amethystRim) {
+        this.amethystRim.color.setHex(PALETTE.harmonicMagenta);
+        this.amethystRim.intensity = ML.rimIntensity;
+      }
+      if (this.frostRim) {
+        this.frostRim.color.setHex(PALETTE.harmonicEmerald);
+        this.frostRim.intensity = ML.rimIntensity;
       }
     } else if (isChamber) {
       const CL = CHAMBER_CONFIG.lighting;
@@ -1258,6 +1383,14 @@ export class SceneManager implements IArenaGeometry {
       this.pearlAmphitheaterLevel.update(dt, elapsed);
       return;
     }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.HARMONIC_CHAMBER) {
+      this.cyberBackstageLevel.update(dt, elapsed);
+      return;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.HARMONIC_SUMMIT) {
+      this.astralConcertStageLevel.update(dt, elapsed);
+      return;
+    }
 
     this.auroraIntensityScale +=
       (this.targetAuroraScale - this.auroraIntensityScale) *
@@ -1349,6 +1482,8 @@ export class SceneManager implements IArenaGeometry {
     this.icePalaceLevel.dispose();
     this.sunkenAqueductLevel.dispose();
     this.pearlAmphitheaterLevel.dispose();
+    this.cyberBackstageLevel.dispose();
+    this.astralConcertStageLevel.dispose();
     this.renderer.dispose();
     if (this.renderer.domElement.parentElement) {
       this.renderer.domElement.parentElement.removeChild(

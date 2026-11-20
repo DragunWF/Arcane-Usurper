@@ -134,10 +134,12 @@ export class MageTowerLevel {
     THREE.PointsMaterial
   > | null = null;
 
-  // Realm III Ward Barrier
-  private realm3WardGroup: THREE.Group | null = null;
-  private realm3WardMat: THREE.MeshBasicMaterial | null = null;
-  private realm3RippleTimer = 0;
+  // Realm III Active Emerald-and-Magenta Harmonic Vortex & Rising Synth Motes
+  private realm3VortexMat: THREE.ShaderMaterial | null = null;
+  private realm3SynthMotes: THREE.Points<
+    THREE.BufferGeometry,
+    THREE.PointsMaterial
+  > | null = null;
 
   // Siphon Gallery Annex (Southern Archway, Velvet Bridge, Bound Marina & Bound Serena)
   private galleryWardGroup: THREE.Group | null = null;
@@ -1623,7 +1625,7 @@ export class MageTowerLevel {
     r3Arch.position.y = centerY;
     r3Group.add(r3Arch);
 
-    // Dormant Emerald & Magenta Tuning Crystals crowning the Monolith Pillars
+    // Active Emerald & Magenta Tuning Crystals crowning the Monolith Pillars
     const tuningGeo = this.trackGeo(new THREE.OctahedronGeometry(0.26, 0));
     const tL = new THREE.Mesh(tuningGeo, emeraldMat);
     tL.position.set(-ringR - 0.12, plinthTopY + monolithH + 0.68, 0);
@@ -1631,29 +1633,63 @@ export class MageTowerLevel {
     tR.position.set(ringR + 0.12, plinthTopY + monolithH + 0.68, 0);
     r3Group.add(tL, tR);
 
-    this.realm3WardGroup = new THREE.Group();
-    this.realm3WardGroup.position.set(0, centerY, 0.04);
-    this.realm3WardMat = this.trackMat(
-      new THREE.MeshBasicMaterial({
-        color: PALETTE.harmonicEmerald,
+    // Active swirling emerald-and-magenta GLSL harmonic vortex
+    this.realm3VortexMat = this.trackMat(
+      new THREE.ShaderMaterial({
+        vertexShader: REALM1_VORTEX_VERTEX_SHADER,
+        fragmentShader: REALM1_VORTEX_FRAGMENT_SHADER,
+        uniforms: {
+          uTime: { value: 0 },
+          uColorCyan: { value: new THREE.Color(PALETTE.harmonicEmerald) },
+          uColorViolet: { value: new THREE.Color(PALETTE.harmonicMagenta) },
+          uColorCore: { value: new THREE.Color(PALETTE.mikuCyan) },
+          uColorDeep: { value: new THREE.Color(PALETTE.cyberObsidian) },
+        },
         transparent: true,
-        opacity: 0.32,
         side: THREE.DoubleSide,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
     );
-    const r3Barrier = new THREE.Mesh(
-      this.trackGeo(new THREE.CircleGeometry(ringR - 0.16, 24)),
-      this.realm3WardMat,
+    const r3VortexMesh = new THREE.Mesh(
+      this.trackGeo(new THREE.CircleGeometry(ringR - 0.14, 36)),
+      this.realm3VortexMat,
     );
-    const r3Ring = new THREE.Mesh(
-      this.trackGeo(new THREE.RingGeometry(0.75, 0.85, 6)),
-      magentaMat,
+    r3VortexMesh.position.set(0, centerY, 0.04);
+    r3Group.add(r3VortexMesh);
+
+    const r3Light = new THREE.PointLight(
+      PALETTE.harmonicEmerald,
+      LOBBY_CONFIG.lighting.portalLightIntensity,
+      LOBBY_CONFIG.lighting.portalLightDistance,
+      1.7,
     );
-    r3Ring.position.z = 0.02;
-    this.realm3WardGroup.add(r3Barrier, r3Ring);
-    r3Group.add(this.realm3WardGroup);
+    r3Light.position.set(0, centerY, 1.1);
+    r3Group.add(r3Light);
+
+    // Rising neon synth-spark motes framing the unsealed Realm III alcove
+    const synthCount = LOBBY_CONFIG.realm1SnowMoteCount;
+    const synthPos = new Float32Array(synthCount * 3);
+    for (let i = 0; i < synthCount; i++) {
+      synthPos[i * 3 + 0] = (Math.random() - 0.5) * 3.4;
+      synthPos[i * 3 + 1] = 0.2 + Math.random() * 4.4;
+      synthPos[i * 3 + 2] = 0.2 + Math.random() * 1.4;
+    }
+    const synthGeo = this.trackGeo(new THREE.BufferGeometry());
+    synthGeo.setAttribute('position', new THREE.BufferAttribute(synthPos, 3));
+    const synthMat = this.trackMat(
+      new THREE.PointsMaterial({
+        map: ToonAssets.getSparkTexture(),
+        color: PALETTE.mikuCyan,
+        size: 0.2,
+        transparent: true,
+        opacity: 0.84,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.realm3SynthMotes = new THREE.Points(synthGeo, synthMat);
+    r3Group.add(this.realm3SynthMotes);
     this.root.add(r3Group);
   }
 
@@ -3123,10 +3159,8 @@ export class MageTowerLevel {
   /**
    * Triggers a glowing ward ripple on sealed Realm III (Harmonic Citadel).
    */
-  public triggerWardRipple(realmIndex: 2 | 3 = 3): void {
-    if (realmIndex === 3) {
-      this.realm3RippleTimer = 0.65;
-    }
+  public triggerWardRipple(_realmIndex: 2 | 3 = 3): void {
+    // All three Northern Realm Portals are now unsealed and active
   }
 
   /**
@@ -3237,17 +3271,19 @@ export class MageTowerLevel {
       posAttr.needsUpdate = true;
     }
 
-    if (this.realm3WardMat && this.realm3WardGroup) {
-      if (this.realm3RippleTimer > 0) {
-        this.realm3RippleTimer = Math.max(0, this.realm3RippleTimer - dt);
-        const r = this.realm3RippleTimer / 0.65;
-        this.realm3WardMat.opacity = 0.32 + r * 0.55;
-        const s = 1 + Math.sin(time * 32) * 0.04 * r;
-        this.realm3WardGroup.scale.set(s, s, 1);
-      } else {
-        this.realm3WardMat.opacity = 0.26 + 0.08 * Math.sin(time * 2.6 + 1.2);
-        this.realm3WardGroup.scale.set(1, 1, 1);
+    if (this.realm3VortexMat) {
+      this.realm3VortexMat.uniforms.uTime!.value = time * 1.12;
+    }
+    if (this.realm3SynthMotes) {
+      const posAttr = this.realm3SynthMotes.geometry.getAttribute(
+        'position',
+      ) as THREE.BufferAttribute;
+      for (let i = 0; i < posAttr.count; i++) {
+        let y = posAttr.getY(i) + dt * 0.78;
+        if (y > 4.5) y = 0.2;
+        posAttr.setY(i, y);
       }
+      posAttr.needsUpdate = true;
     }
 
     // 8. Animate Siphon Gallery southern ward seal & cold-flame braziers

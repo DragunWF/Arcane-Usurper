@@ -78,6 +78,8 @@ export const AUDIO_MODES = Object.freeze({
   CHAMBER: 'CHAMBER',
   SUNKEN_CHAMBER: 'SUNKEN_CHAMBER',
   SUNKEN_BOSS: 'SUNKEN_BOSS',
+  HARMONIC_CHAMBER: 'HARMONIC_CHAMBER',
+  HARMONIC_BOSS: 'HARMONIC_BOSS',
 } as const);
 
 export type AudioMode = (typeof AUDIO_MODES)[keyof typeof AUDIO_MODES];
@@ -88,6 +90,8 @@ export const ENVIRONMENT_IDS = Object.freeze({
   SUMMIT: 'SUMMIT',
   SUNKEN_CHAMBER: 'SUNKEN_CHAMBER',
   SUNKEN_SUMMIT: 'SUNKEN_SUMMIT',
+  HARMONIC_CHAMBER: 'HARMONIC_CHAMBER',
+  HARMONIC_SUMMIT: 'HARMONIC_SUMMIT',
 } as const);
 
 export type EnvironmentId =
@@ -97,6 +101,7 @@ export type SceneEnvironment = EnvironmentId;
 export const LOBBY_PROMPT_KINDS = Object.freeze({
   REALM_1: 'REALM_1',
   REALM_2: 'REALM_2',
+  REALM_3: 'REALM_3',
   REALM_2_SEALED: 'REALM_2_SEALED',
   REALM_3_SEALED: 'REALM_3_SEALED',
   TROPHY_PEDESTAL: 'TROPHY_PEDESTAL',
@@ -154,6 +159,7 @@ export type ServantAnimState =
 export const DESTRUCTIBLE_PROP_TYPES = Object.freeze({
   FROST_URN: 'FROST_URN',
   PEARL_URN: 'PEARL_URN',
+  ACOUSTIC_CAPACITOR: 'ACOUSTIC_CAPACITOR',
 } as const);
 
 export type DestructiblePropType =
@@ -192,6 +198,10 @@ export const SERVANT_ARCHETYPES = Object.freeze({
   ABYSSAL_SIREN_WEAVER: 'ABYSSAL_SIREN_WEAVER',
   RAZORFIN_MANTA: 'RAZORFIN_MANTA',
   CORAL_BASTION: 'CORAL_BASTION',
+  PULSE_STRIKER: 'PULSE_STRIKER',
+  SYNTH_CANTOR: 'SYNTH_CANTOR',
+  FREQUENCY_DRONE: 'FREQUENCY_DRONE',
+  AEGIS_MONOLITH: 'AEGIS_MONOLITH',
 } as const);
 
 export type ServantArchetype =
@@ -206,6 +216,16 @@ export const SUNKEN_SERVANT_ARCHETYPES = Object.freeze({
 
 export type SunkenServantArchetype =
   (typeof SUNKEN_SERVANT_ARCHETYPES)[keyof typeof SUNKEN_SERVANT_ARCHETYPES];
+
+export const HARMONIC_SERVANT_ARCHETYPES = Object.freeze({
+  PULSE_STRIKER: SERVANT_ARCHETYPES.PULSE_STRIKER,
+  SYNTH_CANTOR: SERVANT_ARCHETYPES.SYNTH_CANTOR,
+  FREQUENCY_DRONE: SERVANT_ARCHETYPES.FREQUENCY_DRONE,
+  AEGIS_MONOLITH: SERVANT_ARCHETYPES.AEGIS_MONOLITH,
+} as const);
+
+export type HarmonicServantArchetype =
+  (typeof HARMONIC_SERVANT_ARCHETYPES)[keyof typeof HARMONIC_SERVANT_ARCHETYPES];
 
 // ============================================================================
 // COLOR PALETTE TOKENS (Three.js numeric hex + CSS string hex)
@@ -319,6 +339,15 @@ export const PALETTE = Object.freeze({
   serenaBubbleGlow: 0x67e8f9,
   serenaWhirlpoolCore: 0x14b8a6,
 
+  // Realm III — The Harmonic Citadel (Cyber Backstage & Astral Concert Stage)
+  cyberObsidian: 0x090d16,
+  mikuCyan: 0x2dd4bf,
+  trussChrome: 0x64748b,
+  cyberStageDark: 0x0f172a,
+  cyberStageMid: 0x1e293b,
+  speakerConeDark: 0x09090b,
+  flightCaseSlate: 0x334155,
+
   // CSS Hex Strings for Canvas2D, Tailwind inline styles, and SVG tokens
   hex: Object.freeze({
     midnightSky: '#040711',
@@ -401,6 +430,13 @@ export const PALETTE = Object.freeze({
     serenaEyeBottom: '#99F6E4',
     serenaEyeRim: '#042F2E',
     serenaBrow: '#0D9488',
+    cyberObsidian: '#090D16',
+    mikuCyan: '#2DD4BF',
+    trussChrome: '#64748B',
+    cyberStageDark: '#0F172A',
+    cyberStageMid: '#1E293B',
+    speakerConeDark: '#09090B',
+    flightCaseSlate: '#334155',
   } as const),
 
   // Canvas2D RGBA & Gradient Stop Tokens (Zero Inline Color Literals)
@@ -470,6 +506,18 @@ export const PALETTE = Object.freeze({
     atlanteanGoldBright: 'rgba(234, 179, 8, 0.92)',
     pearlMosaicGlow: 'rgba(248, 250, 252, 0.65)',
     seaTileJoint: 'rgba(4, 30, 43, 0.72)',
+
+    // Realm III — Harmonic Citadel Canvas Tokens
+    hazardStripeCyan: 'rgba(45, 212, 191, 0.72)',
+    hazardStripeMagenta: 'rgba(236, 72, 153, 0.72)',
+    cyberGridEmerald: 'rgba(16, 185, 129, 0.88)',
+    cyberGridMagenta: 'rgba(236, 72, 153, 0.88)',
+    cyberGridSoft: 'rgba(45, 212, 191, 0.36)',
+    cyberTileJoint: 'rgba(9, 13, 22, 0.78)',
+    eqBarEmerald: 'rgba(16, 185, 129, 0.92)',
+    eqBarCyan: 'rgba(45, 212, 191, 0.92)',
+    eqBarMagenta: 'rgba(236, 72, 153, 0.95)',
+    eqBarPeak: 'rgba(248, 250, 252, 0.96)',
   } as const),
 } as const);
 
@@ -833,6 +881,7 @@ export const FINISHER_CONFIG = Object.freeze({
   dipMageExtraPitch: 0.46,
   reinsRootSeparation: 0.48,
   staffLeanRootSeparation: 0.52,
+  mikuWaistWrapRadius: 0.31,
   poseBlendSpeed: 6.5,
   poseTransitionDurationSec: 0.25,
   earlyBreathFreq: 5.5,
@@ -1867,6 +1916,350 @@ export const SERENA_CONFIG = Object.freeze({
 } as const);
 
 // ============================================================================
+// REALM III — THE HARMONIC CITADEL (CYBER BACKSTAGE, SERVANTS & MIKU)
+// ============================================================================
+
+export interface HarmonicWaveEntry {
+  readonly archetype: HarmonicServantArchetype;
+  readonly count: number;
+}
+
+export interface HarmonicChamberWaveRecipe {
+  readonly servants: readonly HarmonicWaveEntry[];
+}
+
+export const HARMONIC_CHAMBER_CONFIG = Object.freeze({
+  // Rectangular Cyber-Arcane Backstage Hall Bounds (matching Chamber scale)
+  width: 24,
+  length: 52,
+  wallHeight: 11.4,
+  wallThickness: 1.2,
+  movementWallPadding: 1.2,
+  playerSpawnX: 0,
+  playerSpawnZ: 22.0,
+  playerSpawnYaw: Math.PI,
+
+  // Towering Line-Array Subwoofer Speaker-Stack Pillars & Overhead Trusses
+  pillarCountPerSide: 6,
+  pillarRowX: 8.4,
+  pillarStartZ: 18.5,
+  pillarSpacing: 7.4,
+  pillarRadius: 0.78,
+  pillarCollisionRadius: 0.92,
+  pillarHeight: 8.6,
+  ceilingY: 13.8,
+  trussY: 10.6,
+  trussSpanX: 16.8,
+  spotlightConeLength: 9.8,
+  spotlightConeRadius: 2.35,
+
+  // Central Dark-Velvet VIP Runner & Backstage Props
+  carpetWidth: 4.2,
+  carpetStartZ: 24.5,
+  carpetEndZ: -15.8,
+  carpetY: 0.014,
+  flightCaseCountPerSide: 4,
+  flightCaseRowX: 10.35,
+  flightCaseZPositions: Object.freeze([15.2, 6.8, -1.6, -10.0] as const),
+  mixingDeskRowX: 10.1,
+  mixingDeskZPositions: Object.freeze([10.8, -5.8] as const),
+  wardrobeRackRowX: 10.2,
+  wardrobeRackZPositions: Object.freeze([2.4, -14.2] as const),
+  floorTextureSize: 1024,
+  eqTextureWidth: 256,
+  eqTextureHeight: 128,
+  eqBarCount: 16,
+
+  // Rising Neon Synth-Note & Harmonic Dust Motes
+  synthMoteCount: 220,
+  synthMoteRiseSpeed: 0.54,
+  synthMoteSwayAmp: 0.38,
+
+  // 8 Destructible Acoustic Capacitor Canisters
+  urnCount: 8,
+  urnHealAmount: 8,
+  urnHp: 1,
+  urnRowX: 7.25,
+  urnZPositions: Object.freeze([14.2, 4.6, -5.0, -13.4] as const),
+  urnHitRadius: 0.58,
+
+  // Hydraulic VIP Stage-Lift / Harmonic Astral Portal Dais
+  daisZ: -20.6,
+  daisRadius: 5.4,
+  daisTierHeights: Object.freeze([0.1, 0.18] as const),
+  daisTierRadiusStep: 1.05,
+  portalZ: -22.3,
+  portalCenterY: 3.35,
+  portalRingRadius: 2.7,
+  portalTubeRadius: 0.3,
+  portalRuneSegmentCount: 12,
+  portalPylonOffsetX: 3.45,
+  portalPylonCollisionRadius: 0.75,
+  portalInteractionRadius: 4.0,
+  portalSealPulseSpeed: 2.2,
+  portalVortexSwirlSpeed: 1.9,
+  portalVortexArms: 6,
+  portalIgniteLerp: 4.0,
+  portalSpinSpeed: 0.45,
+
+  // Wave Escalation & Portal Flow
+  waveEscalationDelay: 1.5,
+  portalWarpDuration: 1.1,
+  portalIgniteDuration: 0.9,
+
+  // Cyber-Arcane Backstage Lighting
+  lighting: Object.freeze({
+    hemiIntensity: 1.25,
+    keyIntensity: 2.15,
+    rimIntensity: 1.4,
+    fogDensity: 0.0155,
+    shadowExtent: 28,
+    portalLightSealed: 1.8,
+    portalLightIgnited: 9.4,
+    portalLightDistance: 15.0,
+    portalLightDecay: 1.6,
+    spotlightIntensity: 5.4,
+    spotlightDistance: 11.5,
+    spotlightDecay: 1.7,
+  } as const),
+
+  WAVES: Object.freeze([
+    Object.freeze({
+      servants: Object.freeze([
+        Object.freeze({ archetype: HARMONIC_SERVANT_ARCHETYPES.PULSE_STRIKER, count: 2 }),
+        Object.freeze({ archetype: HARMONIC_SERVANT_ARCHETYPES.SYNTH_CANTOR, count: 2 }),
+      ]),
+    }),
+    Object.freeze({
+      servants: Object.freeze([
+        Object.freeze({ archetype: HARMONIC_SERVANT_ARCHETYPES.AEGIS_MONOLITH, count: 1 }),
+        Object.freeze({ archetype: HARMONIC_SERVANT_ARCHETYPES.FREQUENCY_DRONE, count: 2 }),
+        Object.freeze({ archetype: HARMONIC_SERVANT_ARCHETYPES.SYNTH_CANTOR, count: 1 }),
+      ]),
+    }),
+  ] as readonly HarmonicChamberWaveRecipe[]),
+} as const);
+
+export const HARMONIC_SERVANT_CONFIG = Object.freeze({
+  // Shielded harmonic blade-guard: frontal acoustic barrier + laser-blade thrust
+  PULSE_STRIKER: Object.freeze({
+    displayName: 'Pulse Striker',
+    maxHp: 155,
+    moveSpeed: 3.45,
+    turnSpeed: 5.6,
+    damage: 17,
+    attackCooldown: 2.1,
+    attackTelegraph: 0.62,
+    attackRecovery: 0.54,
+    attackRange: 2.6,
+    preferredRange: 1.9,
+    aggroRadius: 30,
+    hitRadius: 0.74,
+    hitHeight: 2.25,
+    spawnDuration: 1.1,
+    scale: 1.0,
+    shieldBlockArcRad: Math.PI * 0.58,
+    shieldBlockDamageMultiplier: 0.15,
+    guardBreakHits: 4,
+    guardBreakDuration: 2.5,
+    guardBrokenDamageMultiplier: 1.5,
+  } as const),
+
+  // Floating cyber-chorister: launches tri-chord synth note volleys
+  SYNTH_CANTOR: Object.freeze({
+    displayName: 'Synth Cantor',
+    maxHp: 78,
+    moveSpeed: 3.2,
+    turnSpeed: 7.4,
+    damage: 11,
+    attackCooldown: 2.4,
+    attackTelegraph: 0.65,
+    attackRecovery: 0.48,
+    attackRange: 15.5,
+    preferredRange: 10.5,
+    aggroRadius: 30,
+    hitRadius: 0.56,
+    hitHeight: 1.98,
+    spawnDuration: 1.0,
+    scale: 0.96,
+    boltSpeed: 13.4,
+    boltRadius: 0.44,
+    boltLife: 2.8,
+    boltSpread: 0.24,
+    boltsPerVolley: 3,
+    boltHeight: 1.32,
+  } as const),
+
+  // Agile hovering audio-construct: banks laterally before high-speed frequency slash
+  FREQUENCY_DRONE: Object.freeze({
+    displayName: 'Frequency Drone',
+    maxHp: 64,
+    moveSpeed: 6.8,
+    turnSpeed: 9.4,
+    damage: 13,
+    attackCooldown: 1.6,
+    attackTelegraph: 0.42,
+    attackRecovery: 0.56,
+    attackRange: 5.6,
+    preferredRange: 4.5,
+    aggroRadius: 30,
+    hitRadius: 0.64,
+    hitHeight: 1.2,
+    spawnDuration: 0.85,
+    scale: 1.02,
+    lungeSpeed: 16.2,
+    lungeDuration: 0.34,
+    circleAngularSpeed: 1.6,
+  } as const),
+
+  // Heavy subwoofer colossus: unleashes ground-shaking sub-bass drop shockwaves
+  AEGIS_MONOLITH: Object.freeze({
+    displayName: 'Aegis Monolith',
+    maxHp: 350,
+    moveSpeed: 2.4,
+    turnSpeed: 3.6,
+    damage: 26,
+    attackCooldown: 3.45,
+    attackTelegraph: 1.15,
+    attackRecovery: 0.9,
+    attackRange: 4.4,
+    preferredRange: 3.1,
+    aggroRadius: 30,
+    hitRadius: 1.08,
+    hitHeight: 2.95,
+    spawnDuration: 1.45,
+    scale: 1.36,
+    bassDropRadius: 4.75,
+    armorDamageMultiplier: 0.7,
+    guardBreakDuration: 3.6,
+    guardBrokenDamageMultiplier: 1.5,
+    slamCameraShake: 0.25,
+  } as const),
+} as const);
+
+export const MIKU_CONFIG = Object.freeze({
+  id: 'miku',
+  displayName: 'MIKU',
+  title: 'Sovereign of the Harmonic Citadel',
+  defeatedStorageKey: 'arcane_usurper_miku_defeated',
+  coreChargeStorageKey: 'arcane_usurper_miku_core_charge',
+  defaultCoreCharge: 1.0,
+
+  // Astral Concert Stage Circular Arena Dimensions (matching Summit arena scale)
+  arenaRadius: 18.0,
+  playerClampRadius: 15.5,
+  monolithRingRadius: 16.5,
+  monolithCount: 12,
+  monolithWidth: 1.35,
+  monolithDepth: 0.95,
+  monolithHeight: 8.2,
+  monolithCollisionRadius: 0.9,
+  tuningCrystalCount: 8,
+  tuningCrystalRingRadius: 14.6,
+  spotlightCount: 6,
+  spotlightRingRadius: 13.8,
+  synthMoteCount: 340,
+  synthMoteRadius: 24.0,
+  synthMoteMaxHeight: 20.0,
+  stageTextureSize: 1024,
+  eqTextureWidth: 128,
+  eqTextureHeight: 512,
+  eqBarCount: 20,
+
+  // Miku Boss Core Stats & 3-Phase Thresholds
+  maxHp: 1250,
+  moveSpeed: 4.8,
+  orbitRadius: 9.0,
+  floatHeight: 0.38,
+  combatBaseBodyY: 0.92,
+  hitRadius: 1.1,
+  phase2HpThreshold: 0.6,
+  phase3HpThreshold: 0.25,
+  staggerHpThreshold: 0.08,
+  phaseTransitionCooldown: 0.8,
+  attackCooldownMin: 1.1,
+  attackCooldownMax: 1.7,
+
+  // Phase 1: Reverberation Arc (sweeping sonic crescent blades)
+  reverberationArc: Object.freeze({
+    subtitle: 'PHASE I • REVERBERATION ARC',
+    arcCount: 5,
+    arcSpread: 0.98,
+    arcSpeed: 14.2,
+    arcDamage: 16,
+    arcRadius: 1.15,
+    telegraphSec: 0.4,
+    recoverySec: 0.52,
+    attackCooldown: 1.6,
+    moveSpeedMultiplier: 1.0,
+  } as const),
+
+  // Phase 1 & 2: Chord Barrage (staggered harmonic note-orb volleys)
+  chordBarrage: Object.freeze({
+    orbCount: 9,
+    orbSpeed: 11.8,
+    orbDamage: 13,
+    orbRadius: 0.44,
+    orbLife: 3.6,
+    burstCount: 3,
+    burstInterval: 0.48,
+    patternDuration: 1.85,
+  } as const),
+
+  // Phase 2: Twin-Tail Dash (high-speed stage dash leaving sonic after-bolts)
+  twinTailDash: Object.freeze({
+    subtitle: 'PHASE II • TWIN-TAIL FREQUENCY OVERDRIVE',
+    dashSpeed: 14.8,
+    dashDuration: 0.46,
+    trailBoltCount: 6,
+    trailBoltDamage: 15,
+    attackCooldown: 1.42,
+    moveSpeedMultiplier: 1.26,
+  } as const),
+
+  // Phase 2 & 3: Frequency Walls (twin sweeping emerald-magenta laser barriers)
+  frequencyWalls: Object.freeze({
+    beamCount: 2,
+    beamLength: 19.5,
+    beamDamage: 19,
+    beamTelegraphSec: 0.68,
+    beamDurationSec: 1.65,
+    sweepArcRad: 1.35,
+    patternDuration: 2.55,
+  } as const),
+
+  // Phase 3: Crescendo Overdrive (sub-bass drop eruptions + 6-arm harmonic spiral curtains)
+  crescendoOverdrive: Object.freeze({
+    subtitle: 'PHASE III • CRESCENDO OVERDRIVE',
+    bassDropCount: 5,
+    bassDropRadius: 2.4,
+    bassDropTelegraphSec: 0.88,
+    bassDropEruptDuration: 1.1,
+    bassDropDamage: 22,
+    curtainArms: 6,
+    curtainOrbSpeed: 9.4,
+    ascendHeight: 0.9,
+    patternDuration: 3.5,
+    attackCooldown: 1.2,
+    moveSpeedMultiplier: 1.48,
+  } as const),
+
+  // Astral Concert Stage Lighting
+  lighting: Object.freeze({
+    hemiIntensity: 1.35,
+    keyIntensity: 2.2,
+    rimIntensity: 1.45,
+    fogDensity: 0.0135,
+    shadowExtent: 24,
+    spotlightLightIntensity: 5.6,
+    spotlightLightDistance: 13.0,
+    spotlightLightDecay: 1.7,
+    crystalLightIntensity: 2.8,
+    crystalLightDistance: 8.5,
+  } as const),
+} as const);
+
+// ============================================================================
 // CAMERA & RETICLE CONFIGURATION
 // ============================================================================
 
@@ -1999,7 +2392,43 @@ export const AUDIO_CONFIG = Object.freeze({
     CHAMBER: 0.03,
     SUNKEN_CHAMBER: 0.026,
     SUNKEN_BOSS: 0.042,
+    HARMONIC_CHAMBER: 0.018,
+    HARMONIC_BOSS: 0.032,
   } as const),
+
+  // Realm III — Harmonic Citadel Synth-Opera Music & Cyber SFX Tables
+  harmonicChamberTempo: 116,
+  harmonicSynthBass: Object.freeze([
+    65.41, 65.41, 77.78, 77.78, 58.27, 58.27, 51.91, 58.27,
+  ] as const),
+  harmonicBellArp: Object.freeze([
+    523.25, 622.25, 783.99, 932.33, 1046.5, 932.33, 783.99, 622.25,
+    466.16, 587.33, 698.46, 932.33, 1046.5, 932.33, 698.46, 587.33,
+  ] as const),
+  harmonicBassGain: 0.14,
+  harmonicBassDuration: 0.24,
+  harmonicBellGain: 0.068,
+  harmonicBellDuration: 0.36,
+
+  harmonicBossTempo: 136,
+  harmonicBossLead: Object.freeze([
+    523.25, 622.25, 783.99, 1046.5, 932.33, 783.99, 698.46, 783.99,
+    622.25, 783.99, 932.33, 1174.66, 1046.5, 932.33, 783.99, 622.25,
+  ] as const),
+  harmonicBossBass: Object.freeze([
+    65.41, 65.41, 51.91, 51.91, 58.27, 58.27, 49.0, 58.27,
+  ] as const),
+  harmonicBossLeadGain: 0.095,
+  harmonicBossLeadDuration: 0.32,
+  harmonicBossBassGain: 0.17,
+  harmonicBossKickGain: 0.26,
+  harmonicBossSnareGain: 0.12,
+
+  // Realm III Cyber-Opera SFX Tables
+  chordBurstFreqs: Object.freeze([523.25, 659.25, 783.99, 1046.5] as const),
+  capacitorShatterGrainCount: 7,
+  capacitorShatterBaseFreq: 1950,
+  capacitorShatterFreqSpread: 2400,
 
   // Realm II — Sunken Sanctuary Music & Oceanic SFX Tables
   sunkenChamberTempo: 96,

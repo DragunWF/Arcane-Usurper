@@ -11,6 +11,7 @@ import {
   FINISHER_POSE_IDS,
   GAME_STATES,
   LOBBY_CONFIG,
+  MIKU_CONFIG,
   NG_PLUS_CONFIG,
   PLAYER_CONFIG,
   PORTAL_STATES,
@@ -157,6 +158,63 @@ function persistSerenaCoreCharge(charge: number): void {
   }
 }
 
+function readInitialMikuDefeated(): boolean {
+  try {
+    return (
+      typeof window !== 'undefined' &&
+      window.localStorage.getItem(MIKU_CONFIG.defeatedStorageKey) === 'true'
+    );
+  } catch {
+    return false;
+  }
+}
+
+function persistMikuDefeated(defeated: boolean): void {
+  try {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(
+        MIKU_CONFIG.defeatedStorageKey,
+        defeated ? 'true' : 'false',
+      );
+    }
+  } catch {
+    // Ignore storage quota / sandboxed iframe restrictions
+  }
+}
+
+function readInitialMikuCoreCharge(): number {
+  try {
+    if (typeof window === 'undefined') {
+      return MIKU_CONFIG.defaultCoreCharge;
+    }
+    const raw = window.localStorage.getItem(MIKU_CONFIG.coreChargeStorageKey);
+    if (raw === null) {
+      return MIKU_CONFIG.defaultCoreCharge;
+    }
+    const parsed = Number.parseFloat(raw);
+    if (!Number.isFinite(parsed)) {
+      return MIKU_CONFIG.defaultCoreCharge;
+    }
+    return Math.max(0, Math.min(1, parsed));
+  } catch {
+    return MIKU_CONFIG.defaultCoreCharge;
+  }
+}
+
+function persistMikuCoreCharge(charge: number): void {
+  try {
+    if (typeof window !== 'undefined') {
+      const clamped = Math.max(0, Math.min(1, charge));
+      window.localStorage.setItem(
+        MIKU_CONFIG.coreChargeStorageKey,
+        clamped.toFixed(4),
+      );
+    }
+  } catch {
+    // Ignore storage quota / sandboxed iframe restrictions
+  }
+}
+
 /**
  * Throttled telemetry snapshot written by the 60 FPS ECS simulation (~15–20 Hz)
  * to keep React HUD re-renders lightweight and batched.
@@ -179,7 +237,7 @@ export interface GameStoreState {
   // Core Progression & State Machine
   gameState: GameState;
   realmId: RealmId;
-  activeRealm: 1 | 2;
+  activeRealm: 1 | 2 | 3;
   encoreTier: number;
 
   // Player Telemetry
@@ -198,6 +256,8 @@ export interface GameStoreState {
   marinaCoreCharge: number;
   serenaDefeated: boolean;
   serenaCoreCharge: number;
+  mikuDefeated: boolean;
+  mikuCoreCharge: number;
   lobbySiphonTarget: 'marina' | 'serena';
   lobbyPrompt: LobbyPromptState | null;
   lobbyDummyHit: LobbyDummyHitState | null;
@@ -245,7 +305,7 @@ export interface GameStoreState {
   // Actions
   setGameState: (gameState: GameState) => void;
   setRealmId: (realmId: RealmId) => void;
-  setActiveRealm: (realm: 1 | 2) => void;
+  setActiveRealm: (realm: 1 | 2 | 3) => void;
   setEncoreTier: (encoreTier: number) => void;
   incrementEncoreTier: () => void;
   setPointerLocked: (locked: boolean) => void;
@@ -274,6 +334,9 @@ export interface GameStoreState {
   setSerenaDefeated: (val: boolean) => void;
   setSerenaCoreCharge: (charge: number) => void;
   addSerenaCoreCharge: (delta: number) => void;
+  setMikuDefeated: (val: boolean) => void;
+  setMikuCoreCharge: (charge: number) => void;
+  addMikuCoreCharge: (delta: number) => void;
   setLobbySiphonTarget: (target: 'marina' | 'serena') => void;
   setLobbyPrompt: (prompt: LobbyPromptState | null) => void;
   setLobbyDummyHit: (hit: LobbyDummyHitState | null) => void;
@@ -299,6 +362,11 @@ export interface GameStoreState {
 }
 
 function getSubtitleForPhase(phase: BossPhase, bossId?: string): string {
+  if (bossId === MIKU_CONFIG.id) {
+    if (phase === BOSS_PHASES.PHASE_2) return MIKU_CONFIG.twinTailDash.subtitle;
+    if (phase === BOSS_PHASES.PHASE_3) return MIKU_CONFIG.crescendoOverdrive.subtitle;
+    return MIKU_CONFIG.reverberationArc.subtitle;
+  }
   if (bossId === SERENA_CONFIG.id) {
     if (phase === BOSS_PHASES.PHASE_2) return SERENA_CONFIG.sirensChorale.subtitle;
     if (phase === BOSS_PHASES.PHASE_3) return SERENA_CONFIG.abyssalUndertow.subtitle;
@@ -312,7 +380,7 @@ function getSubtitleForPhase(phase: BossPhase, bossId?: string): string {
 const INITIAL_STATE = {
   gameState: GAME_STATES.TITLE as GameState,
   realmId: REALM_IDS.GLACIAL_SPIRE as RealmId,
-  activeRealm: 1 as 1 | 2,
+  activeRealm: 1 as 1 | 2 | 3,
   encoreTier: 0,
 
   playerHp: PLAYER_CONFIG.maxHp,
@@ -329,6 +397,8 @@ const INITIAL_STATE = {
   marinaCoreCharge: readInitialMarinaCoreCharge(),
   serenaDefeated: readInitialSerenaDefeated(),
   serenaCoreCharge: readInitialSerenaCoreCharge(),
+  mikuDefeated: readInitialMikuDefeated(),
+  mikuCoreCharge: readInitialMikuCoreCharge(),
   lobbySiphonTarget: 'marina' as 'marina' | 'serena',
   lobbyPrompt: null as LobbyPromptState | null,
   lobbyDummyHit: null as LobbyDummyHitState | null,
@@ -379,9 +449,11 @@ export const useGameStore = create<GameStoreState>((set) => ({
     set({
       activeRealm,
       realmId:
-        activeRealm === 2
-          ? REALM_IDS.ABYSSAL_PALACE
-          : REALM_IDS.GLACIAL_SPIRE,
+        activeRealm === 3
+          ? REALM_IDS.CYBER_CATHEDRAL
+          : activeRealm === 2
+            ? REALM_IDS.ABYSSAL_PALACE
+            : REALM_IDS.GLACIAL_SPIRE,
     }),
   setEncoreTier: (encoreTier) => set({ encoreTier }),
   incrementEncoreTier: () =>
@@ -473,6 +545,21 @@ export const useGameStore = create<GameStoreState>((set) => ({
       persistSerenaCoreCharge(clamped);
       return { serenaCoreCharge: clamped };
     }),
+  setMikuDefeated: (mikuDefeated) => {
+    persistMikuDefeated(mikuDefeated);
+    set({ mikuDefeated });
+  },
+  setMikuCoreCharge: (charge) => {
+    const clamped = Math.max(0, Math.min(1, charge));
+    persistMikuCoreCharge(clamped);
+    set({ mikuCoreCharge: clamped });
+  },
+  addMikuCoreCharge: (delta) =>
+    set((state) => {
+      const clamped = Math.max(0, Math.min(1, state.mikuCoreCharge + delta));
+      persistMikuCoreCharge(clamped);
+      return { mikuCoreCharge: clamped };
+    }),
   setLobbySiphonTarget: (lobbySiphonTarget) => set({ lobbySiphonTarget }),
   setLobbyPrompt: (lobbyPrompt) => set({ lobbyPrompt }),
   setLobbyDummyHit: (lobbyDummyHit) => set({ lobbyDummyHit }),
@@ -534,16 +621,22 @@ export const useGameStore = create<GameStoreState>((set) => ({
       const nextTier = encoreTier ?? state.encoreTier;
       const baseMaxHp =
         bossMaxHpOverride ??
-        (state.activeRealm === 2 ? SERENA_CONFIG.maxHp : BOSS_CONFIG.maxHp);
+        (state.activeRealm === 3
+          ? MIKU_CONFIG.maxHp
+          : state.activeRealm === 2
+            ? SERENA_CONFIG.maxHp
+            : BOSS_CONFIG.maxHp);
       const scaledBossMaxHp = Math.round(
         baseMaxHp *
           Math.pow(NG_PLUS_CONFIG.bossHpMultiplierPerTier, nextTier),
       );
       const phase1Subtitle =
         phase1SubtitleOverride ??
-        (state.activeRealm === 2
-          ? SERENA_CONFIG.tidalSweep.subtitle
-          : BOSS_CONFIG.phase1.subtitle);
+        (state.activeRealm === 3
+          ? MIKU_CONFIG.reverberationArc.subtitle
+          : state.activeRealm === 2
+            ? SERENA_CONFIG.tidalSweep.subtitle
+            : BOSS_CONFIG.phase1.subtitle);
       return {
         gameState: GAME_STATES.BOSS_COMBAT,
         isPaused: false,
@@ -577,6 +670,8 @@ export const useGameStore = create<GameStoreState>((set) => ({
       marinaCoreCharge: state.marinaCoreCharge,
       serenaDefeated: state.serenaDefeated,
       serenaCoreCharge: state.serenaCoreCharge,
+      mikuDefeated: state.mikuDefeated,
+      mikuCoreCharge: state.mikuCoreCharge,
       audioMuted: state.audioMuted,
       musicVolume: state.musicVolume,
       sfxVolume: state.sfxVolume,

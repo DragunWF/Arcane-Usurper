@@ -26,6 +26,12 @@ const servantRegistry = new Map<ServantArchetype, ServantRigConstructor>([
   [SERVANT_ARCHETYPES.ABYSSAL_SIREN_WEAVER, () => new AbyssalSirenWeaverRig()],
   [SERVANT_ARCHETYPES.RAZORFIN_MANTA, () => new RazorfinMantaRig()],
   [SERVANT_ARCHETYPES.CORAL_BASTION, () => new CoralBastionRig()],
+
+  // Realm III — The Harmonic Citadel (default adapters until dedicated cyber rigs register in Step 2)
+  [SERVANT_ARCHETYPES.PULSE_STRIKER, () => new TideguardHopliteRig()],
+  [SERVANT_ARCHETYPES.SYNTH_CANTOR, () => new AbyssalSirenWeaverRig()],
+  [SERVANT_ARCHETYPES.FREQUENCY_DRONE, () => new RazorfinMantaRig()],
+  [SERVANT_ARCHETYPES.AEGIS_MONOLITH, () => new CoralBastionRig()],
 ]);
 
 /**

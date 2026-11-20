@@ -49,6 +49,10 @@ export interface IAudioTrigger {
   playBubblePop(): void;
   playGeyserErupt(): void;
   playCoralShatter(): void;
+  playLaserSlash(): void;
+  playChordBurst(): void;
+  playBassDrop(): void;
+  playCapacitorShatter(): void;
   dispose(): void;
 }
 
@@ -327,6 +331,12 @@ export class SoundEngine implements IAudioTrigger {
     }
     if (this._mode === AUDIO_MODES.SUNKEN_BOSS) {
       return (60 / AUDIO_CONFIG.sunkenBossTempo) * 0.5;
+    }
+    if (this._mode === AUDIO_MODES.HARMONIC_CHAMBER) {
+      return (60 / AUDIO_CONFIG.harmonicChamberTempo) * 0.25;
+    }
+    if (this._mode === AUDIO_MODES.HARMONIC_BOSS) {
+      return (60 / AUDIO_CONFIG.harmonicBossTempo) * 0.25;
     }
     if (this._mode === AUDIO_MODES.LOBBY) {
       return (60 / AUDIO_CONFIG.lobbyTempo) * 0.5;
@@ -608,6 +618,217 @@ export class SoundEngine implements IAudioTrigger {
           0.52,
         );
       }
+    } else if (this._mode === AUDIO_MODES.HARMONIC_CHAMBER) {
+      // Driving synth-bass pulse + crystalline bell arpeggios (routed through musicGain)
+      const bassTable = AUDIO_CONFIG.harmonicSynthBass;
+      const bassFreq =
+        bassTable[Math.floor(step / 2) % bassTable.length];
+      if (bassFreq !== undefined) {
+        const isOffbeat = step % 2 === 1;
+        this.synthCyberBass(
+          time,
+          isOffbeat ? bassFreq * 2.0 : bassFreq,
+          isOffbeat
+            ? AUDIO_CONFIG.harmonicBassGain * 0.72
+            : AUDIO_CONFIG.harmonicBassGain,
+          AUDIO_CONFIG.harmonicBassDuration,
+        );
+      }
+
+      const arp = AUDIO_CONFIG.harmonicBellArp;
+      const arpFreq = arp[step % arp.length];
+      if (arpFreq !== undefined) {
+        const accent = step % 4 === 0 ? 1.2 : 0.9;
+        this.synthCathedralBell(
+          time,
+          arpFreq,
+          AUDIO_CONFIG.harmonicBellGain * accent,
+          AUDIO_CONFIG.harmonicBellDuration,
+        );
+      }
+
+      if (step % 4 === 0) {
+        this.synthOceanicPercussion(time, 0.16, 76);
+      }
+      if (step % 2 === 1) {
+        this.synthIceTick(time, 0.038);
+      }
+    } else if (this._mode === AUDIO_MODES.HARMONIC_BOSS) {
+      // High-energy cyber-opera synth lead + rhythmic electronic percussion (routed through musicGain)
+      const lead = AUDIO_CONFIG.harmonicBossLead;
+      const leadFreq = lead[step % lead.length];
+      if (leadFreq !== undefined) {
+        const accent = step % 4 === 0 ? 1.22 : 0.92;
+        this.synthCyberOperaLead(
+          time,
+          leadFreq,
+          AUDIO_CONFIG.harmonicBossLeadGain * accent,
+          AUDIO_CONFIG.harmonicBossLeadDuration,
+        );
+      }
+
+      const bassTable = AUDIO_CONFIG.harmonicBossBass;
+      const bassFreq =
+        bassTable[Math.floor(step / 2) % bassTable.length];
+      if (bassFreq !== undefined) {
+        const octaveMult = step % 2 === 1 ? 2.0 : 1.0;
+        this.synthCyberBass(
+          time,
+          bassFreq * octaveMult,
+          AUDIO_CONFIG.harmonicBossBassGain * (step % 2 === 1 ? 0.78 : 1.0),
+          0.22,
+        );
+      }
+
+      // Four-on-the-floor electronic kick, crisp cyber snare on backbeats, & 16th hi-hats
+      if (step % 4 === 0) {
+        this.synthOceanicPercussion(
+          time,
+          AUDIO_CONFIG.harmonicBossKickGain,
+          88,
+        );
+      }
+      if (step % 8 === 4) {
+        this.synthCyberSnare(time, AUDIO_CONFIG.harmonicBossSnareGain);
+      }
+      if (step % 2 === 1) {
+        this.synthIceTick(time, 0.048);
+      }
+    }
+  }
+
+  /**
+   * Punchy resonant low-pass sawtooth/square synth-bass pulse routed through musicGain.
+   */
+  private synthCyberBass(
+    time: number,
+    freq: number,
+    peakGain: number,
+    duration: number,
+  ): void {
+    if (!this.ctx || !this.musicGain) return;
+    const saw = this.ctx.createOscillator();
+    const sq = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const env = this.ctx.createGain();
+
+    saw.type = 'sawtooth';
+    saw.frequency.setValueAtTime(freq, time);
+    sq.type = 'square';
+    sq.frequency.setValueAtTime(freq * 0.5, time);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(1450, time);
+    filter.frequency.exponentialRampToValueAtTime(180, time + duration);
+    filter.Q.value = 3.2;
+
+    env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, time);
+    env.gain.linearRampToValueAtTime(peakGain, time + 0.006);
+    env.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      time + duration,
+    );
+
+    const subGain = this.ctx.createGain();
+    subGain.gain.value = 0.55;
+
+    saw.connect(filter);
+    sq.connect(subGain);
+    subGain.connect(filter);
+    filter.connect(env);
+    env.connect(this.musicGain);
+
+    saw.start(time);
+    sq.start(time);
+    saw.stop(time + duration + 0.02);
+    sq.stop(time + duration + 0.02);
+  }
+
+  /**
+   * Bright detuned dual-oscillator cyber-opera synth lead routed through musicGain.
+   */
+  private synthCyberOperaLead(
+    time: number,
+    freq: number,
+    peakGain: number,
+    duration: number,
+  ): void {
+    if (!this.ctx || !this.musicGain) return;
+    const osc1 = this.ctx.createOscillator();
+    const osc2 = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const env = this.ctx.createGain();
+
+    osc1.type = 'sawtooth';
+    osc1.frequency.setValueAtTime(freq, time);
+    osc1.detune.setValueAtTime(-9, time);
+
+    osc2.type = 'square';
+    osc2.frequency.setValueAtTime(freq, time);
+    osc2.detune.setValueAtTime(9, time);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(3800, time);
+    filter.frequency.exponentialRampToValueAtTime(920, time + duration);
+    filter.Q.value = 2.1;
+
+    env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, time);
+    env.gain.linearRampToValueAtTime(peakGain, time + 0.01);
+    env.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      time + duration,
+    );
+
+    osc1.connect(filter);
+    osc2.connect(filter);
+    filter.connect(env);
+    env.connect(this.musicGain);
+
+    osc1.start(time);
+    osc2.start(time);
+    osc1.stop(time + duration + 0.03);
+    osc2.stop(time + duration + 0.03);
+  }
+
+  /**
+   * Crisp electronic snare burst routed through musicGain for Miku's boss sequencer.
+   */
+  private synthCyberSnare(time: number, peakGain: number): void {
+    if (!this.ctx || !this.musicGain) return;
+    const body = this.ctx.createOscillator();
+    const bodyEnv = this.ctx.createGain();
+    body.type = 'triangle';
+    body.frequency.setValueAtTime(210, time);
+    body.frequency.exponentialRampToValueAtTime(95, time + 0.11);
+
+    bodyEnv.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, time);
+    bodyEnv.gain.linearRampToValueAtTime(peakGain * 0.8, time + 0.004);
+    bodyEnv.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      time + 0.13,
+    );
+    body.connect(bodyEnv);
+    bodyEnv.connect(this.musicGain);
+    body.start(time);
+    body.stop(time + 0.14);
+
+    if (this.noiseBuffer) {
+      const snap = this.ctx.createBufferSource();
+      snap.buffer = this.noiseBuffer;
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = 'highpass';
+      bp.frequency.setValueAtTime(1800, time);
+      const nEnv = this.ctx.createGain();
+      nEnv.gain.setValueAtTime(peakGain, time);
+      nEnv.gain.exponentialRampToValueAtTime(
+        AUDIO_CONFIG.minGainFloor,
+        time + 0.16,
+      );
+      snap.connect(bp);
+      bp.connect(nEnv);
+      nEnv.connect(this.musicGain);
+      snap.start(time);
+      snap.stop(time + 0.18);
     }
   }
 
@@ -1776,6 +1997,77 @@ export class SoundEngine implements IAudioTrigger {
       );
     }
     this.playBubblePop();
+  }
+
+  // =========================================================================
+  // REALM III — HARMONIC CITADEL CYBER-OPERA SOUND EFFECTS (routed through sfxGain)
+  // =========================================================================
+
+  /**
+   * Sharp cyber-laser frequency whip for Pulse Striker & Frequency Drone slashes.
+   */
+  public playLaserSlash(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    this.playTone(now, 'sawtooth', 1850, 240, 0.18, 0.005, 0.19);
+    this.playTone(now + 0.01, 'square', 2400, 360, 0.11, 0.004, 0.16);
+    this.playNoiseBurst(now, 'bandpass', 3600, 920, 2.2, 0.18, 0.17);
+  }
+
+  /**
+   * Shimmering 4-voice synthesizer chord burst for Synth Cantor & Miku Chord Barrage volleys.
+   */
+  public playChordBurst(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    AUDIO_CONFIG.chordBurstFreqs.forEach((freq, i) => {
+      this.playTone(
+        now + i * 0.022,
+        i % 2 === 0 ? 'triangle' : 'sawtooth',
+        freq,
+        freq * 1.015,
+        0.1 - i * 0.012,
+        0.008,
+        0.42,
+      );
+    });
+    this.playNoiseBurst(now, 'highpass', 4200, 6200, 1.4, 0.08, 0.18);
+  }
+
+  /**
+   * Heavy sub-bass speaker drop impact for Aegis Monolith & Crescendo Overdrive shockwaves.
+   */
+  public playBassDrop(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    this.playTone(now, 'sine', 142, 26, 0.38, 0.01, 0.56);
+    this.playTone(now, 'sawtooth', 98, 32, 0.22, 0.008, 0.44);
+    this.playNoiseBurst(now, 'lowpass', 920, 68, 2.6, 0.26, 0.48);
+  }
+
+  /**
+   * High-voltage glass & plasma discharge when shattering an Acoustic Capacitor Canister.
+   */
+  public playCapacitorShatter(): void {
+    if (!this.canPlaySfx() || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    this.playNoiseBurst(now, 'bandpass', 3200, 1100, 1.8, 0.22, 0.18);
+    this.playTone(now, 'sawtooth', 640, 140, 0.15, 0.004, 0.16);
+    for (let i = 0; i < AUDIO_CONFIG.capacitorShatterGrainCount; i++) {
+      const offset = 0.01 + i * 0.02 + Math.random() * 0.01;
+      const freq =
+        AUDIO_CONFIG.capacitorShatterBaseFreq +
+        Math.random() * AUDIO_CONFIG.capacitorShatterFreqSpread;
+      this.playTone(
+        now + offset,
+        i % 2 === 0 ? 'sine' : 'square',
+        freq,
+        freq * 0.82,
+        0.075,
+        0.003,
+        0.11,
+      );
+    }
   }
 
   /**
