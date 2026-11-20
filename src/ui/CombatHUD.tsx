@@ -101,7 +101,7 @@ export function CombatHUD({ controller }: CombatHUDProps) {
               <span className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_10px_#38BDF8]" />
             </div>
             <h1 className="font-display text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-[0.14em] text-transparent bg-clip-text bg-gradient-to-b from-sky-100 via-sky-200 to-purple-400 drop-shadow-[0_6px_28px_rgba(139,92,246,0.45)]">
-              FROSTBOUND USURPER
+              ARCANE USURPER
             </h1>
             <p className="mt-2.5 text-xs sm:text-sm tracking-[0.22em] uppercase text-sky-300/80 font-medium">
               Arcane Action Combat Prototype
