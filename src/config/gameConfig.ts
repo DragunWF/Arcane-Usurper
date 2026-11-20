@@ -233,6 +233,10 @@ export const PALETTE = Object.freeze({
   cowlShadow: 0x020617,
   inkOutline: 0x03040a,
   silverRune: 0xcbd5e1,
+  mageHairIndigo: 0x1e1b4b,
+  mageHairHighlight: 0x312e81,
+  magePorcelainSkin: 0xede9fe,
+  mageLipContour: 0xa78bfa,
 
   // Marina — The Glacial Empress
   marinaHair: 0xf8fafc,

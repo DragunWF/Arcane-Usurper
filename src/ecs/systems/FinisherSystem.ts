@@ -92,6 +92,8 @@ export class FinisherSystem implements ISystem {
   private readonly scratchBossHeadQuat = new THREE.Quaternion();
   private readonly scratchBossFaceNormal = new THREE.Vector3();
   private readonly scratchMageMouth = new THREE.Vector3();
+  private readonly scratchTargetLipWorld = new THREE.Vector3();
+  private readonly scratchLipDelta = new THREE.Vector3();
   private readonly scratchMageCrystal = new THREE.Vector3();
   private readonly scratchMageLeftHand = new THREE.Vector3();
   private readonly scratchAccessoryPos = new THREE.Vector3();
@@ -436,7 +438,8 @@ export class FinisherSystem implements ISystem {
       }
     }
 
-    // 6. Compute shared lip-pivot head choreography & pose Boss FIRST so headAnchor reflects live motion
+    // 6. Enforce Pose-First World-Matrix Anchor Solve:
+    // Step 1: Apply Boss pose first, update boss world matrices, and read bossMouthWorld + bossFaceForward
     const headChoreography = computeFinisherHeadChoreography(
       elapsed,
       sb.siphonProgress,
@@ -474,7 +477,7 @@ export class FinisherSystem implements ISystem {
     );
     activeRig.root.updateMatrixWorld(true);
     activeRig.headAnchor.getWorldPosition(this.scratchBossHead);
-    // Extract Marina's live world-space face-outward normal (+Z of headAnchor),
+    // Extract Boss's live world-space face-outward forward normal (+Z of headAnchor),
     // automatically following her dipped head angle in Pose [2] and tilted chin in [1/3/4]
     activeRig.headAnchor.getWorldQuaternion(this.scratchBossHeadQuat);
     this.scratchBossFaceNormal
@@ -491,7 +494,9 @@ export class FinisherSystem implements ISystem {
       );
     }
 
-    // Compute exact world-space root placement relative to Boss root (and dipped headAnchor in Pose [2])
+    // Step 2: Orient Dark Mage facing the Boss, apply Dark Mage finisher pose
+    // (including torsoCounterYawRad, equal-and-opposite neck counter-yaw, and waist-clearance arm wrap),
+    // call updateMatrixWorld(true), and read mageMouthWorld from darkMage.headAnchor
     const targetSep = this.getTargetSeparationForPose(sb.finisherPose);
     const sepLerpAlpha =
       1 -
@@ -505,33 +510,13 @@ export class FinisherSystem implements ISystem {
       sepLerpAlpha,
     );
 
-    // In Pose [2], Marina's dipped head translates backward along -dir; shift Mage root closer along dir
-    // so his deeply pitched torso/head aligns flush with her tilted mouth with zero air gap
-    const headForwardProj =
-      (this.scratchBossHead.x - bx) * dirX +
-      (this.scratchBossHead.z - bz) * dirZ;
-    const dipShift =
-      sb.finisherPose === FINISHER_POSE_IDS.BALLROOM_DIP
-        ? Math.min(0, headForwardProj) * 0.45
-        : 0;
-    const effectiveSep = Math.max(0.28, this.currentSeparation + dipShift);
+    const baseMageX = bx + dirX * this.currentSeparation;
+    const baseMageZ = bz + dirZ * this.currentSeparation;
+    const facingBossYaw = Math.atan2(bx - baseMageX, bz - baseMageZ);
 
-    player.transform.position.x = bx + dirX * effectiveSep;
-    player.transform.position.y = by;
-    player.transform.position.z = bz + dirZ * effectiveSep;
-    player.transform.rotationY = Math.atan2(
-      bx - player.transform.position.x,
-      bz - player.transform.position.z,
-    );
-
-    // Pose Dark Mage unhooded with synchronized -> <- press-and-ease motion & per-boss waist clearance
     this.mageRig.setHoodDown(true);
-    this.mageRig.root.position.set(
-      player.transform.position.x,
-      by,
-      player.transform.position.z,
-    );
-    this.mageRig.root.rotation.y = player.transform.rotationY;
+    this.mageRig.root.position.set(baseMageX, by, baseMageZ);
+    this.mageRig.root.rotation.y = facingBossYaw;
     this.mageRig.applyFinisherPose(
       sb.finisherPose,
       sb.siphonProgress,
@@ -543,6 +528,30 @@ export class FinisherSystem implements ISystem {
       this.scratchBossFaceNormal,
       activeRig.waistWrapRadius,
     );
+    this.mageRig.root.updateMatrixWorld(true);
+    this.mageRig.headAnchor.getWorldPosition(this.scratchMageMouth);
+
+    // Step 3: Compute exact world-space translation delta so mageMouthWorld meets bossMouthWorld
+    // along bossFaceForward with zero gap (0.00m) at peak press + rhythmic -> <- press-and-ease,
+    // apply directly to darkMage.root.position, and updateMatrixWorld(true) one final time
+    this.scratchTargetLipWorld
+      .copy(this.scratchBossHead)
+      .addScaledVector(
+        this.scratchBossFaceNormal,
+        headChoreography.lipSeparationGap,
+      );
+    this.scratchLipDelta.subVectors(
+      this.scratchTargetLipWorld,
+      this.scratchMageMouth,
+    );
+
+    this.mageRig.root.position.add(this.scratchLipDelta);
+    this.mageRig.root.updateMatrixWorld(true);
+
+    player.transform.position.x = this.mageRig.root.position.x;
+    player.transform.position.y = this.mageRig.root.position.y;
+    player.transform.position.z = this.mageRig.root.position.z;
+    player.transform.rotationY = facingBossYaw;
 
     // 7. Update Lip-to-Lip Energy Ribbons, Pose [2] Aloft Staff Frost Ribbon, & Pose [3] Hair Strand
     this.fxGroup.visible = true;

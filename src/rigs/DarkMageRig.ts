@@ -66,16 +66,13 @@ export class DarkMageRig {
   private readonly leftHandAnchor = new THREE.Object3D();
   private readonly rightHandAnchor = new THREE.Object3D();
   private readonly headTopAnchor = new THREE.Object3D();
-  private readonly mouthAnchor = new THREE.Object3D();
+  public readonly headAnchor = new THREE.Object3D();
+  private readonly mouthAnchor: THREE.Object3D;
   private readonly scratchMouthWorld = new THREE.Vector3();
   private readonly scratchTargetLipWorld = new THREE.Vector3();
-  private readonly scratchLipDelta = new THREE.Vector3();
-  private readonly scratchInvQuat = new THREE.Quaternion();
   private readonly finisherPoseState = {
     initialized: false,
     bodyY: 0.7,
-    bodyOffsetX: 0,
-    bodyOffsetZ: 0,
     torsoX: 0.54,
     torsoY: 0,
     torsoZ: 0,
@@ -121,6 +118,10 @@ export class DarkMageRig {
   private matAmethystTrim!: THREE.MeshToonMaterial;
   private matSilverRune!: THREE.MeshToonMaterial;
   private matDarkMetal!: THREE.MeshToonMaterial;
+  private matMageHairBase!: THREE.MeshToonMaterial;
+  private matMageHairHighlight!: THREE.MeshToonMaterial;
+  private matMagePorcelain!: THREE.MeshToonMaterial;
+  private matMageLip!: THREE.MeshToonMaterial;
   private matHoodInner!: THREE.MeshBasicMaterial;
   private matEyeGlow!: THREE.MeshBasicMaterial;
   private matEyeCore!: THREE.MeshBasicMaterial;
@@ -129,6 +130,7 @@ export class DarkMageRig {
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
+    this.mouthAnchor = this.headAnchor;
     this.root = new THREE.Group();
     this.bodyPivot = new THREE.Group();
     this.bodyPivot.position.y = 0.96; // Pelvis/Hip origin (~1.88m total height)
@@ -164,6 +166,31 @@ export class DarkMageRig {
     });
     this.matSilverRune = ToonAssets.createToonMaterial(PALETTE.silverRune);
     this.matDarkMetal = ToonAssets.createToonMaterial(PALETTE.obsidianTrim);
+    this.matMageHairBase = ToonAssets.createToonMaterial(
+      PALETTE.mageHairIndigo,
+      {
+        emissive: PALETTE.mageHairHighlight,
+        emissiveIntensity: 0.22,
+      },
+    );
+    this.matMageHairHighlight = ToonAssets.createToonMaterial(
+      PALETTE.mageHairHighlight,
+      {
+        emissive: PALETTE.amethystTrim,
+        emissiveIntensity: 0.18,
+      },
+    );
+    this.matMagePorcelain = ToonAssets.createToonMaterial(
+      PALETTE.magePorcelainSkin,
+      {
+        emissive: PALETTE.pulseLavender,
+        emissiveIntensity: 0.08,
+      },
+    );
+    this.matMageLip = ToonAssets.createToonMaterial(PALETTE.mageLipContour, {
+      emissive: PALETTE.amethystTrim,
+      emissiveIntensity: 0.16,
+    });
     this.matHoodInner = new THREE.MeshBasicMaterial({
       color: PALETTE.cowlShadow,
       side: THREE.BackSide,
@@ -200,6 +227,10 @@ export class DarkMageRig {
       this.matAmethystTrim,
       this.matSilverRune,
       this.matDarkMetal,
+      this.matMageHairBase,
+      this.matMageHairHighlight,
+      this.matMagePorcelain,
+      this.matMageLip,
       this.matHoodInner,
     );
   }
@@ -561,6 +592,9 @@ export class DarkMageRig {
 
   private buildRecessedHeadAndDrapedHood(): void {
     this.headGroup = new THREE.Group();
+    // Use 'YXZ' Euler order on headGroup so counter-yaw (-torsoCounterYawRad) cancels
+    // torsoGroup's yaw before pitching, keeping his face squared toward the princess at any pitch angle.
+    this.headGroup.rotation.order = 'YXZ';
     this.headGroup.position.set(0, 0.56, 0.01);
     this.torsoGroup.add(this.headGroup);
 
@@ -638,11 +672,11 @@ export class DarkMageRig {
     }
     this.headGroup.add(this.defeatBlushGroup);
 
-    // Crown anchor for marionette control line & lip anchor for Siphon Kiss alignment
+    // Crown anchor for marionette control line & unified lip anchor for Siphon Kiss alignment
     this.headTopAnchor.position.set(0, 0.34, 0.01);
     this.headGroup.add(this.headTopAnchor);
-    this.mouthAnchor.position.set(0, 0.132, 0.118);
-    this.headGroup.add(this.mouthAnchor);
+    this.headAnchor.position.set(0, 0.132, 0.122);
+    this.headGroup.add(this.headAnchor);
 
     // 4. Rounded Draped Cloth Cowl wrapping naturally around the head (Pointed Combat Hood)
     const cowlGroup = new THREE.Group();
@@ -806,16 +840,80 @@ export class DarkMageRig {
     drapedBackHood.rotation.x = -Math.PI * 0.76;
     collarGroup.add(drapedBackHood);
 
-    // B. Shadow-Draped Gothic Hair (attached to headGroup so it tracks head pitch/yaw/roll)
+    // B. Unhooded Lower Face, Jawline, Lip Contour & Midnight-Indigo Gothic Hair (attached to headGroup)
     const hairGroup = new THREE.Group();
     hairGroup.visible = false;
     this.unhoodedHeadGroup = hairGroup;
     this.headGroup.add(hairGroup);
 
+    // Pale-porcelain / lavender-tinted lower face, sculpted jawline, neck & subtle lip contour
+    // beneath the shadow-draped brow and glowing violet eyes for clear 360° kiss readability
+    const porcelainNeck = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.062, 0.075, 0.11, 12),
+      this.matMagePorcelain,
+    );
+    porcelainNeck.position.set(0, 0.045, 0.004);
+    hairGroup.add(porcelainNeck);
+
+    const { group: lowerFaceCheeks } = ToonAssets.createOutlinedMesh(
+      new THREE.SphereGeometry(
+        0.108,
+        20,
+        16,
+        0,
+        Math.PI * 2,
+        Math.PI * 0.36,
+        Math.PI * 0.56,
+      ),
+      this.matMagePorcelain,
+      1.045,
+    );
+    lowerFaceCheeks.scale.set(0.87, 1.0, 0.96);
+    lowerFaceCheeks.position.set(0, 0.172, 0.018);
+    hairGroup.add(lowerFaceCheeks);
+
+    const { group: sculptedJaw } = ToonAssets.createOutlinedMesh(
+      new THREE.ConeGeometry(0.076, 0.108, 12),
+      this.matMagePorcelain,
+      1.045,
+    );
+    sculptedJaw.rotation.x = Math.PI - 0.12;
+    sculptedJaw.scale.set(0.94, 1.0, 0.92);
+    sculptedJaw.position.set(0, 0.108, 0.036);
+    hairGroup.add(sculptedJaw);
+
+    // Subtle sculpted nose bridge & tip above the lips
+    const noseBridge = new THREE.Mesh(
+      new THREE.ConeGeometry(0.014, 0.042, 5),
+      this.matMagePorcelain,
+    );
+    noseBridge.rotation.x = Math.PI * 0.38;
+    noseBridge.position.set(0, 0.152, 0.122);
+    hairGroup.add(noseBridge);
+
+    // Subtle dusk-violet lip contour positioned flush with headAnchor (0, 0.132, 0.122)
+    const upperLip = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.0065, 0.022, 4, 8),
+      this.matMageLip,
+    );
+    upperLip.rotation.z = Math.PI * 0.5;
+    upperLip.scale.set(1.0, 1.0, 0.75);
+    upperLip.position.set(0, 0.134, 0.119);
+    hairGroup.add(upperLip);
+
+    const lowerLip = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.006, 0.019, 4, 8),
+      this.matMageLip,
+    );
+    lowerLip.rotation.z = Math.PI * 0.5;
+    lowerLip.scale.set(1.0, 1.0, 0.72);
+    lowerLip.position.set(0, 0.127, 0.118);
+    hairGroup.add(lowerLip);
+
     const headCenterY = 0.185;
     const { group: hairCrown } = ToonAssets.createOutlinedMesh(
       new THREE.SphereGeometry(
-        0.126,
+        0.128,
         20,
         16,
         0,
@@ -823,7 +921,7 @@ export class DarkMageRig {
         0,
         Math.PI * 0.64,
       ),
-      this.matAbyssal,
+      this.matMageHairBase,
       1.05,
     );
     hairCrown.scale.set(0.96, 1.06, 1.06);
@@ -831,20 +929,20 @@ export class DarkMageRig {
     hairCrown.position.set(0, headCenterY + 0.015, -0.004);
     hairGroup.add(hairCrown);
 
-    // Swept Gothic bangs framing his brow while leaving glowing violet eyes visible beneath the fringe
+    // Swept Midnight-Indigo Gothic bangs (#1E1B4B / #312E81) framing his upper face & glowing violet eyes
     const bangSpecs = [
-      { x: 0.0, y: 0.254, z: 0.106, r: 0.028, h: 0.115, rx: -0.22, rz: 0.05, slate: false },
-      { x: -0.036, y: 0.252, z: 0.102, r: 0.03, h: 0.125, rx: -0.18, rz: 0.16, slate: true },
-      { x: 0.036, y: 0.252, z: 0.102, r: 0.03, h: 0.125, rx: -0.18, rz: -0.14, slate: false },
-      { x: -0.072, y: 0.242, z: 0.088, r: 0.028, h: 0.138, rx: -0.12, rz: 0.26, slate: false },
-      { x: 0.072, y: 0.242, z: 0.088, r: 0.028, h: 0.138, rx: -0.12, rz: -0.26, slate: true },
-      { x: -0.102, y: 0.225, z: 0.062, r: 0.026, h: 0.155, rx: -0.05, rz: 0.34, slate: true },
-      { x: 0.102, y: 0.225, z: 0.062, r: 0.026, h: 0.155, rx: -0.05, rz: -0.34, slate: false },
+      { x: 0.0, y: 0.254, z: 0.106, r: 0.028, h: 0.115, rx: -0.22, rz: 0.05, highlight: true },
+      { x: -0.036, y: 0.252, z: 0.102, r: 0.03, h: 0.125, rx: -0.18, rz: 0.16, highlight: false },
+      { x: 0.036, y: 0.252, z: 0.102, r: 0.03, h: 0.125, rx: -0.18, rz: -0.14, highlight: true },
+      { x: -0.072, y: 0.242, z: 0.088, r: 0.028, h: 0.138, rx: -0.12, rz: 0.26, highlight: true },
+      { x: 0.072, y: 0.242, z: 0.088, r: 0.028, h: 0.138, rx: -0.12, rz: -0.26, highlight: false },
+      { x: -0.102, y: 0.225, z: 0.062, r: 0.026, h: 0.155, rx: -0.05, rz: 0.34, highlight: false },
+      { x: 0.102, y: 0.225, z: 0.062, r: 0.026, h: 0.155, rx: -0.05, rz: -0.34, highlight: true },
     ];
     bangSpecs.forEach((b) => {
       const { group: bang } = ToonAssets.createOutlinedMesh(
         new THREE.ConeGeometry(b.r, b.h, 6),
-        b.slate ? this.matShadowSlate : this.matAbyssal,
+        b.highlight ? this.matMageHairHighlight : this.matMageHairBase,
         1.065,
       );
       bang.scale.set(1.0, 1.0, 0.46);
@@ -854,11 +952,11 @@ export class DarkMageRig {
       hairGroup.add(bang);
     });
 
-    // Layered temple & cheek side-locks framing his jawline
+    // Layered temple & cheek side-locks framing his porcelain jawline
     for (const side of [-1, 1] as const) {
       const { group: sideLock } = ToonAssets.createOutlinedMesh(
         new THREE.ConeGeometry(0.032, 0.22, 6),
-        this.matAbyssal,
+        this.matMageHairHighlight,
         1.065,
       );
       sideLock.scale.set(0.68, 1.0, 0.92);
@@ -869,7 +967,7 @@ export class DarkMageRig {
 
       const { group: earLock } = ToonAssets.createOutlinedMesh(
         new THREE.ConeGeometry(0.03, 0.19, 6),
-        this.matShadowSlate,
+        this.matMageHairBase,
         1.065,
       );
       earLock.scale.set(0.72, 1.0, 0.88);
@@ -884,12 +982,12 @@ export class DarkMageRig {
     for (let i = 0; i < backSpikeCount; i++) {
       const t = i / (backSpikeCount - 1) - 0.5;
       const yaw = t * Math.PI * 0.88;
-      const isSlate = i % 2 === 1;
+      const isHighlight = i % 2 === 1;
       const spikeLen = 0.21 - Math.abs(t) * 0.04;
 
       const { group: spike } = ToonAssets.createOutlinedMesh(
         new THREE.ConeGeometry(0.036, spikeLen, 6),
-        isSlate ? this.matShadowSlate : this.matAbyssal,
+        isHighlight ? this.matMageHairHighlight : this.matMageHairBase,
         1.065,
       );
       spike.scale.set(0.92, 1.0, 0.58);
@@ -912,7 +1010,7 @@ export class DarkMageRig {
     crownSpikeSpecs.forEach((cs, idx) => {
       const { group: crownLock } = ToonAssets.createOutlinedMesh(
         new THREE.ConeGeometry(0.032, 0.145, 5),
-        idx === 0 ? this.matShadowSlate : this.matAbyssal,
+        idx === 0 ? this.matMageHairHighlight : this.matMageHairBase,
         1.065,
       );
       crownLock.scale.set(0.88, 1.0, 0.52);
@@ -1517,8 +1615,6 @@ export class DarkMageRig {
     if (!st.initialized) {
       st.initialized = true;
       st.bodyY = this.bodyPivot.position.y;
-      st.bodyOffsetX = 0;
-      st.bodyOffsetZ = 0;
       st.torsoX = this.torsoGroup.rotation.x;
       st.torsoY = this.torsoGroup.rotation.y;
       st.torsoZ = this.torsoGroup.rotation.z;
@@ -1623,11 +1719,7 @@ export class DarkMageRig {
     const staffHandRecoil = Math.cos(time * siphonFreq) * 0.044 * siphonAmp;
     const holdHandCaress = Math.sin(time * (siphonFreq * 0.75)) * 0.026 * siphonAmp;
 
-    this.bodyPivot.position.set(
-      st.bodyOffsetX,
-      st.bodyY + breatheLift,
-      st.bodyOffsetZ,
-    );
+    this.bodyPivot.position.set(0, st.bodyY + breatheLift, 0);
     this.bodyPivot.rotation.set(0, 0, 0);
 
     this.leftLegPivot.rotation.set(st.leftHipX, 0, st.leftHipZ);
@@ -1651,7 +1743,8 @@ export class DarkMageRig {
       Math.cos(time * (robeSpeed * 0.72)) * (robeAmp * 1.2);
 
     // Torso angles slightly off-axis (torsoCounterYawRad) to open camera sightlines & arm pocket room
-    // while head counter-rotates in yaw and executes asymmetric -> <- press-and-ease choreography:
+    // while headGroup (with 'YXZ' Euler order) applies an equal-and-opposite counter-yaw (-st.torsoY)
+    // so his face & lips remain squared directly toward the princess's lips at every pitch angle:
     this.torsoGroup.rotation.set(
       st.torsoX + torsoDrawPitch + (headAnim.pulse - 0.5) * 0.025,
       st.torsoY,
@@ -1661,7 +1754,7 @@ export class DarkMageRig {
     );
     this.headGroup.rotation.set(
       st.headX - torsoDrawPitch * 0.85 + headAnim.magePitchNod,
-      -st.torsoY * 0.92 - headAnim.yawSway,
+      -st.torsoY - headAnim.yawSway,
       st.headZ + headAnim.roll,
     );
 
@@ -1688,9 +1781,7 @@ export class DarkMageRig {
     );
     this.staffGroup.rotation.set(st.staffRotX, 0, st.staffRotZ);
 
-    // 3. Asymmetric -> <- Press-and-Ease Lip Alignment along Marina's World Face Normal
-    //    - At pulse = 1 (press peak): target gap = 0.0m (firm lip contact, zero clipping)
-    //    - At pulse = 0 (ease phase): target gap = +kissEaseGap (~1.8cm along Marina's dipped face normal)
+    // 3. Vertical pelvis height match so boots stay grounded while FinisherSystem solves exact world X/Y/Z lip lock
     if (bossLipWorldPos) {
       this.scratchTargetLipWorld.copy(bossLipWorldPos);
       if (bossFaceNormalWorld) {
@@ -1701,36 +1792,13 @@ export class DarkMageRig {
       }
 
       this.root.updateMatrixWorld(true);
-      this.mouthAnchor.getWorldPosition(this.scratchMouthWorld);
-      this.scratchLipDelta.subVectors(
-        this.scratchTargetLipWorld,
-        this.scratchMouthWorld,
+      this.headAnchor.getWorldPosition(this.scratchMouthWorld);
+      const dy = this.scratchTargetLipWorld.y - this.scratchMouthWorld.y;
+      this.bodyPivot.position.y = THREE.MathUtils.clamp(
+        this.bodyPivot.position.y + dy,
+        0.42,
+        1.24,
       );
-
-      this.scratchInvQuat.copy(this.root.quaternion).invert();
-      this.scratchLipDelta.applyQuaternion(this.scratchInvQuat);
-
-      const maxCorr = FINISHER_CONFIG.lipLockMaxCorrection;
-      const corrX = THREE.MathUtils.clamp(
-        st.bodyOffsetX + this.scratchLipDelta.x,
-        -maxCorr,
-        maxCorr,
-      );
-      const corrY = THREE.MathUtils.clamp(
-        this.bodyPivot.position.y + this.scratchLipDelta.y,
-        0.54,
-        1.08,
-      );
-      const corrZ = THREE.MathUtils.clamp(
-        st.bodyOffsetZ + this.scratchLipDelta.z,
-        -maxCorr,
-        maxCorr,
-      );
-
-      // High responsiveness (0.9) preserves crisp 1.8cm -> <- travel even at 2.5 Hz SURGE
-      st.bodyOffsetX = THREE.MathUtils.lerp(st.bodyOffsetX, corrX, 0.9);
-      st.bodyOffsetZ = THREE.MathUtils.lerp(st.bodyOffsetZ, corrZ, 0.9);
-      this.bodyPivot.position.set(st.bodyOffsetX, corrY, st.bodyOffsetZ);
     }
 
     // 4. Keep Staff Crystal vibrant while keeping PointLight subtle so obsidian robes stay dark & crisp
