@@ -78,7 +78,6 @@ export class SerenaRig implements BossRigAdapter {
   public readonly id = SERENA_CONFIG.id;
   public readonly displayName = SERENA_CONFIG.displayName;
   public readonly title = SERENA_CONFIG.title;
-  public readonly waistWrapRadius: number = FINISHER_CONFIG.serenaWaistWrapRadius;
 
   public readonly root = new THREE.Group();
   public readonly headAnchor = new THREE.Object3D();

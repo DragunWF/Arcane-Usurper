@@ -166,7 +166,6 @@ export interface BossRigAdapter {
   readonly id: string;
   readonly displayName: string;
   readonly title: string;
-  readonly waistWrapRadius: number;
   readonly root: THREE.Group;
   /** World/local lip-contact & camera focus target anchor. */
   readonly headAnchor: THREE.Object3D;

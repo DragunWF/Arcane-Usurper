@@ -233,10 +233,6 @@ export const PALETTE = Object.freeze({
   cowlShadow: 0x020617,
   inkOutline: 0x03040a,
   silverRune: 0xcbd5e1,
-  mageHairIndigo: 0x1e1b4b,
-  mageHairHighlight: 0x312e81,
-  magePorcelainSkin: 0xede9fe,
-  mageLipContour: 0xa78bfa,
 
   // Marina — The Glacial Empress
   marinaHair: 0xf8fafc,
@@ -837,12 +833,6 @@ export const FINISHER_CONFIG = Object.freeze({
   dipMageExtraPitch: 0.46,
   reinsRootSeparation: 0.48,
   staffLeanRootSeparation: 0.52,
-  torsoCounterYawRad: 0.22,
-  shoulderFlareBaseRad: 0.42,
-  elbowWrapBaseRad: 1.05,
-  waistClearanceScale: 1.35,
-  marinaWaistWrapRadius: 0.42,
-  serenaWaistWrapRadius: 0.3,
   poseBlendSpeed: 6.5,
   poseTransitionDurationSec: 0.25,
   earlyBreathFreq: 5.5,
