@@ -114,6 +114,19 @@ export const SERVANT_AI_STATES = Object.freeze({
 export type ServantAIState =
   (typeof SERVANT_AI_STATES)[keyof typeof SERVANT_AI_STATES];
 
+export const SERVANT_ANIM_STATES = Object.freeze({
+  SPAWNING: 'SPAWNING',
+  IDLE: 'IDLE',
+  MOVE: 'MOVE',
+  TELEGRAPH: 'TELEGRAPH',
+  ATTACK: 'ATTACK',
+  GUARD_BROKEN: 'GUARD_BROKEN',
+  DEAD: 'DEAD',
+} as const);
+
+export type ServantAnimState =
+  (typeof SERVANT_ANIM_STATES)[keyof typeof SERVANT_ANIM_STATES];
+
 export const DESTRUCTIBLE_PROP_TYPES = Object.freeze({
   FROST_URN: 'FROST_URN',
 } as const);
@@ -1122,10 +1135,41 @@ export const SERVANT_CONFIG = Object.freeze({
     slamCameraShake: 0.22,
   } as const),
 
-  // Shared servant feedback
+  // Shared servant feedback & rig animation tuning
   hitFlashDuration: 0.12,
+  hitFlashEmissiveIntensity: 0.95,
   deathDissolveDuration: 0.65,
   summonGlyphRadius: 1.4,
+  rigPoseLerpSpeed: 11.5,
+  spawnRiseOffset: 1.1,
+  spawnScaleMin: 0.08,
+  deadCollapseSpeed: 6.5,
+
+  // Archetype animation cadences & amplitudes (zero magic numbers in rigs)
+  vanguardStrideSpeed: 7.2,
+  vanguardBreathSpeed: 2.4,
+  vanguardTelegraphDropY: 0.16,
+  vanguardLungeForwardZ: 0.48,
+
+  acolyteFloatHeight: 0.42,
+  acolyteHoverSpeed: 2.8,
+  acolyteHoverAmp: 0.11,
+  acolyteSigilSpinSpeed: 1.8,
+  acolyteSigilFlareSpinMult: 3.2,
+  acolyteSigilFlareScale: 1.38,
+
+  houndBaseHipY: 0.62,
+  houndGallopSpeed: 12.5,
+  houndCrouchDropY: 0.2,
+  houndPounceLiftY: 0.56,
+  houndPounceForwardZ: 0.42,
+
+  wardenStrideSpeed: 4.8,
+  wardenBreathSpeed: 1.9,
+  wardenTelegraphArmX: -2.55,
+  wardenSlamArmX: 0.62,
+  wardenGuardBreakLeanX: -0.34,
+  wardenShieldOpacity: 0.66,
 } as const);
 
 // ============================================================================
