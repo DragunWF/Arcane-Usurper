@@ -18,6 +18,7 @@ export function PauseMenu({ controller }: PauseMenuProps) {
   const sfxVolume = useGameStore((s) => s.sfxVolume);
   const audioMuted = useGameStore((s) => s.audioMuted);
   const encoreTier = useGameStore((s) => s.encoreTier);
+  const activeRealm = useGameStore((s) => s.activeRealm);
   const hasReachedSummit = useGameStore((s) => s.hasReachedSummit);
   const setMusicVolumeStore = useGameStore((s) => s.setMusicVolume);
   const setSfxVolumeStore = useGameStore((s) => s.setSfxVolume);
@@ -81,12 +82,20 @@ export function PauseMenu({ controller }: PauseMenuProps) {
                   ? `Obsidian Spire Sanctum • Encore NG+${encoreTier}`
                   : 'Obsidian Spire Sanctum • Temporal Stasis'
                 : gameState === GAME_STATES.CHAMBER_COMBAT
-                  ? encoreTier > 0
-                    ? `Royal Ice Chambers • Encore NG+${encoreTier}`
-                    : 'Royal Ice Chambers • Temporal Stasis'
-                  : encoreTier > 0
-                    ? `Glacial Spire Summit • Encore NG+${encoreTier}`
-                    : 'Glacial Spire Summit • Temporal Stasis'}
+                  ? activeRealm === 2
+                    ? encoreTier > 0
+                      ? `Sunken Aqueduct • Encore NG+${encoreTier}`
+                      : 'Sunken Aqueduct • Temporal Stasis'
+                    : encoreTier > 0
+                      ? `Royal Ice Chambers • Encore NG+${encoreTier}`
+                      : 'Royal Ice Chambers • Temporal Stasis'
+                  : activeRealm === 2
+                    ? encoreTier > 0
+                      ? `Pearl Amphitheater • Encore NG+${encoreTier}`
+                      : 'Pearl Amphitheater • Temporal Stasis'
+                    : encoreTier > 0
+                      ? `Glacial Spire Summit • Encore NG+${encoreTier}`
+                      : 'Glacial Spire Summit • Temporal Stasis'}
             </span>
           </div>
 
@@ -203,9 +212,13 @@ export function PauseMenu({ controller }: PauseMenuProps) {
               }}
             >
               {gameState === GAME_STATES.CHAMBER_COMBAT
-                ? 'RESTART CHAMBERS'
+                ? activeRealm === 2
+                  ? 'RESTART AQUEDUCT'
+                  : 'RESTART CHAMBERS'
                 : hasReachedSummit
-                  ? 'RESTART SUMMIT DUEL'
+                  ? activeRealm === 2
+                    ? 'RESTART AMPHITHEATER DUEL'
+                    : 'RESTART SUMMIT DUEL'
                   : 'RESTART STAGE'}
             </button>
           )}

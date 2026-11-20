@@ -8,6 +8,7 @@ import {
   FINISHER_CONFIG,
   GAME_STATES,
   PALETTE,
+  SERENA_CONFIG,
   SIPHON_GALLERY_CONFIG,
   type GameState,
 } from '../../config/gameConfig';
@@ -48,7 +49,7 @@ export class DioramaSystem implements ISystem {
   private readonly world: ECSWorld;
   private readonly scene: THREE.Scene;
   private readonly mageRig: DarkMageRig;
-  private readonly bossRig: BossRigAdapter;
+  private bossRig: BossRigAdapter;
   private readonly audio: IAudioTrigger;
   private readonly vfx: IVfxSpawner;
   private readonly callbacks: IDioramaCallbacks;
@@ -57,10 +58,11 @@ export class DioramaSystem implements ISystem {
   private spiralRefreshAccum = 0;
   private spiralPhase = 0;
 
-  // Marionette String Visuals (created lazily for DEFEAT_DIORAMA, hidden otherwise)
+  // Marionette String & Siren Bubble-Cage Visuals (shown for DEFEAT_DIORAMA, hidden otherwise)
   private readonly marionetteGroup = new THREE.Group();
   private readonly marionetteThreads: MarionetteThread[] = [];
   private dimmedStaffGroup: THREE.Group | null = null;
+  private abyssalBubbleMesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial> | null = null;
 
   // Reusable scratch vectors (zero per-frame allocations)
   private readonly scratchBossL = new THREE.Vector3();
@@ -89,6 +91,10 @@ export class DioramaSystem implements ISystem {
     this.callbacks = callbacks;
 
     this.buildMarionetteVisuals();
+  }
+
+  public setBossRig(rig: BossRigAdapter): void {
+    this.bossRig = rig;
   }
 
   private buildMarionetteVisuals(): void {
@@ -137,6 +143,25 @@ export class DioramaSystem implements ISystem {
     staffProp.rotation.y = 0.42;
     this.dimmedStaffGroup = staffProp;
     this.marionetteGroup.add(staffProp);
+
+    // Translucent bioluminescent Abyssal Bubble Cage enclosing the kneeling Dark Mage in Realm II Defeat
+    const bubbleGeo = new THREE.SphereGeometry(
+      SERENA_CONFIG.defeatBubbleRadius,
+      24,
+      20,
+    );
+    const bubbleMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.serenaBubbleGlow,
+      transparent: true,
+      opacity: 0.24,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const bubbleMesh = new THREE.Mesh(bubbleGeo, bubbleMat);
+    bubbleMesh.visible = false;
+    this.abyssalBubbleMesh = bubbleMesh;
+    this.marionetteGroup.add(bubbleMesh);
   }
 
   /**
@@ -218,8 +243,13 @@ export class DioramaSystem implements ISystem {
     this.callbacks.setAtmosphereStagger();
 
     const store = useGameStore.getState();
-    store.setMarinaDefeated(true);
-    store.setMarinaCoreCharge(SIPHON_GALLERY_CONFIG.bossDefeatRechargeBonus);
+    if (store.activeRealm === 2) {
+      store.setSerenaDefeated(true);
+      store.setSerenaCoreCharge(SERENA_CONFIG.defaultCoreCharge);
+    } else {
+      store.setMarinaDefeated(true);
+      store.setMarinaCoreCharge(SIPHON_GALLERY_CONFIG.bossDefeatRechargeBonus);
+    }
     store.exitEndlessSavor();
     store.setAudioMode(AUDIO_MODES.VICTORY);
 
@@ -306,6 +336,25 @@ export class DioramaSystem implements ISystem {
 
     if (this.dimmedStaffGroup) {
       this.dimmedStaffGroup.position.set(0.68, 0.05, halfDist + 0.18);
+    }
+
+    const isRealm2 = useGameStore.getState().activeRealm === 2;
+    if (this.abyssalBubbleMesh) {
+      this.abyssalBubbleMesh.visible = isRealm2;
+      this.abyssalBubbleMesh.position.set(0, 0.78, halfDist);
+    }
+    for (let i = 0; i < this.marionetteThreads.length; i++) {
+      const t = this.marionetteThreads[i];
+      if (!t) continue;
+      t.line.material.color.setHex(
+        isRealm2
+          ? i % 2 === 0
+            ? PALETTE.biolumCyan
+            : PALETTE.serenaHairTips
+          : i % 2 === 0
+            ? PALETTE.frostRunes
+            : PALETTE.iceHighlights,
+      );
     }
 
     this.marionetteGroup.visible = true;
@@ -447,6 +496,14 @@ export class DioramaSystem implements ISystem {
         DIORAMA_CONFIG.puppetThreadOpacity *
         (0.75 + 0.25 * Math.sin(elapsed * 4.5 + i * 1.1));
     }
+
+    if (this.abyssalBubbleMesh && this.abyssalBubbleMesh.visible) {
+      const pulse = 1.0 + Math.sin(elapsed * 2.6) * 0.035;
+      this.abyssalBubbleMesh.scale.setScalar(pulse);
+      this.abyssalBubbleMesh.rotation.y = elapsed * 0.35;
+      this.abyssalBubbleMesh.material.opacity =
+        0.2 + 0.07 * Math.sin(elapsed * 3.4);
+    }
   }
 
   public dispose(): void {
@@ -456,6 +513,10 @@ export class DioramaSystem implements ISystem {
       if (!t) continue;
       t.line.geometry.dispose();
       t.line.material.dispose();
+    }
+    if (this.abyssalBubbleMesh) {
+      this.abyssalBubbleMesh.geometry.dispose();
+      this.abyssalBubbleMesh.material.dispose();
     }
   }
 }

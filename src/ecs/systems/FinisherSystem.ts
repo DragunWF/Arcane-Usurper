@@ -44,7 +44,7 @@ export class FinisherSystem implements ISystem {
   private readonly world: ECSWorld;
   private readonly scene: THREE.Scene;
   private readonly mageRig: DarkMageRig;
-  private readonly bossRig: BossRigAdapter;
+  private bossRig: BossRigAdapter;
   private lobbyBossRig: BossRigAdapter | null = null;
   private readonly audio: IAudioTrigger;
   private readonly vfx: IVfxSpawner;
@@ -140,6 +140,10 @@ export class FinisherSystem implements ISystem {
     }
     this.audio.setSiphonThrottle(effective);
     useGameStore.getState().setThrottleMode(effective);
+  }
+
+  public setBossRig(rig: BossRigAdapter): void {
+    this.bossRig = rig;
   }
 
   public setLobbyBossRig(rig: BossRigAdapter | null): void {

@@ -4,10 +4,12 @@ import {
   BOSS_CONFIG,
   GAME_STATES,
   PLAYER_CONFIG,
+  SERENA_CONFIG,
   type GameState,
 } from '../../config/gameConfig';
 import type { SceneManager } from '../../engine/SceneManager';
 import type {
+  AbyssalWhirlpoolMeshHandles,
   FrostRingMeshHandles,
   IcePillarMeshHandles,
   IVfxSpawner,
@@ -35,7 +37,7 @@ export class RenderSyncSystem implements ISystem {
   private readonly sceneManager: SceneManager;
   private readonly vfx: IVfxSpawner;
   private readonly mageRig: DarkMageRig;
-  private readonly bossRig: BossRigAdapter;
+  private bossRig: BossRigAdapter;
   private readonly callbacks: IRenderSyncCallbacks;
 
   private hudSyncAccum = 0;
@@ -55,6 +57,10 @@ export class RenderSyncSystem implements ISystem {
     this.mageRig = mageRig;
     this.bossRig = bossRig;
     this.callbacks = callbacks;
+  }
+
+  public setBossRig(rig: BossRigAdapter): void {
+    this.bossRig = rig;
   }
 
   public update(dt: number, elapsed: number): void {
@@ -290,6 +296,31 @@ export class RenderSyncSystem implements ISystem {
               handles.runeMat.opacity = 0.85 * fade;
             }
           }
+        }
+      } else if (hz.kind === 'ABYSSAL_WHIRLPOOL') {
+        const handles = obj.userData.whirlpoolHandles as
+          | AbyssalWhirlpoolMeshHandles
+          | undefined;
+        if (handles) {
+          const t = THREE.MathUtils.clamp(
+            hz.elapsed / Math.max(0.001, hz.activeDuration),
+            0,
+            1,
+          );
+          const fadeIn = Math.min(1, t / 0.14);
+          const fadeOut = t > 0.82 ? (1 - t) / 0.18 : 1;
+          const env = fadeIn * fadeOut;
+
+          const spin = SERENA_CONFIG.abyssalUndertow.whirlpoolSpinSpeed;
+          handles.outerRing.rotation.z -= dt * spin;
+          handles.midRing.rotation.z += dt * spin * 1.45;
+          handles.innerRing.rotation.z -= dt * spin * 2.1;
+
+          const pulse = 0.92 + 0.12 * Math.sin(hz.elapsed * 6.5);
+          handles.outerMat.opacity = 0.55 * env * pulse;
+          handles.midMat.opacity = 0.48 * env;
+          handles.innerMat.opacity = 0.72 * env * pulse;
+          handles.vortexLight.intensity = 10.5 * env * pulse;
         }
       }
     }

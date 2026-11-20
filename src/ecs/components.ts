@@ -35,7 +35,8 @@ export type HazardKind =
   | 'FROST_RING_NOVA'
   | 'GLACIAL_LASER'
   | 'ICE_PILLAR'
-  | 'PHASE_SHOCKWAVE';
+  | 'PHASE_SHOCKWAVE'
+  | 'ABYSSAL_WHIRLPOOL';
 
 export interface Vec3Data {
   x: number;

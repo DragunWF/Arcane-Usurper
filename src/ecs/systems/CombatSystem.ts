@@ -12,6 +12,7 @@ import {
   SERVANT_AI_STATES,
   SERVANT_ARCHETYPES,
   SERVANT_CONFIG,
+  SERENA_CONFIG,
   SUNKEN_SERVANT_CONFIG,
   type GameState,
   type ServantArchetype,
@@ -64,7 +65,7 @@ export class CombatSystem implements ISystem {
   private readonly audio: IAudioTrigger;
   private readonly vfx: IVfxSpawner;
   private readonly mageRig: DarkMageRig;
-  private readonly bossRig: BossRigAdapter;
+  private bossRig: BossRigAdapter;
   private readonly callbacks: ICombatCallbacks;
 
   // Reusable scratch vectors (zero per-frame GC churn)
@@ -90,6 +91,10 @@ export class CombatSystem implements ISystem {
     this.mageRig = mageRig;
     this.bossRig = bossRig;
     this.callbacks = callbacks;
+  }
+
+  public setBossRig(rig: BossRigAdapter): void {
+    this.bossRig = rig;
   }
 
   public update(dt: number, _elapsed: number): void {
@@ -735,8 +740,15 @@ export class CombatSystem implements ISystem {
         ) {
           if (!hz.hasTriggered) {
             hz.hasTriggered = true;
-            this.audio.playIceShatter(0.92);
-            this.callbacks.addCameraShake(BOSS_CONFIG.phase3.pillarCameraShake);
+            if (boss?.bossPhase.bossId === SERENA_CONFIG.id) {
+              this.audio.playGeyserErupt();
+              this.callbacks.addCameraShake(
+                SERENA_CONFIG.abyssalUndertow.geyserCameraShake,
+              );
+            } else {
+              this.audio.playIceShatter(0.92);
+              this.callbacks.addCameraShake(BOSS_CONFIG.phase3.pillarCameraShake);
+            }
             this.vfx.spawnFrostShatterBurst(
               new THREE.Vector3(
                 transform.position.x,
@@ -765,6 +777,29 @@ export class CombatSystem implements ISystem {
             7.6,
           );
           toDestroy.push(entity.id);
+        }
+      } else if (hz.kind === 'ABYSSAL_WHIRLPOOL') {
+        if (hz.elapsed >= hz.activeDuration) {
+          toDestroy.push(entity.id);
+          continue;
+        }
+        // Gently pull the Dark Mage inward toward the swirling whirlpool center (respecting Blink i-frames)
+        if (
+          state === GAME_STATES.BOSS_COMBAT &&
+          player &&
+          !player.health.isInvulnerable
+        ) {
+          const toCenterX = transform.position.x - player.transform.position.x;
+          const toCenterZ = transform.position.z - player.transform.position.z;
+          const dist = Math.hypot(toCenterX, toCenterZ);
+          if (dist > 1.35 && dist <= hz.maxRadius) {
+            const pullStep =
+              SERENA_CONFIG.abyssalUndertow.undertowPullSpeed * dt;
+            const nx = toCenterX / dist;
+            const nz = toCenterZ / dist;
+            player.transform.position.x += nx * pullStep;
+            player.transform.position.z += nz * pullStep;
+          }
         }
       }
     }

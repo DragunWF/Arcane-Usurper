@@ -6,6 +6,7 @@ import {
   BOSS_PHASES,
   GAME_STATES,
   NG_PLUS_CONFIG,
+  SERENA_CONFIG,
   type BossPhase,
   type GameState,
 } from '../../config/gameConfig';
@@ -15,6 +16,20 @@ import type { BossRigAdapter } from '../../rigs/bosses/BossBase';
 import type { MarinaRig } from '../../rigs/bosses/MarinaRig';
 import type { BossPhaseStateComponent, EntityId, EntityWith } from '../components';
 import type { ECSWorld, ISystem } from '../World';
+
+export interface BossPatternProfile {
+  readonly bossId: string;
+  readonly phase2Threshold: number;
+  readonly phase3Threshold: number;
+  readonly staggerThreshold: number;
+  readonly phase2Opener: string;
+  readonly phase3Opener: string;
+  readonly closeRangePattern: string | null;
+  readonly phase1Cycle: readonly string[];
+  readonly phase2Cycle: readonly string[];
+  readonly phase3Cycle: readonly string[];
+  readonly getCooldown: (phase: BossPhase) => number;
+}
 
 export interface BossPatternContext {
   readonly world: ECSWorld;
@@ -57,12 +72,13 @@ export interface IBossAICallbacks {
  */
 export class BossAISystem implements ISystem {
   private readonly world: ECSWorld;
-  private readonly bossRig: BossRigAdapter;
+  private bossRig: BossRigAdapter;
   private readonly audio: IAudioTrigger;
   private readonly vfx: IVfxSpawner;
   private readonly callbacks: IBossAICallbacks;
 
   private readonly strategies = new Map<string, AttackPatternStrategy>();
+  private readonly profiles = new Map<string, BossPatternProfile>();
   private readonly scratchPlayerPos = new THREE.Vector3();
   private readonly scratchPlayerVel = new THREE.Vector3();
   private readonly scratchOrigin = new THREE.Vector3();
@@ -81,10 +97,26 @@ export class BossAISystem implements ISystem {
     this.callbacks = callbacks;
 
     this.registerMarinaPatterns();
+    this.registerSerenaPatterns();
+  }
+
+  public setBossRig(rig: BossRigAdapter): void {
+    this.bossRig = rig;
   }
 
   public registerPattern(strategy: AttackPatternStrategy): void {
     this.strategies.set(strategy.id, strategy);
+  }
+
+  public registerProfile(profile: BossPatternProfile): void {
+    this.profiles.set(profile.bossId, profile);
+  }
+
+  private getActiveProfile(bossId: string): BossPatternProfile {
+    return (
+      this.profiles.get(bossId) ??
+      (this.profiles.get(BOSS_CONFIG.defaultId) as BossPatternProfile)
+    );
   }
 
   /**
@@ -138,9 +170,10 @@ export class BossAISystem implements ISystem {
     if (!boss || boss.bossPhase.isStaggered) return;
 
     const { bossPhase, health, transform } = boss;
+    const profile = this.getActiveProfile(bossPhase.bossId);
     const hpRatio = health.current / Math.max(1, health.max);
 
-    if (hpRatio <= BOSS_CONFIG.staggerThreshold) {
+    if (hpRatio <= profile.staggerThreshold) {
       bossPhase.isStaggered = true;
       bossPhase.expression = BOSS_EXPRESSIONS.STAGGER;
       this.clearAllBossHazards();
@@ -165,12 +198,12 @@ export class BossAISystem implements ISystem {
 
     if (
       bossPhase.phase < BOSS_PHASES.PHASE_3 &&
-      hpRatio <= BOSS_CONFIG.phase3.threshold
+      hpRatio <= profile.phase3Threshold
     ) {
       this.transitionToPhase(bossPhase, transform.position, BOSS_PHASES.PHASE_3);
     } else if (
       bossPhase.phase < BOSS_PHASES.PHASE_2 &&
-      hpRatio <= BOSS_CONFIG.phase2.threshold
+      hpRatio <= profile.phase2Threshold
     ) {
       this.transitionToPhase(bossPhase, transform.position, BOSS_PHASES.PHASE_2);
     }
@@ -290,6 +323,7 @@ export class BossAISystem implements ISystem {
     };
 
     const bp = boss.bossPhase;
+    const profile = this.getActiveProfile(bp.bossId);
 
     if (bp.activePatternId !== null) {
       bp.activePatternElapsed += dt;
@@ -303,26 +337,7 @@ export class BossAISystem implements ISystem {
           strategy.finish(ctx);
         }
         bp.activePatternId = null;
-
-        if (bp.phase === BOSS_PHASES.PHASE_3) {
-          bp.attackCooldown =
-            BOSS_CONFIG.phase3.attackCooldownMin +
-            Math.random() *
-              (BOSS_CONFIG.phase3.attackCooldownMax -
-                BOSS_CONFIG.phase3.attackCooldownMin);
-        } else if (bp.phase === BOSS_PHASES.PHASE_2) {
-          bp.attackCooldown =
-            BOSS_CONFIG.phase2.attackCooldownMin +
-            Math.random() *
-              (BOSS_CONFIG.phase2.attackCooldownMax -
-                BOSS_CONFIG.phase2.attackCooldownMin);
-        } else {
-          bp.attackCooldown =
-            BOSS_CONFIG.phase1.attackCooldownMin +
-            Math.random() *
-              (BOSS_CONFIG.phase1.attackCooldownMax -
-                BOSS_CONFIG.phase1.attackCooldownMin);
-        }
+        bp.attackCooldown = profile.getCooldown(bp.phase);
 
         const encoreTier =
           this.world.queryFirst('playerTag', 'playerCombat')?.playerCombat
@@ -345,11 +360,11 @@ export class BossAISystem implements ISystem {
     if (bp.pendingPhaseOpener) {
       bp.pendingPhaseOpener = false;
       if (bp.phase === BOSS_PHASES.PHASE_2) {
-        this.startPattern('FROST_CLONES', ctx);
+        this.startPattern(profile.phase2Opener, ctx);
         return;
       }
       if (bp.phase === BOSS_PHASES.PHASE_3) {
-        this.startPattern('SNOWFLAKE_CURTAIN', ctx);
+        this.startPattern(profile.phase3Opener, ctx);
         return;
       }
     }
@@ -360,35 +375,25 @@ export class BossAISystem implements ISystem {
     );
 
     if (
+      profile.closeRangePattern !== null &&
       distToPlayer <= BOSS_CONFIG.novaTriggerDist &&
       bp.patternIndex % 2 === 0
     ) {
       bp.patternIndex++;
-      this.startPattern('FROST_RING_NOVA', ctx);
+      this.startPattern(profile.closeRangePattern, ctx);
       return;
     }
 
     const idx = bp.patternIndex++;
-
-    if (bp.phase === BOSS_PHASES.PHASE_1) {
-      const cycle = idx % 3;
-      if (cycle === 0) this.startPattern('ICE_LANCE_FAN', ctx);
-      else if (cycle === 1) this.startPattern('CRESCENT_WAVE', ctx);
-      else this.startPattern('FROST_RING_NOVA', ctx);
-    } else if (bp.phase === BOSS_PHASES.PHASE_2) {
-      const cycle = idx % 5;
-      if (cycle === 0) this.startPattern('TWIN_GLACIAL_LASER', ctx);
-      else if (cycle === 1) this.startPattern('ICE_LANCE_FAN', ctx);
-      else if (cycle === 2) this.startPattern('FROST_CLONES', ctx);
-      else if (cycle === 3) this.startPattern('CRESCENT_WAVE', ctx);
-      else this.startPattern('FROST_RING_NOVA', ctx);
-    } else {
-      const cycle = idx % 5;
-      if (cycle === 0) this.startPattern('FALLING_ICE_PILLARS', ctx);
-      else if (cycle === 1) this.startPattern('SNOWFLAKE_CURTAIN', ctx);
-      else if (cycle === 2) this.startPattern('TWIN_GLACIAL_LASER', ctx);
-      else if (cycle === 3) this.startPattern('FROST_CLONES', ctx);
-      else this.startPattern('CRESCENT_WAVE', ctx);
+    const cycleList =
+      bp.phase === BOSS_PHASES.PHASE_3
+        ? profile.phase3Cycle
+        : bp.phase === BOSS_PHASES.PHASE_2
+          ? profile.phase2Cycle
+          : profile.phase1Cycle;
+    const chosenId = cycleList[idx % cycleList.length];
+    if (chosenId) {
+      this.startPattern(chosenId, ctx);
     }
   }
 
@@ -1024,6 +1029,559 @@ export class BossAISystem implements ISystem {
         });
 
         bp.activePatternDuration = BOSS_CONFIG.phase3.pillarAttackDuration;
+      },
+    });
+
+    this.registerProfile({
+      bossId: BOSS_CONFIG.defaultId,
+      phase2Threshold: BOSS_CONFIG.phase2.threshold,
+      phase3Threshold: BOSS_CONFIG.phase3.threshold,
+      staggerThreshold: BOSS_CONFIG.staggerThreshold,
+      phase2Opener: 'FROST_CLONES',
+      phase3Opener: 'SNOWFLAKE_CURTAIN',
+      closeRangePattern: 'FROST_RING_NOVA',
+      phase1Cycle: ['ICE_LANCE_FAN', 'CRESCENT_WAVE', 'FROST_RING_NOVA'],
+      phase2Cycle: [
+        'TWIN_GLACIAL_LASER',
+        'ICE_LANCE_FAN',
+        'FROST_CLONES',
+        'CRESCENT_WAVE',
+        'FROST_RING_NOVA',
+      ],
+      phase3Cycle: [
+        'FALLING_ICE_PILLARS',
+        'SNOWFLAKE_CURTAIN',
+        'TWIN_GLACIAL_LASER',
+        'FROST_CLONES',
+        'CRESCENT_WAVE',
+      ],
+      getCooldown(phase: BossPhase): number {
+        if (phase === BOSS_PHASES.PHASE_3) {
+          return (
+            BOSS_CONFIG.phase3.attackCooldownMin +
+            Math.random() *
+              (BOSS_CONFIG.phase3.attackCooldownMax -
+                BOSS_CONFIG.phase3.attackCooldownMin)
+          );
+        }
+        if (phase === BOSS_PHASES.PHASE_2) {
+          return (
+            BOSS_CONFIG.phase2.attackCooldownMin +
+            Math.random() *
+              (BOSS_CONFIG.phase2.attackCooldownMax -
+                BOSS_CONFIG.phase2.attackCooldownMin)
+          );
+        }
+        return (
+          BOSS_CONFIG.phase1.attackCooldownMin +
+          Math.random() *
+            (BOSS_CONFIG.phase1.attackCooldownMax -
+              BOSS_CONFIG.phase1.attackCooldownMin)
+        );
+      },
+    });
+  }
+
+  /**
+   * Registers Serena, Voice of the Deep's 3-phase aquatic attack strategies (OCP):
+   * - Phase I: TIDAL_SWEEP (low-altitude crescent waves) + BUBBLE_CHORALE (clearable bubble clusters)
+   * - Phase II: HARMONIC_SPIRAL (rapid lateral tail-glide + double wave arcs & harmonic spirals)
+   * - Phase III: ABYSSAL_UNDERTOW (swirling floor whirlpool pull + delayed boiling geysers)
+   */
+  private registerSerenaPatterns(): void {
+    // Phase I Pattern 1: Tidal Sweep (low-altitude crescent water waves)
+    this.registerPattern({
+      id: 'TIDAL_SWEEP',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        ctx.bossRig.triggerCastFlourish();
+        bp.activePatternFireTimer = SERENA_CONFIG.tidalSweep.waveTelegraphSec;
+        bp.activePatternDuration =
+          SERENA_CONFIG.tidalSweep.waveTelegraphSec +
+          SERENA_CONFIG.tidalSweep.waveRecoverySec;
+      },
+      tick(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        if (
+          !bp.activePatternLaunched &&
+          bp.activePatternElapsed >= bp.activePatternFireTimer
+        ) {
+          bp.activePatternLaunched = true;
+          ctx.audio.playTidalWave();
+          const bPos = ctx.bossEntity.transform.position;
+          const dx = ctx.playerPos.x - bPos.x;
+          const dz = ctx.playerPos.z - bPos.z;
+          const baseYaw = dx * dx + dz * dz < 0.01 ? 0 : Math.atan2(dx, dz);
+
+          const count = SERENA_CONFIG.tidalSweep.waveCount;
+          const arc = SERENA_CONFIG.tidalSweep.waveArcSpread;
+          const speed = SERENA_CONFIG.tidalSweep.waveSpeed;
+
+          for (let i = 0; i < count; i++) {
+            const t = count > 1 ? i / (count - 1) - 0.5 : 0;
+            const yaw = baseYaw + t * arc;
+            const dirX = Math.sin(yaw);
+            const dirZ = Math.cos(yaw);
+            const sx =
+              bPos.x + dirX * SERENA_CONFIG.tidalSweep.waveSpawnForwardOffset;
+            const sy = SERENA_CONFIG.tidalSweep.waveSpawnHeight;
+            const sz =
+              bPos.z + dirZ * SERENA_CONFIG.tidalSweep.waveSpawnForwardOffset;
+
+            const group = ctx.vfx.createCrescentBladeGroup(
+              new THREE.Vector3(sx, sy, sz),
+              yaw,
+              true,
+            );
+            ctx.world.createEntity({
+              transform: {
+                position: { x: sx, y: sy, z: sz },
+                rotationY: yaw,
+                scale: 1,
+              },
+              velocity: {
+                vx: dirX * speed,
+                vy: 0,
+                vz: dirZ * speed,
+                maxSpeed: speed,
+              },
+              projectile: {
+                faction: 'BOSS',
+                kind: 'GLACIAL_CRESCENT',
+                damage: SERENA_CONFIG.tidalSweep.waveDamage,
+                radius: SERENA_CONFIG.tidalSweep.waveRadius,
+                life: SERENA_CONFIG.tidalSweep.waveLife,
+                maxLife: SERENA_CONFIG.tidalSweep.waveLife,
+                trailTimer: 0,
+                spinSpeed: 0,
+                pierceRemaining: 1,
+                hitEntityIds: [],
+                state: 'FLY',
+                fireDelay: 0,
+                fanAngle: 0,
+                baseHeight: sy,
+                ownerEntityId: ctx.bossEntity.id,
+              },
+              meshRef: { object3D: group },
+            });
+          }
+        }
+      },
+    });
+
+    // Phase I & II Pattern 2: Bubble Chorale (fanning/orbiting bubble clusters clearable by Umbral Pulse)
+    this.registerPattern({
+      id: 'BUBBLE_CHORALE',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        ctx.bossRig.triggerCastFlourish();
+        bp.activePatternDuration = SERENA_CONFIG.bubbleChorale.patternDuration;
+        bp.activePatternFireTimer = 0.25;
+        bp.activePatternAngle = 0;
+      },
+      tick(ctx, dt) {
+        const bp = ctx.bossEntity.bossPhase;
+        bp.activePatternFireTimer -= dt;
+        if (
+          bp.activePatternFireTimer <= 0 &&
+          bp.activePatternElapsed < bp.activePatternDuration - 0.35
+        ) {
+          bp.activePatternFireTimer = SERENA_CONFIG.bubbleChorale.burstInterval;
+          ctx.audio.playBubblePop();
+
+          const bPos = ctx.bossEntity.transform.position;
+          const count = SERENA_CONFIG.bubbleChorale.orbCount;
+          const speed = SERENA_CONFIG.bubbleChorale.orbSpeed;
+          const yHeight = SERENA_CONFIG.bubbleChorale.orbHeight;
+
+          for (let i = 0; i < count; i++) {
+            const ang =
+              bp.activePatternAngle + (i / count) * Math.PI * 2;
+            const dirX = Math.sin(ang);
+            const dirZ = Math.cos(ang);
+            const sx = bPos.x + dirX * 1.1;
+            const sz = bPos.z + dirZ * 1.1;
+            const group = ctx.vfx.createSpiralOrbGroup(
+              new THREE.Vector3(sx, yHeight, sz),
+              true,
+            );
+            ctx.world.createEntity({
+              transform: {
+                position: { x: sx, y: yHeight, z: sz },
+                rotationY: ang,
+                scale: 1,
+              },
+              velocity: {
+                vx: dirX * speed,
+                vy: 0,
+                vz: dirZ * speed,
+                maxSpeed: speed,
+              },
+              projectile: {
+                faction: 'BOSS',
+                kind: 'SPIRAL_ORB',
+                damage: SERENA_CONFIG.bubbleChorale.orbDamage,
+                radius: SERENA_CONFIG.bubbleChorale.orbRadius,
+                life: SERENA_CONFIG.bubbleChorale.orbLife,
+                maxLife: SERENA_CONFIG.bubbleChorale.orbLife,
+                trailTimer: 0,
+                spinSpeed: 0,
+                pierceRemaining: 0,
+                hitEntityIds: [],
+                state: 'FLY',
+                fireDelay: 0,
+                fanAngle: 0,
+                baseHeight: yHeight,
+                ownerEntityId: ctx.bossEntity.id,
+              },
+              meshRef: { object3D: group },
+            });
+          }
+
+          bp.activePatternAngle += Math.PI / count;
+        }
+      },
+    });
+
+    // Phase II Signature: Siren's Harmonic Spiral (fast lateral tail-glide + double intersecting wave arcs + harmonic spirals)
+    this.registerPattern({
+      id: 'HARMONIC_SPIRAL',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        ctx.bossRig.triggerCastFlourish();
+        ctx.audio.playTidalWave();
+
+        const bPos = ctx.bossEntity.transform.position;
+        let toX = ctx.playerPos.x - bPos.x;
+        let toZ = ctx.playerPos.z - bPos.z;
+        const len = Math.hypot(toX, toZ);
+        if (len < 0.01) {
+          toX = 0;
+          toZ = 1;
+        } else {
+          toX /= len;
+          toZ /= len;
+        }
+        const rightX = -toZ;
+        const rightZ = toX;
+
+        // High-speed lateral tail-glide burst
+        bp.dashVelX = rightX * bp.orbitDir * SERENA_CONFIG.sirensChorale.dashSpeed;
+        bp.dashVelZ = rightZ * bp.orbitDir * SERENA_CONFIG.sirensChorale.dashSpeed;
+        bp.dashTimer = SERENA_CONFIG.sirensChorale.dashDuration;
+
+        // First intersecting crescent water wave arc
+        const baseYaw = Math.atan2(toX, toZ);
+        const count = SERENA_CONFIG.sirensChorale.waveCount;
+        const arc = SERENA_CONFIG.sirensChorale.waveArcSpread;
+        const speed = SERENA_CONFIG.sirensChorale.waveSpeed;
+
+        for (let i = 0; i < count; i++) {
+          const t = count > 1 ? i / (count - 1) - 0.5 : 0;
+          const yaw = baseYaw + t * arc;
+          const dirX = Math.sin(yaw);
+          const dirZ = Math.cos(yaw);
+          const sx = bPos.x + dirX * 1.05;
+          const sy = SERENA_CONFIG.tidalSweep.waveSpawnHeight;
+          const sz = bPos.z + dirZ * 1.05;
+          const group = ctx.vfx.createCrescentBladeGroup(
+            new THREE.Vector3(sx, sy, sz),
+            yaw,
+            true,
+          );
+          ctx.world.createEntity({
+            transform: {
+              position: { x: sx, y: sy, z: sz },
+              rotationY: yaw,
+              scale: 1,
+            },
+            velocity: {
+              vx: dirX * speed,
+              vy: 0,
+              vz: dirZ * speed,
+              maxSpeed: speed,
+            },
+            projectile: {
+              faction: 'BOSS',
+              kind: 'GLACIAL_CRESCENT',
+              damage: SERENA_CONFIG.sirensChorale.waveDamage,
+              radius: SERENA_CONFIG.sirensChorale.waveRadius,
+              life: SERENA_CONFIG.tidalSweep.waveLife,
+              maxLife: SERENA_CONFIG.tidalSweep.waveLife,
+              trailTimer: 0,
+              spinSpeed: 0,
+              pierceRemaining: 1,
+              hitEntityIds: [],
+              state: 'FLY',
+              fireDelay: 0,
+              fanAngle: 0,
+              baseHeight: sy,
+              ownerEntityId: ctx.bossEntity.id,
+            },
+            meshRef: { object3D: group },
+          });
+        }
+
+        bp.activePatternDuration = SERENA_CONFIG.sirensChorale.patternDuration;
+        bp.activePatternFireTimer = 0.3;
+        bp.activePatternAngle = baseYaw;
+      },
+      tick(ctx, dt) {
+        const bp = ctx.bossEntity.bossPhase;
+        // Launch counter-arc wave midway through the glide
+        if (!bp.activePatternLaunched && bp.activePatternElapsed >= 0.85) {
+          bp.activePatternLaunched = true;
+          ctx.audio.playTidalWave();
+          const bPos = ctx.bossEntity.transform.position;
+          const baseYaw = Math.atan2(
+            ctx.playerPos.x - bPos.x,
+            ctx.playerPos.z - bPos.z,
+          );
+          const count = SERENA_CONFIG.sirensChorale.waveCount;
+          const arc = SERENA_CONFIG.sirensChorale.waveArcSpread;
+          const speed = SERENA_CONFIG.sirensChorale.waveSpeed;
+
+          for (let i = 0; i < count; i++) {
+            const t = count > 1 ? i / (count - 1) - 0.5 : 0;
+            const yaw = baseYaw + t * arc + 0.14;
+            const dirX = Math.sin(yaw);
+            const dirZ = Math.cos(yaw);
+            const sx = bPos.x + dirX * 1.05;
+            const sy = SERENA_CONFIG.tidalSweep.waveSpawnHeight;
+            const sz = bPos.z + dirZ * 1.05;
+            const group = ctx.vfx.createCrescentBladeGroup(
+              new THREE.Vector3(sx, sy, sz),
+              yaw,
+              true,
+            );
+            ctx.world.createEntity({
+              transform: {
+                position: { x: sx, y: sy, z: sz },
+                rotationY: yaw,
+                scale: 1,
+              },
+              velocity: {
+                vx: dirX * speed,
+                vy: 0,
+                vz: dirZ * speed,
+                maxSpeed: speed,
+              },
+              projectile: {
+                faction: 'BOSS',
+                kind: 'GLACIAL_CRESCENT',
+                damage: SERENA_CONFIG.sirensChorale.waveDamage,
+                radius: SERENA_CONFIG.sirensChorale.waveRadius,
+                life: SERENA_CONFIG.tidalSweep.waveLife,
+                maxLife: SERENA_CONFIG.tidalSweep.waveLife,
+                trailTimer: 0,
+                spinSpeed: 0,
+                pierceRemaining: 1,
+                hitEntityIds: [],
+                state: 'FLY',
+                fireDelay: 0,
+                fanAngle: 0,
+                baseHeight: sy,
+                ownerEntityId: ctx.bossEntity.id,
+              },
+              meshRef: { object3D: group },
+            });
+          }
+        }
+
+        // Rotating 6-arm harmonic bubble spiral
+        bp.activePatternFireTimer -= dt;
+        if (
+          bp.activePatternFireTimer <= 0 &&
+          bp.activePatternElapsed < bp.activePatternDuration - 0.35
+        ) {
+          bp.activePatternFireTimer = SERENA_CONFIG.sirensChorale.spiralFireInterval;
+          ctx.audio.playBubblePop();
+          const bPos = ctx.bossEntity.transform.position;
+          const arms = SERENA_CONFIG.sirensChorale.spiralArms;
+          const speed = SERENA_CONFIG.sirensChorale.orbSpeed;
+          const yHeight = SERENA_CONFIG.bubbleChorale.orbHeight;
+
+          for (let i = 0; i < arms; i++) {
+            const ang = bp.activePatternAngle + (i / arms) * Math.PI * 2;
+            const dirX = Math.sin(ang);
+            const dirZ = Math.cos(ang);
+            const sx = bPos.x + dirX * 1.1;
+            const sz = bPos.z + dirZ * 1.1;
+            const group = ctx.vfx.createSpiralOrbGroup(
+              new THREE.Vector3(sx, yHeight, sz),
+              true,
+            );
+            ctx.world.createEntity({
+              transform: {
+                position: { x: sx, y: yHeight, z: sz },
+                rotationY: ang,
+                scale: 1,
+              },
+              velocity: {
+                vx: dirX * speed,
+                vy: 0,
+                vz: dirZ * speed,
+                maxSpeed: speed,
+              },
+              projectile: {
+                faction: 'BOSS',
+                kind: 'SPIRAL_ORB',
+                damage: SERENA_CONFIG.sirensChorale.orbDamage,
+                radius: SERENA_CONFIG.bubbleChorale.orbRadius,
+                life: SERENA_CONFIG.bubbleChorale.orbLife,
+                maxLife: SERENA_CONFIG.bubbleChorale.orbLife,
+                trailTimer: 0,
+                spinSpeed: 0,
+                pierceRemaining: 0,
+                hitEntityIds: [],
+                state: 'FLY',
+                fireDelay: 0,
+                fanAngle: 0,
+                baseHeight: yHeight,
+                ownerEntityId: ctx.bossEntity.id,
+              },
+              meshRef: { object3D: group },
+            });
+          }
+          bp.activePatternAngle += SERENA_CONFIG.sirensChorale.spiralAngleStep;
+        }
+      },
+    });
+
+    // Phase III Signature: Abyssal Undertow (swirling whirlpool pull + delayed boiling geyser pillars)
+    this.registerPattern({
+      id: 'ABYSSAL_UNDERTOW',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        const cfg = SERENA_CONFIG.abyssalUndertow;
+        ctx.bossRig.triggerCastFlourish();
+        ctx.bossRig.setAscendHeight(cfg.ascendHeight);
+        bp.ascendHeight = cfg.ascendHeight;
+        ctx.audio.playTidalWave();
+
+        // Spawn visible swirling floor whirlpool pulling the Dark Mage gently toward center
+        const vortexOrigin = new THREE.Vector3(0, 0.08, 0);
+        const vortexGroup = ctx.vfx.createAbyssalWhirlpoolGroup(
+          vortexOrigin,
+          cfg.whirlpoolRadius,
+        );
+        ctx.world.createEntity({
+          transform: {
+            position: { x: 0, y: 0.08, z: 0 },
+            rotationY: 0,
+            scale: 1,
+          },
+          hazardZone: {
+            kind: 'ABYSSAL_WHIRLPOOL',
+            faction: 'BOSS',
+            damage: 0,
+            elapsed: 0,
+            telegraphDuration: 0,
+            activeDuration: cfg.undertowDuration,
+            currentRadius: cfg.whirlpoolRadius,
+            maxRadius: cfg.whirlpoolRadius,
+            hitThickness: 0,
+            angle: 0,
+            startAngle: 0,
+            endAngle: 0,
+            beamLength: 0,
+            hitCooldown: 0,
+            hasHitPlayer: false,
+            hasTriggered: true,
+          },
+          meshRef: { object3D: vortexGroup },
+        });
+
+        // Schedule delayed boiling geyser eruptions around the amphitheater + under player
+        const geyserCount = cfg.geyserCount;
+        const baseAngle = Math.random() * Math.PI * 2;
+        for (let i = 0; i < geyserCount; i++) {
+          let gx: number;
+          let gz: number;
+          if (i === 0) {
+            gx = ctx.playerPos.x + ctx.playerVel.x * 0.45;
+            gz = ctx.playerPos.z + ctx.playerVel.z * 0.45;
+          } else {
+            const ang = baseAngle + ((i - 1) / (geyserCount - 1)) * Math.PI * 2;
+            const ringR =
+              cfg.geyserMinRadius +
+              (i % 2 === 0 ? 0.62 : 0.25) *
+                (cfg.geyserMaxRadius - cfg.geyserMinRadius);
+            gx = Math.cos(ang) * ringR;
+            gz = Math.sin(ang) * ringR;
+          }
+
+          const dist = Math.hypot(gx, gz);
+          if (dist > cfg.geyserMaxRadius && dist > 0.001) {
+            gx = (gx / dist) * cfg.geyserMaxRadius;
+            gz = (gz / dist) * cfg.geyserMaxRadius;
+          }
+
+          const geyserGroup = ctx.vfx.createIcePillarGroup(
+            new THREE.Vector3(gx, 0.05, gz),
+            cfg.geyserRadius,
+            true,
+          );
+          ctx.world.createEntity({
+            transform: {
+              position: { x: gx, y: 0.05, z: gz },
+              rotationY: 0,
+              scale: 1,
+            },
+            hazardZone: {
+              kind: 'ICE_PILLAR',
+              faction: 'BOSS',
+              damage: cfg.geyserDamage,
+              elapsed: -i * cfg.geyserCascadeStep,
+              telegraphDuration: cfg.geyserTelegraphSec,
+              activeDuration: cfg.geyserEruptDuration,
+              currentRadius: cfg.geyserRadius,
+              maxRadius: cfg.geyserRadius,
+              hitThickness: 0,
+              angle: 0,
+              startAngle: 0,
+              endAngle: 0,
+              beamLength: 0,
+              hitCooldown: 0,
+              hasHitPlayer: false,
+              hasTriggered: false,
+            },
+            meshRef: { object3D: geyserGroup },
+          });
+        }
+
+        bp.activePatternDuration = cfg.patternDuration;
+      },
+      finish(ctx) {
+        ctx.bossRig.setAscendHeight(0);
+        ctx.bossEntity.bossPhase.ascendHeight = 0;
+      },
+    });
+
+    this.registerProfile({
+      bossId: SERENA_CONFIG.id,
+      phase2Threshold: SERENA_CONFIG.phase2HpThreshold,
+      phase3Threshold: SERENA_CONFIG.phase3HpThreshold,
+      staggerThreshold: SERENA_CONFIG.staggerHpThreshold,
+      phase2Opener: 'HARMONIC_SPIRAL',
+      phase3Opener: 'ABYSSAL_UNDERTOW',
+      closeRangePattern: null,
+      phase1Cycle: ['TIDAL_SWEEP', 'BUBBLE_CHORALE', 'TIDAL_SWEEP'],
+      phase2Cycle: ['HARMONIC_SPIRAL', 'BUBBLE_CHORALE', 'TIDAL_SWEEP'],
+      phase3Cycle: [
+        'ABYSSAL_UNDERTOW',
+        'HARMONIC_SPIRAL',
+        'BUBBLE_CHORALE',
+        'TIDAL_SWEEP',
+      ],
+      getCooldown(phase: BossPhase): number {
+        if (phase === BOSS_PHASES.PHASE_3) {
+          return SERENA_CONFIG.abyssalUndertow.attackCooldown;
+        }
+        if (phase === BOSS_PHASES.PHASE_2) {
+          return SERENA_CONFIG.sirensChorale.attackCooldown;
+        }
+        return SERENA_CONFIG.tidalSweep.attackCooldown;
       },
     });
   }

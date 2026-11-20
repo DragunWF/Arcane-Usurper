@@ -288,11 +288,20 @@ export interface GameStoreState {
   triggerReticlePulse: () => void;
   triggerTauntPop: () => void;
   syncCombatSnapshot: (snapshot: CombatHudSnapshot) => void;
-  resetForDuel: (encoreTier?: number) => void;
+  resetForDuel: (
+    encoreTier?: number,
+    bossMaxHpOverride?: number,
+    phase1SubtitleOverride?: string,
+  ) => void;
   resetToTitle: () => void;
 }
 
-function getSubtitleForPhase(phase: BossPhase): string {
+function getSubtitleForPhase(phase: BossPhase, bossId?: string): string {
+  if (bossId === SERENA_CONFIG.id) {
+    if (phase === BOSS_PHASES.PHASE_2) return SERENA_CONFIG.sirensChorale.subtitle;
+    if (phase === BOSS_PHASES.PHASE_3) return SERENA_CONFIG.abyssalUndertow.subtitle;
+    return SERENA_CONFIG.tidalSweep.subtitle;
+  }
   if (phase === BOSS_PHASES.PHASE_2) return BOSS_CONFIG.phase2.subtitle;
   if (phase === BOSS_PHASES.PHASE_3) return BOSS_CONFIG.phase3.subtitle;
   return BOSS_CONFIG.phase1.subtitle;
@@ -396,10 +405,10 @@ export const useGameStore = create<GameStoreState>((set) => ({
     }),
 
   setBossPhase: (bossPhase, subtitle) =>
-    set({
+    set((state) => ({
       bossPhase,
-      bossPhaseSubtitle: subtitle ?? getSubtitleForPhase(bossPhase),
-    }),
+      bossPhaseSubtitle: subtitle ?? getSubtitleForPhase(bossPhase, state.bossId),
+    })),
 
   setBossExpression: (bossExpression) => set({ bossExpression }),
 
@@ -516,13 +525,21 @@ export const useGameStore = create<GameStoreState>((set) => ({
         snapshot.canExecuteFinisher ?? state.canExecuteFinisher,
     })),
 
-  resetForDuel: (encoreTier) =>
+  resetForDuel: (encoreTier, bossMaxHpOverride, phase1SubtitleOverride) =>
     set((state) => {
       const nextTier = encoreTier ?? state.encoreTier;
+      const baseMaxHp =
+        bossMaxHpOverride ??
+        (state.activeRealm === 2 ? SERENA_CONFIG.maxHp : BOSS_CONFIG.maxHp);
       const scaledBossMaxHp = Math.round(
-        BOSS_CONFIG.maxHp *
+        baseMaxHp *
           Math.pow(NG_PLUS_CONFIG.bossHpMultiplierPerTier, nextTier),
       );
+      const phase1Subtitle =
+        phase1SubtitleOverride ??
+        (state.activeRealm === 2
+          ? SERENA_CONFIG.tidalSweep.subtitle
+          : BOSS_CONFIG.phase1.subtitle);
       return {
         gameState: GAME_STATES.BOSS_COMBAT,
         isPaused: false,
@@ -536,7 +553,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
         bossHp: scaledBossMaxHp,
         bossMaxHp: scaledBossMaxHp,
         bossPhase: BOSS_PHASES.PHASE_1,
-        bossPhaseSubtitle: BOSS_CONFIG.phase1.subtitle,
+        bossPhaseSubtitle: phase1Subtitle,
         bossExpression: BOSS_EXPRESSIONS.COMBAT,
         isBossStaggered: false,
         canExecuteFinisher: false,

@@ -15,6 +15,7 @@ import {
   LOBBY_CONFIG,
   NG_PLUS_CONFIG,
   PLAYER_CONFIG,
+  SERENA_CONFIG,
   SIPHON_GALLERY_CONFIG,
   SUNKEN_CHAMBER_CONFIG,
   type BossPhase,
@@ -35,6 +36,7 @@ import { ECSWorld } from '../ecs/World';
 import { DarkMageRig } from '../rigs/DarkMageRig';
 import type { BossRigAdapter } from '../rigs/bosses/BossBase';
 import { MarinaRig } from '../rigs/bosses/MarinaRig';
+import { SerenaRig } from '../rigs/bosses/SerenaRig';
 import { useGameStore } from '../state/useGameStore';
 import { CameraRig, type ICameraTarget } from './CameraRig';
 import { SceneManager } from './SceneManager';
@@ -86,7 +88,9 @@ export class GameEngine implements IGameController {
   private readonly sound: SoundEngine;
   private readonly vfx: VfxFactory;
   private readonly mageRig: DarkMageRig;
-  private readonly bossRig: BossRigAdapter;
+  private readonly marinaRig: MarinaRig;
+  private readonly serenaRig: SerenaRig;
+  private bossRig: BossRigAdapter;
 
   private readonly inputSystem: InputSystem;
   private readonly movementSystem: MovementSystem;
@@ -134,14 +138,18 @@ export class GameEngine implements IGameController {
     this.vfx = new VfxFactory(this.sceneManager.scene);
 
     this.mageRig = new DarkMageRig(this.sceneManager.scene);
-    this.bossRig = new MarinaRig(this.sceneManager.scene);
+    this.marinaRig = new MarinaRig(this.sceneManager.scene);
+    this.serenaRig = new SerenaRig(this.sceneManager.scene);
+    this.serenaRig.root.visible = false;
+    this.bossRig = this.marinaRig;
 
     // Automatic Three.js mesh disposal whenever an ECS projectile/hazard/clone/wisp is destroyed
     this.unsubscribeEntityRemoved = this.world.onEntityRemoved((entity) => {
       if (
         entity.meshRef &&
         entity.meshRef.object3D !== this.mageRig.root &&
-        entity.meshRef.object3D !== this.bossRig.root &&
+        entity.meshRef.object3D !== this.marinaRig.root &&
+        entity.meshRef.object3D !== this.serenaRig.root &&
         !entity.meshRef.object3D.userData.managedByLevel &&
         !entity.meshRef.object3D.userData.managedByRig
       ) {
@@ -652,6 +660,52 @@ export class GameEngine implements IGameController {
   }
 
   /**
+   * Swaps the active sovereign BossRigAdapter cleanly for Realm I (Marina) or Realm II (Serena),
+   * updating all decoupled ECS systems, ECS boss identity traits, and Zustand Boss HUD metadata.
+   */
+  private activateBossForRealm(realm: 1 | 2, encoreTier: number): BossRigAdapter {
+    const isRealm2 = realm === 2;
+    const nextRig: BossRigAdapter = isRealm2 ? this.serenaRig : this.marinaRig;
+    const inactiveRig: BossRigAdapter = isRealm2 ? this.marinaRig : this.serenaRig;
+
+    inactiveRig.root.visible = false;
+    this.bossRig = nextRig;
+
+    this.bossAISystem.setBossRig(nextRig);
+    this.combatSystem.setBossRig(nextRig);
+    this.finisherSystem.setBossRig(nextRig);
+    this.dioramaSystem.setBossRig(nextRig);
+    this.renderSyncSystem.setBossRig(nextRig);
+
+    const baseMaxHp = isRealm2 ? SERENA_CONFIG.maxHp : BOSS_CONFIG.maxHp;
+    const scaledMaxHp = Math.round(
+      baseMaxHp * Math.pow(NG_PLUS_CONFIG.bossHpMultiplierPerTier, encoreTier),
+    );
+
+    const boss = this.world.queryFirst('bossPhase', 'hurtbox', 'meshRef');
+    if (boss) {
+      boss.bossPhase.bossId = nextRig.id;
+      boss.bossPhase.displayName = nextRig.displayName;
+      boss.bossPhase.title = nextRig.title;
+      boss.hurtbox.radius = isRealm2
+        ? SERENA_CONFIG.hitRadius
+        : BOSS_CONFIG.hitRadius;
+      boss.meshRef.object3D = nextRig.root;
+    }
+
+    useGameStore
+      .getState()
+      .setBossIdentity(
+        nextRig.id,
+        nextRig.displayName,
+        nextRig.title,
+        scaledMaxHp,
+      );
+
+    return nextRig;
+  }
+
+  /**
    * Launches a fresh Chamber gauntlet (Wave 1) in Realm I (`CHAMBER`) or Realm II (`SUNKEN_CHAMBER`)
    * with `hasReachedSummit = false`.
    */
@@ -672,6 +726,7 @@ export class GameEngine implements IGameController {
     this.movementSystem.resetTransientState();
 
     const isRealm2 = realm === 2;
+    this.activateBossForRealm(realm, encoreTier);
     this.sceneManager.setEnvironment(
       isRealm2 ? ENVIRONMENT_IDS.SUNKEN_CHAMBER : ENVIRONMENT_IDS.CHAMBER,
     );
@@ -681,7 +736,8 @@ export class GameEngine implements IGameController {
         : this.sceneManager.icePalaceLevel,
       realm,
     );
-    this.bossRig.root.visible = false;
+    this.marinaRig.root.visible = false;
+    this.serenaRig.root.visible = false;
 
     const spawnX = isRealm2
       ? SUNKEN_CHAMBER_CONFIG.playerSpawnX
@@ -970,7 +1026,10 @@ export class GameEngine implements IGameController {
     this.finisherSystem.resetState();
     this.vfx.clearTransientVfx();
 
-    const isRealm2 = useGameStore.getState().activeRealm === 2;
+    const activeRealm = useGameStore.getState().activeRealm;
+    const isRealm2 = activeRealm === 2;
+    const nextTier = encoreTier ?? useGameStore.getState().encoreTier;
+    this.activateBossForRealm(activeRealm, nextTier);
     this.sceneManager.setEnvironment(
       isRealm2 ? ENVIRONMENT_IDS.SUNKEN_SUMMIT : ENVIRONMENT_IDS.SUMMIT,
     );
@@ -979,9 +1038,9 @@ export class GameEngine implements IGameController {
     this.inputSystem.resetTransientInputs();
     this.movementSystem.resetTransientState();
 
-    const nextTier = encoreTier ?? useGameStore.getState().encoreTier;
+    const baseBossMaxHp = isRealm2 ? SERENA_CONFIG.maxHp : BOSS_CONFIG.maxHp;
     const scaledBossMaxHp = Math.round(
-      BOSS_CONFIG.maxHp *
+      baseBossMaxHp *
         Math.pow(NG_PLUS_CONFIG.bossHpMultiplierPerTier, nextTier),
     );
     const startingPlayerHp =
@@ -1062,7 +1121,13 @@ export class GameEngine implements IGameController {
     this.sound.setMode(bossAudioMode);
 
     const store = useGameStore.getState();
-    store.resetForDuel(nextTier);
+    store.resetForDuel(
+      nextTier,
+      baseBossMaxHp,
+      isRealm2
+        ? SERENA_CONFIG.tidalSweep.subtitle
+        : BOSS_CONFIG.phase1.subtitle,
+    );
     store.setAudioMode(bossAudioMode);
     this.renderSyncSystem.flushHudSnapshot();
   }
@@ -1071,6 +1136,12 @@ export class GameEngine implements IGameController {
     this.sceneManager.setPhaseAtmosphere(phase);
     const store = useGameStore.getState();
     store.setBossPhase(phase);
+
+    if (store.activeRealm === 2) {
+      this.sound.setMode(AUDIO_MODES.SUNKEN_BOSS);
+      store.setAudioMode(AUDIO_MODES.SUNKEN_BOSS);
+      return;
+    }
 
     if (phase === BOSS_PHASES.PHASE_2) {
       this.sound.setMode(AUDIO_MODES.COMBAT_P2);
@@ -1098,9 +1169,12 @@ export class GameEngine implements IGameController {
   private handlePlayerDefeated(): void {
     this.inputSystem.resetTransientInputs();
     this.finisherSystem.resetState();
+    const store = useGameStore.getState();
+    const activeRealm = store.activeRealm;
+    this.activateBossForRealm(activeRealm, store.encoreTier);
     if (this.state === GAME_STATES.CHAMBER_COMBAT) {
       this.chamberSystem.cleanupChambers();
-      const isRealm2 = useGameStore.getState().activeRealm === 2;
+      const isRealm2 = activeRealm === 2;
       this.sceneManager.setEnvironment(
         isRealm2 ? ENVIRONMENT_IDS.SUNKEN_SUMMIT : ENVIRONMENT_IDS.SUMMIT,
       );
@@ -1390,7 +1464,8 @@ export class GameEngine implements IGameController {
     this.world.clear();
     this.unsubscribeEntityRemoved();
     this.mageRig.dispose();
-    this.bossRig.dispose();
+    this.marinaRig.dispose();
+    this.serenaRig.dispose();
     this.sceneManager.dispose();
   }
 }

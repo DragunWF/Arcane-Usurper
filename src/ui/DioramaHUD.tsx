@@ -15,6 +15,7 @@ interface DioramaHUDProps {
 export function DioramaHUD({ controller }: DioramaHUDProps) {
   const gameState = useGameStore((s) => s.gameState);
   const encoreTier = useGameStore((s) => s.encoreTier);
+  const activeRealm = useGameStore((s) => s.activeRealm);
   const bossDisplayName = useGameStore((s) => s.bossDisplayName);
   const audioMuted = useGameStore((s) => s.audioMuted);
 
@@ -56,7 +57,9 @@ export function DioramaHUD({ controller }: DioramaHUDProps) {
             <div className="inline-flex items-center gap-2 px-4 py-1 rounded-full frost-panel border-purple-400/50 mb-2">
               <span className="w-2 h-2 rounded-full bg-slate-400" />
               <span className="text-[10px] sm:text-xs font-semibold tracking-[0.26em] uppercase text-purple-200">
-                Arcane Core Depleted &bull; Frost Usurped
+                {activeRealm === 2
+                  ? 'Arcane Core Depleted • Tide Usurped'
+                  : 'Arcane Core Depleted • Frost Usurped'}
               </span>
               {encoreTier > 0 && (
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-sky-500/25 border border-sky-300/40 text-sky-100">
@@ -127,11 +130,15 @@ export function DioramaHUD({ controller }: DioramaHUDProps) {
             <div className="inline-flex items-center gap-2 px-4 py-1 rounded-full frost-panel border-sky-400/55 mb-2">
               <span className="w-2 h-2 rounded-full bg-sky-300 shadow-[0_0_8px_#38BDF8]" />
               <span className="text-[10px] sm:text-xs font-semibold tracking-[0.26em] uppercase text-sky-200">
-                Forced Frost Puppet &bull; Enthralled Upon the Summit
+                {activeRealm === 2
+                  ? "Siren's Abyssal Thrall • Enthralled Beneath the Deep"
+                  : 'Forced Frost Puppet • Enthralled Upon the Summit'}
               </span>
             </div>
             <h2 className="font-display text-2xl sm:text-4xl font-extrabold tracking-[0.16em] text-transparent bg-clip-text bg-gradient-to-b from-sky-50 via-sky-200 to-indigo-300 drop-shadow-[0_4px_24px_rgba(56,189,248,0.5)]">
-              CAPTURED BY THE EMPRESS
+              {activeRealm === 2
+                ? 'CAPTURED BY THE SIREN'
+                : 'CAPTURED BY THE EMPRESS'}
             </h2>
           </div>
 
@@ -142,7 +149,9 @@ export function DioramaHUD({ controller }: DioramaHUDProps) {
                 onClick={() => controller?.retryStage()}
                 className="ascend-btn px-7 py-3.5 rounded-xl font-display text-xs sm:text-sm font-bold tracking-[0.2em] text-sky-50 uppercase cursor-pointer"
               >
-                [SHATTER THE FROST / RETRY STAGE]
+                {activeRealm === 2
+                  ? '[SHATTER THE TIDE / RETRY STAGE]'
+                  : '[SHATTER THE FROST / RETRY STAGE]'}
               </button>
               <button
                 type="button"

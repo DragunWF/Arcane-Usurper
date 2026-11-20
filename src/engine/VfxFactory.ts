@@ -53,6 +53,16 @@ export interface IcePillarMeshHandles {
   coreMat: THREE.MeshBasicMaterial;
 }
 
+export interface AbyssalWhirlpoolMeshHandles {
+  outerRing: THREE.Mesh;
+  outerMat: THREE.MeshBasicMaterial;
+  midRing: THREE.Mesh;
+  midMat: THREE.MeshBasicMaterial;
+  innerRing: THREE.Mesh;
+  innerMat: THREE.MeshBasicMaterial;
+  vortexLight: THREE.PointLight;
+}
+
 /**
  * Narrow VFX & mesh creation interface injected into ECS systems (ISP & DIP).
  */
@@ -68,8 +78,12 @@ export interface IVfxSpawner {
     direction: THREE.Vector3,
   ): THREE.Group;
   createSoulWispGroup(origin: THREE.Vector3, kind: SoulWispKind): THREE.Group;
-  createCrescentBladeGroup(origin: THREE.Vector3, yaw: number): THREE.Group;
-  createSpiralOrbGroup(origin: THREE.Vector3): THREE.Group;
+  createCrescentBladeGroup(
+    origin: THREE.Vector3,
+    yaw: number,
+    aquatic?: boolean,
+  ): THREE.Group;
+  createSpiralOrbGroup(origin: THREE.Vector3, aquatic?: boolean): THREE.Group;
   createUmbralPulseGroup(origin: THREE.Vector3): THREE.Group;
   createFrostRingNovaGroup(origin: THREE.Vector3): THREE.Group;
   createPhaseShockwaveGroup(origin: THREE.Vector3, phase: BossPhase): THREE.Group;
@@ -79,7 +93,12 @@ export interface IVfxSpawner {
     startAngle: number,
     beamLength: number,
   ): THREE.Group;
-  createIcePillarGroup(origin: THREE.Vector3, radius: number): THREE.Group;
+  createIcePillarGroup(
+    origin: THREE.Vector3,
+    radius: number,
+    aquatic?: boolean,
+  ): THREE.Group;
+  createAbyssalWhirlpoolGroup(origin: THREE.Vector3, radius: number): THREE.Group;
   spawnTrailSpark(position: THREE.Vector3): void;
   spawnImpactBurst(origin: THREE.Vector3, count?: number): void;
   spawnFrostShatterBurst(origin: THREE.Vector3, count?: number, maxSpeed?: number): void;
@@ -362,13 +381,14 @@ export class VfxFactory implements IVfxSpawner {
   public createCrescentBladeGroup(
     origin: THREE.Vector3,
     yaw: number,
+    aquatic = false,
   ): THREE.Group {
     const group = new THREE.Group();
     group.position.copy(origin);
     group.rotation.y = yaw;
 
     const mat = new THREE.MeshBasicMaterial({
-      color: PALETTE.frostRunes,
+      color: aquatic ? PALETTE.biolumCyan : PALETTE.frostRunes,
       transparent: true,
       opacity: 0.9,
       side: THREE.DoubleSide,
@@ -390,7 +410,7 @@ export class VfxFactory implements IVfxSpawner {
     group.add(blade);
 
     const edgeMat = new THREE.MeshBasicMaterial({
-      color: PALETTE.iceHighlights,
+      color: aquatic ? PALETTE.serenaHairTips : PALETTE.iceHighlights,
     });
     const coreEdge = new THREE.Mesh(
       new THREE.TorusGeometry(1.38, 0.055, 6, 18, Math.PI * 0.72),
@@ -406,11 +426,30 @@ export class VfxFactory implements IVfxSpawner {
     return group;
   }
 
-  public createSpiralOrbGroup(origin: THREE.Vector3): THREE.Group {
+  public createSpiralOrbGroup(
+    origin: THREE.Vector3,
+    aquatic = false,
+  ): THREE.Group {
     const group = new THREE.Group();
     group.position.copy(origin);
-    group.add(new THREE.Mesh(this.orbCoreGeo, this.orbCoreMat));
-    group.add(new THREE.Mesh(this.orbHaloGeo, this.orbHaloMat));
+    if (aquatic) {
+      const coreMat = new THREE.MeshBasicMaterial({
+        color: PALETTE.serenaPearl,
+      });
+      const haloMat = new THREE.MeshBasicMaterial({
+        color: PALETTE.serenaBubbleGlow,
+        transparent: true,
+        opacity: 0.52,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      group.add(new THREE.Mesh(this.orbCoreGeo, coreMat));
+      group.add(new THREE.Mesh(this.orbHaloGeo, haloMat));
+      group.userData.ownedMaterials = [coreMat, haloMat];
+    } else {
+      group.add(new THREE.Mesh(this.orbCoreGeo, this.orbCoreMat));
+      group.add(new THREE.Mesh(this.orbHaloGeo, this.orbHaloMat));
+    }
     this.scene.add(group);
     return group;
   }
@@ -653,13 +692,14 @@ export class VfxFactory implements IVfxSpawner {
   public createIcePillarGroup(
     origin: THREE.Vector3,
     radius: number,
+    aquatic = false,
   ): THREE.Group {
     const group = new THREE.Group();
     group.position.set(origin.x, 0.05, origin.z);
 
     const runeGeo = new THREE.RingGeometry(radius - 0.16, radius, 36);
     const runeMat = new THREE.MeshBasicMaterial({
-      color: PALETTE.warningRune,
+      color: aquatic ? PALETTE.biolumCyan : PALETTE.warningRune,
       transparent: true,
       opacity: 0.92,
       side: THREE.DoubleSide,
@@ -672,7 +712,7 @@ export class VfxFactory implements IVfxSpawner {
 
     const fillGeo = new THREE.CircleGeometry(radius - 0.12, 32);
     const fillMat = new THREE.MeshBasicMaterial({
-      color: PALETTE.sovereignIndigo,
+      color: aquatic ? PALETTE.serenaTailViolet : PALETTE.sovereignIndigo,
       transparent: true,
       opacity: 0.36,
       side: THREE.DoubleSide,
@@ -688,11 +728,15 @@ export class VfxFactory implements IVfxSpawner {
     spireGroup.visible = false;
     spireGroup.scale.set(1, 0.01, 1);
 
-    const mainGeo = new THREE.ConeGeometry(1.48, 6.4, 6);
+    const mainGeo = aquatic
+      ? new THREE.CylinderGeometry(radius * 0.42, radius * 0.72, 6.8, 12)
+      : new THREE.ConeGeometry(1.48, 6.4, 6);
     const spireMat = new THREE.MeshStandardMaterial({
-      color: PALETTE.warningRune,
-      emissive: new THREE.Color(PALETTE.auroraSapphire),
-      emissiveIntensity: 0.55,
+      color: aquatic ? PALETTE.biolumCyan : PALETTE.warningRune,
+      emissive: new THREE.Color(
+        aquatic ? PALETTE.serenaWhirlpoolCore : PALETTE.auroraSapphire,
+      ),
+      emissiveIntensity: aquatic ? 0.72 : 0.55,
       transparent: true,
       opacity: 0.78,
       roughness: 0.18,
@@ -700,18 +744,20 @@ export class VfxFactory implements IVfxSpawner {
       flatShading: true,
     });
     const mainSpire = new THREE.Mesh(mainGeo, spireMat);
-    mainSpire.position.y = 3.2;
+    mainSpire.position.y = aquatic ? 3.4 : 3.2;
     spireGroup.add(mainSpire);
 
-    const innerGeo = new THREE.ConeGeometry(0.85, 5.2, 5);
+    const innerGeo = aquatic
+      ? new THREE.CylinderGeometry(radius * 0.24, radius * 0.4, 6.0, 10)
+      : new THREE.ConeGeometry(0.85, 5.2, 5);
     const coreMat = new THREE.MeshBasicMaterial({
-      color: PALETTE.blindingFrost,
+      color: aquatic ? PALETTE.serenaPearl : PALETTE.blindingFrost,
       transparent: true,
-      opacity: 0.62,
+      opacity: 0.68,
       blending: THREE.AdditiveBlending,
     });
     const innerSpire = new THREE.Mesh(innerGeo, coreMat);
-    innerSpire.position.y = 2.6;
+    innerSpire.position.y = aquatic ? 3.0 : 2.6;
     spireGroup.add(innerSpire);
 
     group.add(spireGroup);
@@ -728,6 +774,82 @@ export class VfxFactory implements IVfxSpawner {
     group.userData.pillarHandles = handles;
     group.userData.ownedMaterials = [runeMat, fillMat, spireMat, coreMat];
     group.userData.ownedGeometries = [runeGeo, fillGeo, mainGeo, innerGeo];
+
+    this.scene.add(group);
+    return group;
+  }
+
+  /**
+   * Swirling floor whirlpool vortex ring spawned during Serena's Phase III Abyssal Undertow.
+   */
+  public createAbyssalWhirlpoolGroup(
+    origin: THREE.Vector3,
+    radius: number,
+  ): THREE.Group {
+    const group = new THREE.Group();
+    group.position.set(origin.x, 0.08, origin.z);
+
+    const outerGeo = new THREE.RingGeometry(radius * 0.72, radius, 64);
+    const outerMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.biolumCyan,
+      transparent: true,
+      opacity: 0.55,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const outerRing = new THREE.Mesh(outerGeo, outerMat);
+    outerRing.rotation.x = -Math.PI / 2;
+    group.add(outerRing);
+
+    const midGeo = new THREE.RingGeometry(radius * 0.36, radius * 0.62, 56);
+    const midMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.serenaTailViolet,
+      transparent: true,
+      opacity: 0.48,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const midRing = new THREE.Mesh(midGeo, midMat);
+    midRing.rotation.x = -Math.PI / 2;
+    midRing.position.y = 0.02;
+    group.add(midRing);
+
+    const innerGeo = new THREE.TorusGeometry(radius * 0.24, 0.14, 8, 42);
+    const innerMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.serenaHairTips,
+      transparent: true,
+      opacity: 0.72,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const innerRing = new THREE.Mesh(innerGeo, innerMat);
+    innerRing.rotation.x = Math.PI / 2;
+    innerRing.position.y = 0.06;
+    group.add(innerRing);
+
+    const vortexLight = new THREE.PointLight(
+      PALETTE.biolumCyan,
+      10.5,
+      radius * 1.4,
+      1.6,
+    );
+    vortexLight.position.y = 1.4;
+    group.add(vortexLight);
+
+    const handles: AbyssalWhirlpoolMeshHandles = {
+      outerRing,
+      outerMat,
+      midRing,
+      midMat,
+      innerRing,
+      innerMat,
+      vortexLight,
+    };
+    group.userData.whirlpoolHandles = handles;
+    group.userData.ownedMaterials = [outerMat, midMat, innerMat];
+    group.userData.ownedGeometries = [outerGeo, midGeo, innerGeo];
 
     this.scene.add(group);
     return group;
