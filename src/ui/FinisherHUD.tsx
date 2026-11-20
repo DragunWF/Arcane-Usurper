@@ -39,6 +39,8 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
   const gameState = useGameStore((s) => s.gameState);
   const siphonProgress = useGameStore((s) => s.siphonProgress);
   const marinaCoreCharge = useGameStore((s) => s.marinaCoreCharge);
+  const serenaCoreCharge = useGameStore((s) => s.serenaCoreCharge);
+  const lobbySiphonTarget = useGameStore((s) => s.lobbySiphonTarget);
   const finisherPose = useGameStore((s) => s.finisherPose);
   const throttleMode = useGameStore((s) => s.throttleMode);
   const isEndlessSavor = useGameStore((s) => s.isEndlessSavor);
@@ -62,9 +64,14 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
     isLobbySiphon;
   if (!active) return null;
 
+  const isSerenaLobbyTarget =
+    isLobbySiphon && lobbySiphonTarget === 'serena';
+  const activeCoreCharge = isSerenaLobbyTarget
+    ? serenaCoreCharge
+    : marinaCoreCharge;
   const drainPct = Math.round(Math.max(0, Math.min(1, siphonProgress)) * 100);
   const chargePct = Math.round(
-    Math.max(0, Math.min(1, marinaCoreCharge)) * 100,
+    Math.max(0, Math.min(1, activeCoreCharge)) * 100,
   );
   const isLobbyDepleted = isLobbySiphon && (isEndlessSavor || chargePct <= 0);
   const showEndlessBanner = isEndlessSavor || isLobbyDepleted;
@@ -77,16 +84,18 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
 
   return (
     <div className="fixed inset-0 z-30 pointer-events-none">
-      {/* Top-Center Arcane Siphon Drain / Cryo Core Charge Gauge */}
+      {/* Top-Center Arcane Siphon Drain / Core Charge Gauge */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 w-[320px] sm:w-[480px] max-w-[calc(100vw-2rem)]">
         <div className="frost-panel rounded-2xl px-4 py-3 border-purple-400/45 shadow-[0_0_32px_rgba(168,85,247,0.28)]">
           <div className="flex items-center justify-between gap-2 mb-1.5">
             <div className="font-display text-xs sm:text-sm font-bold tracking-[0.18em] text-fuchsia-100 uppercase">
               {showEndlessBanner
                 ? 'CORE DEPLETED — ENDLESS SAVOR'
-                : isLobbySiphon
-                  ? `CRYO CORE CHARGE • ${bossDisplayName}`
-                  : `ARCANE SIPHON KISS • ${bossDisplayName}`}
+                : isSerenaLobbyTarget
+                  ? `TIDAL CORE CHARGE • ${bossDisplayName}`
+                  : isLobbySiphon
+                    ? `CRYO CORE CHARGE • ${bossDisplayName}`
+                    : `ARCANE SIPHON KISS • ${bossDisplayName}`}
             </div>
             <span className="text-xs font-mono font-bold text-purple-200">
               {displayPct}%
@@ -98,9 +107,11 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
               className={
                 showEndlessBanner
                   ? 'bar-fill h-full rounded-full bg-gradient-to-r from-slate-400 via-purple-400 to-fuchsia-300 shadow-[0_0_12px_rgba(168,85,247,0.85)]'
-                  : isLobbySiphon
-                    ? 'bar-fill h-full rounded-full bg-gradient-to-r from-cyan-400 via-sky-400 to-purple-400 shadow-[0_0_14px_rgba(56,189,248,0.9)]'
-                    : 'bar-fill h-full rounded-full bg-gradient-to-r from-sky-400 via-purple-500 to-fuchsia-400 shadow-[0_0_14px_rgba(168,85,247,0.9)]'
+                  : isSerenaLobbyTarget
+                    ? 'bar-fill h-full rounded-full bg-gradient-to-r from-teal-500 via-cyan-400 to-purple-400 shadow-[0_0_14px_rgba(6,182,212,0.9)]'
+                    : isLobbySiphon
+                      ? 'bar-fill h-full rounded-full bg-gradient-to-r from-cyan-400 via-sky-400 to-purple-400 shadow-[0_0_14px_rgba(56,189,248,0.9)]'
+                      : 'bar-fill h-full rounded-full bg-gradient-to-r from-sky-400 via-purple-500 to-fuchsia-400 shadow-[0_0_14px_rgba(168,85,247,0.9)]'
               }
               style={{ width: `${barWidthPct}%` }}
             />

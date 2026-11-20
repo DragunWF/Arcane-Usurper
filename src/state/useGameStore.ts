@@ -198,6 +198,7 @@ export interface GameStoreState {
   marinaCoreCharge: number;
   serenaDefeated: boolean;
   serenaCoreCharge: number;
+  lobbySiphonTarget: 'marina' | 'serena';
   lobbyPrompt: LobbyPromptState | null;
   lobbyDummyHit: LobbyDummyHitState | null;
 
@@ -273,6 +274,7 @@ export interface GameStoreState {
   setSerenaDefeated: (val: boolean) => void;
   setSerenaCoreCharge: (charge: number) => void;
   addSerenaCoreCharge: (delta: number) => void;
+  setLobbySiphonTarget: (target: 'marina' | 'serena') => void;
   setLobbyPrompt: (prompt: LobbyPromptState | null) => void;
   setLobbyDummyHit: (hit: LobbyDummyHitState | null) => void;
   setFinisherPose: (pose: FinisherPoseId) => void;
@@ -327,6 +329,7 @@ const INITIAL_STATE = {
   marinaCoreCharge: readInitialMarinaCoreCharge(),
   serenaDefeated: readInitialSerenaDefeated(),
   serenaCoreCharge: readInitialSerenaCoreCharge(),
+  lobbySiphonTarget: 'marina' as 'marina' | 'serena',
   lobbyPrompt: null as LobbyPromptState | null,
   lobbyDummyHit: null as LobbyDummyHitState | null,
 
@@ -470,6 +473,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
       persistSerenaCoreCharge(clamped);
       return { serenaCoreCharge: clamped };
     }),
+  setLobbySiphonTarget: (lobbySiphonTarget) => set({ lobbySiphonTarget }),
   setLobbyPrompt: (lobbyPrompt) => set({ lobbyPrompt }),
   setLobbyDummyHit: (lobbyDummyHit) => set({ lobbyDummyHit }),
 

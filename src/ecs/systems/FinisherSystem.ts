@@ -22,10 +22,25 @@ import {
 import { useGameStore } from '../../state/useGameStore';
 import type { ECSWorld, ISystem } from '../World';
 
+export interface LobbySiphonAnchorConfig {
+  readonly targetId: 'marina' | 'serena';
+  readonly daisPos: {
+    readonly x: number;
+    readonly y: number;
+    readonly z: number;
+  };
+  readonly daisHeight: number;
+  readonly facingYaw: number;
+}
+
 export interface IFinisherCallbacks {
   getGameState: () => GameState;
   onSiphonClimax: () => void;
-  onLobbySiphonTick?: (charge: number, elapsed: number) => void;
+  onLobbySiphonTick?: (
+    charge: number,
+    elapsed: number,
+    targetId: 'marina' | 'serena',
+  ) => void;
 }
 
 interface DynamicRibbon {
@@ -58,6 +73,12 @@ export class FinisherSystem implements ISystem {
   private lobbyCharge: number = SIPHON_GALLERY_CONFIG.defaultCoreCharge;
   private lobbyDepleted = false;
   private lobbyChargeSyncAccum = 0;
+  private lobbyAnchor: LobbySiphonAnchorConfig = {
+    targetId: 'marina',
+    daisPos: SIPHON_GALLERY_CONFIG.marinaDaisPos,
+    daisHeight: SIPHON_GALLERY_CONFIG.daisHeight,
+    facingYaw: SIPHON_GALLERY_CONFIG.marinaFacingYaw,
+  };
 
   // Live 3D Finisher Energy Ribbons & Pose [3] Silver Hair Rein Strand
   private readonly fxGroup = new THREE.Group();
@@ -154,8 +175,21 @@ export class FinisherSystem implements ISystem {
     return this.lobbyCharge;
   }
 
-  public beginLobbySiphonSession(initialCharge: number): void {
+  public beginLobbySiphonSession(
+    initialCharge: number,
+    anchor?: LobbySiphonAnchorConfig,
+  ): void {
     this.resetState();
+    if (anchor) {
+      this.lobbyAnchor = anchor;
+    } else {
+      this.lobbyAnchor = {
+        targetId: 'marina',
+        daisPos: SIPHON_GALLERY_CONFIG.marinaDaisPos,
+        daisHeight: SIPHON_GALLERY_CONFIG.daisHeight,
+        facingYaw: SIPHON_GALLERY_CONFIG.marinaFacingYaw,
+      };
+    }
     const clamped = THREE.MathUtils.clamp(initialCharge, 0, 1);
     if (clamped <= SIPHON_GALLERY_CONFIG.minDrainableCharge) {
       this.lobbyCharge = 0;
@@ -340,7 +374,11 @@ export class FinisherSystem implements ISystem {
           this.lobbyCharge = 0;
           this.lobbyDepleted = true;
           const store = useGameStore.getState();
-          store.setMarinaCoreCharge(0);
+          if (this.lobbyAnchor.targetId === 'serena') {
+            store.setSerenaCoreCharge(0);
+          } else {
+            store.setMarinaCoreCharge(0);
+          }
           store.setEndlessSavor(true);
         } else {
           this.lobbyChargeSyncAccum += dt;
@@ -350,7 +388,12 @@ export class FinisherSystem implements ISystem {
             tapBoost > 0
           ) {
             this.lobbyChargeSyncAccum = 0;
-            useGameStore.getState().setMarinaCoreCharge(this.lobbyCharge);
+            const store = useGameStore.getState();
+            if (this.lobbyAnchor.targetId === 'serena') {
+              store.setSerenaCoreCharge(this.lobbyCharge);
+            } else {
+              store.setMarinaCoreCharge(this.lobbyCharge);
+            }
           }
         }
       }
@@ -404,11 +447,11 @@ export class FinisherSystem implements ISystem {
     let bossYaw = boss.transform.rotationY;
 
     if (isLobbySiphon) {
-      bx = SIPHON_GALLERY_CONFIG.marinaDaisPos.x;
-      by = SIPHON_GALLERY_CONFIG.daisHeight;
-      bz = SIPHON_GALLERY_CONFIG.marinaDaisPos.z;
-      bossYaw = SIPHON_GALLERY_CONFIG.marinaFacingYaw;
-      // Captive Marina stays mounted on her velvet dais local origin (0, daisHeight, 0)
+      bx = this.lobbyAnchor.daisPos.x;
+      by = this.lobbyAnchor.daisHeight;
+      bz = this.lobbyAnchor.daisPos.z;
+      bossYaw = this.lobbyAnchor.facingYaw;
+      // Captive sovereign stays mounted on her dais local origin (0, daisHeight, 0)
       activeRig.root.position.set(0, by, 0);
       activeRig.root.rotation.set(0, bossYaw, 0);
     } else {
@@ -439,7 +482,11 @@ export class FinisherSystem implements ISystem {
 
     // Update Siphon Gallery wrist tether strands, reservoir crystal, and dais rune ring live
     if (isLobbySiphon && this.callbacks.onLobbySiphonTick) {
-      this.callbacks.onLobbySiphonTick(this.lobbyCharge, elapsed);
+      this.callbacks.onLobbySiphonTick(
+        this.lobbyCharge,
+        elapsed,
+        this.lobbyAnchor.targetId,
+      );
     }
 
     // Compute exact world-space root placement relative to Boss root (and dipped headAnchor in Pose [2])

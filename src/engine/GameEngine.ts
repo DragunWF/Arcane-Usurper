@@ -108,6 +108,7 @@ export class GameEngine implements IGameController {
   private readonly handleResize: () => void;
 
   private state: GameState = GAME_STATES.TITLE;
+  private activeLobbySiphonTarget: 'marina' | 'serena' = 'marina';
   private isPaused = false;
   private lastAutoPauseTimestamp = 0;
   private lastRestartToken = 0;
@@ -246,8 +247,8 @@ export class GameEngine implements IGameController {
           this.enterChambersRun(useGameStore.getState().encoreTier, 2);
           this.cameraRig.requestLock();
         },
-        onEnterLobbySiphon: () => {
-          this.enterLobbySiphon();
+        onEnterLobbySiphon: (target) => {
+          this.enterLobbySiphon(target);
         },
         onEncoreTierToggled: () => {
           this.renderSyncSystem.flushHudSnapshot();
@@ -350,11 +351,19 @@ export class GameEngine implements IGameController {
       {
         getGameState: () => this.state,
         onSiphonClimax: () => this.dioramaSystem.enterVictoryDiorama(true),
-        onLobbySiphonTick: (charge, elapsed) =>
-          this.sceneManager.mageTowerLevel.updateLobbySiphonBackdrop(
-            charge,
-            elapsed,
-          ),
+        onLobbySiphonTick: (charge, elapsed, targetId) => {
+          if (targetId === 'serena') {
+            this.sceneManager.mageTowerLevel.updateSerenaLobbySiphonBackdrop(
+              charge,
+              elapsed,
+            );
+          } else {
+            this.sceneManager.mageTowerLevel.updateLobbySiphonBackdrop(
+              charge,
+              elapsed,
+            );
+          }
+        },
       },
     );
     this.finisherSystem.setLobbyBossRig(
@@ -1224,24 +1233,39 @@ export class GameEngine implements IGameController {
   }
 
   /**
-   * Transitions from the Siphon Gallery dais in LOBBY into interactive `LOBBY_SIPHON`
-   * against the bound captive Marina rig with all 4 poses, 3-tier drain throttle,
-   * [F] tiara-flick taunt, and 360° spherical orbit/zoom.
+   * Transitions from a Siphon Gallery dais in LOBBY into interactive `LOBBY_SIPHON`
+   * against either bound captive Marina or bound captive Serena with all 4 poses,
+   * 3-tier drain throttle, [F] tiara-flick taunt, and 360° spherical orbit/zoom.
    */
-  public enterLobbySiphon(): void {
-    const captiveRig = this.sceneManager.mageTowerLevel.captiveMarinaRig;
+  public enterLobbySiphon(target: 'marina' | 'serena' = 'marina'): void {
+    const isSerena = target === 'serena';
+    const captiveRig = isSerena
+      ? this.sceneManager.mageTowerLevel.captiveSerenaRig
+      : this.sceneManager.mageTowerLevel.captiveMarinaRig;
     if (!captiveRig) return;
 
     const store = useGameStore.getState();
-    const initialCharge = store.marinaCoreCharge;
+    const initialCharge = isSerena
+      ? store.serenaCoreCharge
+      : store.marinaCoreCharge;
     const startsDepleted =
       initialCharge <= SIPHON_GALLERY_CONFIG.minDrainableCharge;
 
+    this.activeLobbySiphonTarget = target;
     this.state = GAME_STATES.LOBBY_SIPHON;
     this.inputSystem.resetTransientInputs();
     this.cameraRig.exitLock();
     this.finisherSystem.setLobbyBossRig(captiveRig);
-    this.finisherSystem.beginLobbySiphonSession(initialCharge);
+    this.finisherSystem.beginLobbySiphonSession(initialCharge, {
+      targetId: target,
+      daisPos: isSerena
+        ? SIPHON_GALLERY_CONFIG.serenaDaisPos
+        : SIPHON_GALLERY_CONFIG.marinaDaisPos,
+      daisHeight: SIPHON_GALLERY_CONFIG.daisHeight,
+      facingYaw: isSerena
+        ? SIPHON_GALLERY_CONFIG.serenaFacingYaw
+        : SIPHON_GALLERY_CONFIG.marinaFacingYaw,
+    });
 
     const boss = this.world.queryFirst('siphonableBoss');
     if (boss) {
@@ -1257,13 +1281,24 @@ export class GameEngine implements IGameController {
     captiveRig.setExpression(BOSS_EXPRESSIONS.SIPHON_KISS);
     this.sound.setMode(AUDIO_MODES.SIPHON);
 
+    store.setLobbySiphonTarget(target);
+    store.setBossIdentity(
+      captiveRig.id,
+      captiveRig.displayName,
+      captiveRig.title,
+      isSerena ? SERENA_CONFIG.maxHp : BOSS_CONFIG.maxHp,
+    );
     store.setGameState(GAME_STATES.LOBBY_SIPHON);
     store.setLobbyPrompt(null);
     store.setFinisherPose(FINISHER_POSE_IDS.CHIN_LIFT);
     store.setDrainThrottle(DRAIN_THROTTLE_MODES.FLOW);
     store.setEndlessSavor(startsDepleted);
     if (startsDepleted) {
-      store.setMarinaCoreCharge(0);
+      if (isSerena) {
+        store.setSerenaCoreCharge(0);
+      } else {
+        store.setMarinaCoreCharge(0);
+      }
     }
     store.setBossExpression(BOSS_EXPRESSIONS.SIPHON_KISS);
     store.setAudioMode(AUDIO_MODES.SIPHON);
@@ -1275,40 +1310,55 @@ export class GameEngine implements IGameController {
     captiveRig.root.updateMatrixWorld(true);
     captiveRig.headAnchor.getWorldPosition(this.orbitCameraTarget.position);
     this.cameraRig.resetSphericalOrbit(
-      SIPHON_GALLERY_CONFIG.siphonInitialAzimuth,
+      isSerena
+        ? SIPHON_GALLERY_CONFIG.serenaSiphonInitialAzimuth
+        : SIPHON_GALLERY_CONFIG.siphonInitialAzimuth,
       CAMERA_CONFIG.finisherDefaultElevation,
       CAMERA_CONFIG.finisherDefaultDistance,
     );
   }
 
   /**
-   * Releases captive Marina back onto her bound velvet dais posture at her remaining
-   * `marinaCoreCharge`, returns the Dark Mage standing beside the dais, re-engages
+   * Releases the active captive sovereign back onto her bound dais posture at her remaining
+   * core charge, returns the Dark Mage standing in front of her dais, re-engages
    * PointerLock, and transitions cleanly back to `LOBBY`.
    */
   public releaseLobbySiphon(): void {
     if (this.state !== GAME_STATES.LOBBY_SIPHON) return;
 
+    const isSerena = this.activeLobbySiphonTarget === 'serena';
     const remainingCharge = this.finisherSystem.getLobbyCharge();
     this.finisherSystem.hideVisuals();
     this.finisherSystem.resetState();
     this.inputSystem.resetTransientInputs();
 
     const store = useGameStore.getState();
-    store.setMarinaCoreCharge(remainingCharge);
+    if (isSerena) {
+      store.setSerenaCoreCharge(remainingCharge);
+    } else {
+      store.setMarinaCoreCharge(remainingCharge);
+    }
     store.setEndlessSavor(false);
 
-    const standX = SIPHON_GALLERY_CONFIG.marinaDaisPos.x;
+    const daisPos = isSerena
+      ? SIPHON_GALLERY_CONFIG.serenaDaisPos
+      : SIPHON_GALLERY_CONFIG.marinaDaisPos;
+    const facingYaw = isSerena
+      ? SIPHON_GALLERY_CONFIG.serenaFacingYaw
+      : SIPHON_GALLERY_CONFIG.marinaFacingYaw;
+
+    const standX =
+      daisPos.x + Math.sin(facingYaw) * SIPHON_GALLERY_CONFIG.releaseStandOffsetZ;
     const standZ =
-      SIPHON_GALLERY_CONFIG.marinaDaisPos.z -
-      SIPHON_GALLERY_CONFIG.releaseStandOffsetZ;
+      daisPos.z + Math.cos(facingYaw) * SIPHON_GALLERY_CONFIG.releaseStandOffsetZ;
+    const playerYaw = Math.atan2(daisPos.x - standX, daisPos.z - standZ);
 
     const player = this.world.queryFirst('playerTag', 'transform', 'velocity');
     if (player) {
       player.transform.position.x = standX;
       player.transform.position.y = 0;
       player.transform.position.z = standZ;
-      player.transform.rotationY = 0;
+      player.transform.rotationY = playerYaw;
       player.velocity.vx = 0;
       player.velocity.vy = 0;
       player.velocity.vz = 0;
@@ -1317,22 +1367,33 @@ export class GameEngine implements IGameController {
     this.mageRig.resetCombatPose();
     this.mageRig.setEncoreTier(store.encoreTier);
     this.mageRig.root.position.set(standX, 0, standZ);
-    this.mageRig.root.rotation.set(0, 0, 0);
+    this.mageRig.root.rotation.set(0, playerYaw, 0);
 
-    // Restore captive Marina cleanly to her bound kneeling dais posture at remaining charge
-    this.sceneManager.mageTowerLevel.updateMarinaCaptiveState(
-      remainingCharge,
-      this.elapsed,
-      0.016,
-    );
+    // Restore the active captive sovereign cleanly to her bound dais posture at remaining charge
+    if (isSerena) {
+      this.sceneManager.mageTowerLevel.updateSerenaCaptiveState(
+        remainingCharge,
+        this.elapsed,
+        0.016,
+      );
+    } else {
+      this.sceneManager.mageTowerLevel.updateMarinaCaptiveState(
+        remainingCharge,
+        this.elapsed,
+        0.016,
+      );
+    }
 
     this.state = GAME_STATES.LOBBY;
     this.sound.setMode(AUDIO_MODES.LOBBY);
     store.setGameState(GAME_STATES.LOBBY);
     store.setAudioMode(AUDIO_MODES.LOBBY);
 
-    // Frame camera behind the Dark Mage looking south toward Marina on her dais
-    this.cameraRig.setCombatAngles(Math.PI, CAMERA_CONFIG.combatInitialPitch);
+    // Frame camera behind the Dark Mage looking directly toward the dais
+    this.cameraRig.setCombatAngles(
+      facingYaw,
+      CAMERA_CONFIG.combatInitialPitch,
+    );
     this.cameraRig.requestLock();
   }
 
@@ -1381,7 +1442,10 @@ export class GameEngine implements IGameController {
           this.sceneManager,
         );
       } else if (this.state === GAME_STATES.LOBBY_SIPHON) {
-        const captiveRig = this.sceneManager.mageTowerLevel.captiveMarinaRig;
+        const captiveRig =
+          this.activeLobbySiphonTarget === 'serena'
+            ? this.sceneManager.mageTowerLevel.captiveSerenaRig
+            : this.sceneManager.mageTowerLevel.captiveMarinaRig;
         if (captiveRig) {
           captiveRig.root.updateMatrixWorld(true);
           captiveRig.headAnchor.getWorldPosition(

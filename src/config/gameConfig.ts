@@ -102,6 +102,7 @@ export const LOBBY_PROMPT_KINDS = Object.freeze({
   TROPHY_PEDESTAL: 'TROPHY_PEDESTAL',
   SIPHON_GALLERY_WARD: 'SIPHON_GALLERY_WARD',
   MARINA_DAIS: 'MARINA_DAIS',
+  SERENA_DAIS: 'SERENA_DAIS',
 } as const);
 
 export type LobbyPromptKind =
@@ -1437,32 +1438,42 @@ export const SIPHON_GALLERY_CONFIG = Object.freeze({
   southArchwayHalfWidth: 2.52,
   southArchwayHeight: 5.4,
 
-  // Raised Velvet Dais Alcoves (Center-South Marina + Left/Right Dormant Future Bosses)
+  // Raised Velvet Dais Alcoves (Center-South Marina + Left Serena Tide-Pool + Right Dormant Realm III)
   marinaDaisPos: Object.freeze({ x: 0, y: 0, z: 27.6 }),
+  serenaDaisPos: Object.freeze({ x: -4.75, y: 0, z: 24.9 }),
   leftDormantDaisPos: Object.freeze({ x: -4.75, y: 0, z: 24.9 }),
   rightDormantDaisPos: Object.freeze({ x: 4.75, y: 0, z: 24.9 }),
   daisRadius: 1.85,
+  serenaDaisRadius: 1.72,
   dormantDaisRadius: 1.45,
   daisHeight: 0.28,
+  serenaPoolSurfaceY: 0.285,
   daisCollisionRadius: 1.15,
   dormantDaisCollisionRadius: 1.35,
   interactRadius: 2.6,
   wardInteractRadius: 2.8,
 
-  // Bound Marina Captive Posture, Arcane Rune-Cuffs & Cryo Core Reservoir Crystal
+  // Bound Sovereign Captive Postures, Arcane Rune-Cuffs & Core Reservoir Crystals
   marinaFacingYaw: Math.PI,
+  serenaFacingYaw: 1.655,
   conduitOffsetX: 1.32,
   conduitOffsetZ: -0.22,
+  serenaConduitOffsetX: 1.24,
+  serenaConduitOffsetZ: -0.22,
   conduitHeight: 2.05,
   conduitTipY: 1.88,
   reservoirOffsetX: 2.15,
   reservoirOffsetZ: -0.45,
+  serenaReservoirOffsetX: -1.92,
+  serenaReservoirOffsetZ: -0.48,
   reservoirHeight: 2.35,
   reservoirCoreRadius: 0.22,
   reservoirMinFillScale: 0.04,
   runeSegmentCount: 12,
   runeRingInnerRadius: 1.98,
   runeRingOuterRadius: 2.18,
+  serenaRuneRingInnerRadius: 1.82,
+  serenaRuneRingOuterRadius: 2.02,
   tetherRadius: 0.016,
   wristCuffRadius: 0.056,
   wristCuffTube: 0.014,
@@ -1486,6 +1497,7 @@ export const SIPHON_GALLERY_CONFIG = Object.freeze({
   chargeStoreSyncIntervalSec: 0.2,
   releaseStandOffsetZ: 2.25,
   siphonInitialAzimuth: Math.PI + 0.55,
+  serenaSiphonInitialAzimuth: 1.655 + 0.55,
 
   // Gallery Atmosphere & Cold-Flame Brazier Lights
   brazierLightIntensity: 3.1,

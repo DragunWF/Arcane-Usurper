@@ -11,6 +11,7 @@ import {
   GAME_STATES,
   PALETTE,
   SERENA_CONFIG,
+  SIPHON_GALLERY_CONFIG,
   type BossExpression,
   type BossPhase,
   type DrainThrottleMode,
@@ -81,6 +82,8 @@ export class SerenaRig implements BossRigAdapter {
   public readonly root = new THREE.Group();
   public readonly headAnchor = new THREE.Object3D();
   public readonly headAccessory = new THREE.Group();
+  public readonly leftWristAnchor = new THREE.Object3D();
+  public readonly rightWristAnchor = new THREE.Object3D();
   public readonly drainableMaterials: THREE.MeshToonMaterial[] = [];
   public readonly originalColors: THREE.Color[] = [];
 
@@ -134,6 +137,7 @@ export class SerenaRig implements BossRigAdapter {
   private readonly hairRibbons: HairRibbonChain[] = [];
 
   // Runtime Visual State
+  private currentExpression: BossExpression = BOSS_EXPRESSIONS.COMBAT;
   private currentDrainProgress = 0;
   private phaseLevel: BossPhase = BOSS_PHASES.PHASE_1;
   private targetAscendY = 0;
@@ -142,6 +146,7 @@ export class SerenaRig implements BossRigAdapter {
   private hitFlashTimer = 0;
   private castAnimTimer = 0;
   private accessoryFlickTimer = 0;
+  private captiveFaceRedrawTimer = 0;
 
   private readonly finisherPoseState: SerenaFinisherPoseCache = {
     initialized: false,
@@ -574,6 +579,11 @@ export class SerenaRig implements BossRigAdapter {
 
     buildArm(-1, this.leftShoulderPivot, this.leftElbowPivot, this.leftHandAnchor);
     buildArm(1, this.rightShoulderPivot, this.rightElbowPivot, this.rightHandAnchor);
+
+    this.leftWristAnchor.position.set(0, -0.215, 0.004);
+    this.leftElbowPivot.add(this.leftWristAnchor);
+    this.rightWristAnchor.position.set(0, -0.215, 0.004);
+    this.rightElbowPivot.add(this.rightWristAnchor);
   }
 
   private buildHeadFaceAndAquamarineHair(): void {
@@ -943,10 +953,21 @@ export class SerenaRig implements BossRigAdapter {
     return this.rightHandAnchor.getWorldPosition(outVec);
   }
 
+  public getLeftWristWorldPosition(outVec: THREE.Vector3): THREE.Vector3 {
+    this.root.updateMatrixWorld(true);
+    return this.leftWristAnchor.getWorldPosition(outVec);
+  }
+
+  public getRightWristWorldPosition(outVec: THREE.Vector3): THREE.Vector3 {
+    this.root.updateMatrixWorld(true);
+    return this.rightWristAnchor.getWorldPosition(outVec);
+  }
+
   /**
    * Renders Serena's high-detail 512x512 anime facial expressions onto her CanvasTexture.
    */
   public setExpression(expression: BossExpression, spiralPhase = 0): void {
+    this.currentExpression = expression;
     const ctx = this.faceCtx;
     const size = ARENA_CONFIG.faceTextureSize;
     ctx.clearRect(0, 0, size, size);
@@ -1828,6 +1849,128 @@ export class SerenaRig implements BossRigAdapter {
       BOSS_CONFIG.spawnZ,
     );
     this.root.rotation.set(0, BOSS_CONFIG.spawnYaw, 0);
+  }
+
+  /**
+   * Graceful coiled captive posture on the Siphon Gallery Tide-Pool Velvet Dais.
+   * Interpolates Serena's iridescent scales, fins, hair, and coral tiara smoothly from
+   * PALETTE.drainedAshSilver (charge = 0) to radiant bioluminescent teal (charge = 1),
+   * animates gentle captive tail-sway & breathing, and holds wrists outward for rune-cuff tethers.
+   */
+  public applyCaptiveDaisPose(charge: number, time: number, dt: number): void {
+    const cfg = SIPHON_GALLERY_CONFIG;
+    const clampedCharge = THREE.MathUtils.clamp(charge, 0, 1);
+    const depletion = 1 - clampedCharge;
+
+    this.finisherPoseState.initialized = false;
+    this.applyDrainBleach(depletion);
+
+    // Facial expression tracks her Tidal Core recharge level
+    if (clampedCharge <= cfg.captiveLowChargeThreshold) {
+      this.captiveFaceRedrawTimer -= dt;
+      if (
+        this.currentExpression !== BOSS_EXPRESSIONS.DRAINED_FAINT ||
+        this.captiveFaceRedrawTimer <= 0
+      ) {
+        this.captiveFaceRedrawTimer = cfg.captiveFaceRedrawIntervalSec;
+        this.setExpression(BOSS_EXPRESSIONS.DRAINED_FAINT, time * 2.2);
+      }
+    } else if (clampedCharge < cfg.captiveHighChargeThreshold) {
+      if (this.currentExpression !== BOSS_EXPRESSIONS.STAGGER) {
+        this.setExpression(BOSS_EXPRESSIONS.STAGGER);
+      }
+    } else if (this.currentExpression !== BOSS_EXPRESSIONS.COMBAT) {
+      this.setExpression(BOSS_EXPRESSIONS.COMBAT);
+    }
+
+    const breathFreq = THREE.MathUtils.lerp(
+      cfg.captiveBreathFreqMin,
+      cfg.captiveBreathFreqMax,
+      clampedCharge,
+    );
+    const breathWave = Math.sin(time * breathFreq);
+    const swayWave = Math.sin(time * 0.95);
+
+    const torsoPitch =
+      THREE.MathUtils.lerp(
+        cfg.captiveTorsoSlumpMax,
+        cfg.captiveTorsoUprightMin,
+        clampedCharge,
+      ) +
+      breathWave * (0.022 + depletion * 0.016);
+    const headPitch =
+      THREE.MathUtils.lerp(
+        cfg.captiveHeadDroopMax,
+        cfg.captiveHeadLiftMin,
+        clampedCharge,
+      ) -
+      breathWave * 0.028;
+
+    this.bodyPivot.position.set(
+      0,
+      cfg.captiveKneelBodyY + breathWave * 0.012,
+      0,
+    );
+    this.bodyPivot.rotation.set(0, 0, swayWave * 0.02);
+
+    this.torsoGroup.rotation.set(torsoPitch, 0, swayWave * 0.024);
+    this.headGroup.position.set(0, 0.515, 0.008);
+    this.headGroup.rotation.set(
+      headPitch,
+      Math.sin(time * 0.65) * (0.04 + clampedCharge * 0.05),
+      Math.cos(time * 0.72) * (0.03 + depletion * 0.04),
+    );
+    this.headAccessory.rotation.set(-0.16, 0, 0);
+
+    // 4-Segment Fish Tail coiled gracefully on the shallow tide-pool dais with gentle sway
+    const tailSway = Math.sin(time * (1.2 + clampedCharge * 0.9)) * (0.05 + clampedCharge * 0.06);
+    this.tailSeg1.rotation.set(1.04, 0.34 + tailSway * 0.3, 0.22);
+    this.tailSeg2.rotation.set(0.4, 0.48 + tailSway * 0.65, 0);
+    this.tailSeg3.rotation.set(0.12, 0.56 + tailSway * 0.95, 0);
+    this.tailSeg4.rotation.set(0.05, 0.5 + tailSway * 1.15, 0);
+    this.caudalFinPivot.rotation.set(
+      Math.sin(time * (1.8 + clampedCharge * 1.1)) * (0.08 + clampedCharge * 0.14),
+      0,
+      0,
+    );
+
+    // Wrists held gently outward & forward toward the twin flanking pearl conduits
+    const armTension = THREE.MathUtils.lerp(0.08, 0.0, clampedCharge);
+    this.leftShoulderPivot.rotation.set(
+      -0.36 + armTension + breathWave * 0.03,
+      0,
+      -0.44 - clampedCharge * 0.06,
+    );
+    this.rightShoulderPivot.rotation.set(
+      -0.36 + armTension + breathWave * 0.03,
+      0,
+      0.44 + clampedCharge * 0.06,
+    );
+    this.leftElbowPivot.rotation.set(-0.54 + armTension * 0.5, 0, -0.14);
+    this.rightElbowPivot.rotation.set(-0.54 + armTension * 0.5, 0, 0.14);
+
+    // Flowing aquamarine hair drapes smoothly down behind her coiled silhouette
+    for (let i = 0; i < this.hairRibbons.length; i++) {
+      const hr = this.hairRibbons[i];
+      if (!hr) continue;
+      const wave = Math.sin(time * 1.55 + hr.phase) * 0.038;
+      hr.rootSeg.rotation.x = 0.28 + wave;
+      hr.midSeg.rotation.x = 0.42 + wave * 1.1;
+      hr.tipSeg.rotation.x = 0.58 + wave * 1.2;
+      hr.rootSeg.rotation.z = hr.spread * 0.32;
+    }
+
+    // Siren halo re-emerges softly as her Tidal Core recharges past 35%
+    const haloFactor = THREE.MathUtils.clamp((clampedCharge - 0.35) / 0.65, 0, 1);
+    this.sirenHalo.visible = haloFactor > 0.03;
+    if (this.sirenHalo.visible) {
+      this.sirenHalo.rotation.z = time * (0.35 + haloFactor * 0.42);
+      this.sirenHalo.scale.setScalar(0.35 + haloFactor * 0.55);
+    }
+    this.phaseAuraRings.visible = false;
+
+    this.tiaraLight.intensity =
+      ARENA_CONFIG.lighting.tiaraLightStaggerBase * (0.2 + clampedCharge * 1.15);
   }
 
   public dispose(): void {

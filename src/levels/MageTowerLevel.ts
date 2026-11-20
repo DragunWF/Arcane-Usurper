@@ -7,6 +7,7 @@ import {
 } from '../config/gameConfig';
 import { ToonAssets } from '../engine/ToonAssets';
 import { MarinaRig } from '../rigs/bosses/MarinaRig';
+import { SerenaRig } from '../rigs/bosses/SerenaRig';
 
 export interface SanctumCollider {
   readonly x: number;
@@ -105,11 +106,14 @@ export class MageTowerLevel {
   private readonly floatingBooks: FloatingBookRecord[] = [];
   private readonly floatingCandles: FloatingCandleRecord[] = [];
 
-  // Stolen Trophy Pedestal (Frost Tiara & Ice Crystal)
+  // Stolen Trophy Pedestal (Marina Frost Tiara & Serena Coral Tiara + Pearl)
   private trophyCrownGroup: THREE.Group | null = null;
   private trophyAuraMesh: THREE.Mesh | null = null;
   private trophyLight: THREE.PointLight | null = null;
   private isTrophyVisible = false;
+  private serenaTrophyGroup: THREE.Group | null = null;
+  private serenaTrophyLight: THREE.PointLight | null = null;
+  private isSerenaTrophyVisible = false;
 
   // Abyssal Target Crystal (Training Dummy)
   private dummyCrystalPivot: THREE.Group | null = null;
@@ -135,11 +139,13 @@ export class MageTowerLevel {
   private realm3WardMat: THREE.MeshBasicMaterial | null = null;
   private realm3RippleTimer = 0;
 
-  // Siphon Gallery Annex (Southern Archway, Velvet Bridge, Bound Marina & Cryo Reservoir)
+  // Siphon Gallery Annex (Southern Archway, Velvet Bridge, Bound Marina & Bound Serena)
   private galleryWardGroup: THREE.Group | null = null;
   private galleryWardMat: THREE.MeshBasicMaterial | null = null;
   private galleryWardRippleTimer = 0;
   private galleryUnlocked = false;
+  private marinaCaptiveUnlocked = false;
+  private serenaCaptiveUnlocked = false;
   private readonly galleryBraziers: GalleryBrazierRecord[] = [];
   private marinaDaisGroup: THREE.Group | null = null;
   private _captiveMarinaRig: MarinaRig | null = null;
@@ -154,6 +160,22 @@ export class MageTowerLevel {
   private reservoirLight: THREE.PointLight | null = null;
   private readonly daisRuneSegments: THREE.MeshBasicMaterial[] = [];
 
+  // Siphon Gallery Alcove II (Left Tide-Pool Velvet Dais, Captive Serena & Tidal Reservoir)
+  private serenaDaisGroup: THREE.Group | null = null;
+  private serenaDormantSeal: THREE.Mesh | null = null;
+  private serenaActiveGroup: THREE.Group | null = null;
+  private serenaPoolMesh: THREE.Mesh | null = null;
+  private serenaPoolMat: THREE.MeshBasicMaterial | null = null;
+  private _captiveSerenaRig: SerenaRig | null = null;
+  private serenaLeftConduitTip: THREE.Object3D | null = null;
+  private serenaRightConduitTip: THREE.Object3D | null = null;
+  private serenaLeftTetherMesh: THREE.Mesh | null = null;
+  private serenaRightTetherMesh: THREE.Mesh | null = null;
+  private serenaReservoirCoreMesh: THREE.Mesh | null = null;
+  private serenaReservoirCoreMat: THREE.MeshToonMaterial | null = null;
+  private serenaReservoirLight: THREE.PointLight | null = null;
+  private readonly serenaDaisRuneSegments: THREE.MeshBasicMaterial[] = [];
+
   // Reusable scratch vectors for zero-GC tether updates
   private readonly scratchWristL = new THREE.Vector3();
   private readonly scratchWristR = new THREE.Vector3();
@@ -165,9 +187,14 @@ export class MageTowerLevel {
   private readonly upAxis = new THREE.Vector3(0, 1, 0);
   private readonly scratchColorA = new THREE.Color(PALETTE.drainedAshSilver);
   private readonly scratchColorB = new THREE.Color(PALETTE.frostRunes);
+  private readonly scratchColorTeal = new THREE.Color(PALETTE.biolumCyan);
 
   public get captiveMarinaRig(): MarinaRig | null {
     return this._captiveMarinaRig;
+  }
+
+  public get captiveSerenaRig(): SerenaRig | null {
+    return this._captiveSerenaRig;
   }
 
   public get isGalleryUnlocked(): boolean {
@@ -965,6 +992,81 @@ export class MageTowerLevel {
     pedGroup.add(this.trophyLight);
 
     pedGroup.add(this.trophyCrownGroup);
+
+    // Floating Coral Tiara & Glowing Pearl Trophy (Serena — Realm II)
+    const coralMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.serenaCoralTiara, {
+        emissive: PALETTE.coralRose,
+        emissiveIntensity: 0.52,
+      }),
+    );
+    const pearlMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.serenaPearl, {
+        emissive: PALETTE.biolumCyan,
+        emissiveIntensity: 0.48,
+      }),
+    );
+    const goldMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.atlanteanGold, {
+        emissive: PALETTE.atlanteanGold,
+        emissiveIntensity: 0.35,
+      }),
+    );
+    const serenaAuraMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.biolumCyan,
+        transparent: true,
+        opacity: 0.32,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+
+    this.serenaTrophyGroup = new THREE.Group();
+    this.serenaTrophyGroup.position.y = 1.62;
+
+    const sBand = new THREE.Mesh(bandGeo, goldMat);
+    sBand.rotation.x = Math.PI / 2;
+    this.serenaTrophyGroup.add(sBand);
+
+    const coralBranchGeo = this.trackGeo(new THREE.ConeGeometry(0.036, 0.26, 5));
+    for (let i = -2; i <= 2; i++) {
+      const ang = i * 0.44;
+      const hScale = 1 - Math.abs(i) * 0.2;
+      const branch = new THREE.Mesh(coralBranchGeo, coralMat);
+      branch.position.set(
+        Math.sin(ang) * 0.23,
+        0.13 * hScale,
+        Math.cos(ang) * 0.23,
+      );
+      branch.rotation.z = -ang * 0.35;
+      branch.scale.setScalar(hScale);
+      this.serenaTrophyGroup.add(branch);
+    }
+
+    const glowingPearl = new THREE.Mesh(
+      this.trackGeo(new THREE.SphereGeometry(0.115, 16, 14)),
+      pearlMat,
+    );
+    glowingPearl.position.y = 0.09;
+    this.serenaTrophyGroup.add(glowingPearl);
+
+    const serenaAura = new THREE.Mesh(
+      this.trackGeo(new THREE.SphereGeometry(0.38, 12, 12)),
+      serenaAuraMat,
+    );
+    this.serenaTrophyGroup.add(serenaAura);
+
+    this.serenaTrophyLight = new THREE.PointLight(
+      PALETTE.biolumCyan,
+      LOBBY_CONFIG.lighting.trophyLightIntensity,
+      LOBBY_CONFIG.lighting.trophyLightDistance,
+      1.8,
+    );
+    this.serenaTrophyLight.position.y = 1.7;
+    pedGroup.add(this.serenaTrophyLight);
+    pedGroup.add(this.serenaTrophyGroup);
+
     this.root.add(pedGroup);
 
     this._pillarColliders.push({
@@ -974,25 +1076,43 @@ export class MageTowerLevel {
       height: 1.8,
     });
 
-    this.setTrophyVisible(false, 0);
+    this.setTrophyVisible(false, 0, false);
   }
 
   /**
-   * Toggles the Stolen Frost Tiara & Ice Crystal trophy and scales its icy aura with encoreTier.
+   * Toggles the Stolen Frost Tiara (Marina) and Coral Tiara & Glowing Pearl (Serena)
+   * trophies on the Sanctum pedestal and scales their arcane aura with encoreTier.
    */
-  public setTrophyVisible(visible: boolean, encoreTier = 0): void {
-    this.isTrophyVisible = visible;
+  public setTrophyVisible(
+    marinaVisible: boolean,
+    encoreTier = 0,
+    serenaVisible = this.isSerenaTrophyVisible,
+  ): void {
+    this.isTrophyVisible = marinaVisible;
+    this.isSerenaTrophyVisible = serenaVisible;
+    const bothVisible = marinaVisible && serenaVisible;
+    const scale = 1 + Math.min(3, Math.max(0, encoreTier)) * 0.08;
+    const intensity =
+      LOBBY_CONFIG.lighting.trophyLightIntensity *
+      (1 + Math.min(3, Math.max(0, encoreTier)) * 0.15);
+
     if (this.trophyCrownGroup) {
-      this.trophyCrownGroup.visible = visible;
-      const scale = 1 + Math.min(3, Math.max(0, encoreTier)) * 0.08;
-      this.trophyCrownGroup.scale.setScalar(scale);
+      this.trophyCrownGroup.visible = marinaVisible;
+      this.trophyCrownGroup.scale.setScalar(bothVisible ? scale * 0.88 : scale);
+      this.trophyCrownGroup.position.x = bothVisible ? -0.34 : 0;
     }
     if (this.trophyLight) {
-      this.trophyLight.visible = visible;
-      this.trophyLight.intensity = visible
-        ? LOBBY_CONFIG.lighting.trophyLightIntensity *
-          (1 + Math.min(3, Math.max(0, encoreTier)) * 0.15)
-        : 0;
+      this.trophyLight.visible = marinaVisible;
+      this.trophyLight.intensity = marinaVisible ? intensity : 0;
+    }
+    if (this.serenaTrophyGroup) {
+      this.serenaTrophyGroup.visible = serenaVisible;
+      this.serenaTrophyGroup.scale.setScalar(bothVisible ? scale * 0.88 : scale);
+      this.serenaTrophyGroup.position.x = bothVisible ? 0.34 : 0;
+    }
+    if (this.serenaTrophyLight) {
+      this.serenaTrophyLight.visible = serenaVisible;
+      this.serenaTrophyLight.intensity = serenaVisible ? intensity : 0;
     }
   }
 
@@ -2044,12 +2164,8 @@ export class MageTowerLevel {
     this.root.add(galleryGroup);
 
     // -----------------------------------------------------------------------
-    // 4. Left & Right Dormant Boss Alcove Daises (Future Realms II & III)
+    // 4. Right Dormant Boss Alcove Dais (Future Realm III)
     // -----------------------------------------------------------------------
-    const dormantSpecs = [
-      { pos: cfg.leftDormantDaisPos, color: PALETTE.sunkenTeal },
-      { pos: cfg.rightDormantDaisPos, color: PALETTE.harmonicEmerald },
-    ];
     const dormantTier1Geo = this.trackGeo(
       new THREE.CylinderGeometry(
         cfg.dormantDaisRadius,
@@ -2070,63 +2186,376 @@ export class MageTowerLevel {
       new THREE.CylinderGeometry(0.92, 0.92, 2.35, 16, 1, true),
     );
 
-    dormantSpecs.forEach((ds) => {
-      const dg = new THREE.Group();
-      dg.position.set(ds.pos.x, ds.pos.y, ds.pos.z);
+    const rightDormantGroup = new THREE.Group();
+    rightDormantGroup.position.set(
+      cfg.rightDormantDaisPos.x,
+      cfg.rightDormantDaisPos.y,
+      cfg.rightDormantDaisPos.z,
+    );
+    const { group: rD1 } = ToonAssets.createOutlinedMesh(
+      dormantTier1Geo,
+      darkObsidianMat,
+      1.03,
+      true,
+    );
+    rD1.position.y = cfg.daisHeight * 0.275;
+    rightDormantGroup.add(rD1);
+    const { group: rD2 } = ToonAssets.createOutlinedMesh(
+      dormantTier2Geo,
+      velvetMat,
+      1.03,
+      true,
+    );
+    rD2.position.y = cfg.daisHeight * 0.775;
+    rightDormantGroup.add(rD2);
+    const rightSealMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.harmonicEmerald,
+        transparent: true,
+        opacity: 0.14,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    const rightSealCylinder = new THREE.Mesh(dormantSealGeo, rightSealMat);
+    rightSealCylinder.position.y = cfg.daisHeight + 1.18;
+    rightDormantGroup.add(rightSealCylinder);
+    const rightDormantRing = new THREE.Mesh(
+      this.trackGeo(
+        new THREE.RingGeometry(
+          cfg.dormantDaisRadius + 0.08,
+          cfg.dormantDaisRadius + 0.2,
+          24,
+        ),
+      ),
+      this.trackMat(new THREE.MeshBasicMaterial({ color: PALETTE.harmonicEmerald })),
+    );
+    rightDormantRing.rotation.x = -Math.PI / 2;
+    rightDormantRing.position.y = 0.02;
+    rightDormantGroup.add(rightDormantRing);
+    this.root.add(rightDormantGroup);
+    this._pillarColliders.push({
+      x: cfg.rightDormantDaisPos.x,
+      z: cfg.rightDormantDaisPos.z,
+      radius: cfg.dormantDaisCollisionRadius,
+      height: 2.5,
+    });
 
-      const { group: d1 } = ToonAssets.createOutlinedMesh(
-        dormantTier1Geo,
-        darkObsidianMat,
-        1.03,
-        true,
+    // -----------------------------------------------------------------------
+    // 4B. Left Alcove II — Enchanted Tide-Pool Velvet Dais, Captive Serena & Tidal Reservoir
+    // -----------------------------------------------------------------------
+    this.serenaDaisGroup = new THREE.Group();
+    this.serenaDaisGroup.position.set(
+      cfg.serenaDaisPos.x,
+      cfg.serenaDaisPos.y,
+      cfg.serenaDaisPos.z,
+    );
+
+    const sDaisTier1Geo = this.trackGeo(
+      new THREE.CylinderGeometry(
+        cfg.serenaDaisRadius,
+        cfg.serenaDaisRadius + 0.18,
+        cfg.daisHeight * 0.55,
+        24,
+      ),
+    );
+    const { group: sDais1 } = ToonAssets.createOutlinedMesh(
+      sDaisTier1Geo,
+      darkObsidianMat,
+      1.025,
+      true,
+    );
+    sDais1.position.y = cfg.daisHeight * 0.275;
+    this.serenaDaisGroup.add(sDais1);
+
+    const sDaisTier2Geo = this.trackGeo(
+      new THREE.CylinderGeometry(
+        cfg.serenaDaisRadius - 0.16,
+        cfg.serenaDaisRadius - 0.08,
+        cfg.daisHeight * 0.45,
+        24,
+      ),
+    );
+    const { group: sDais2 } = ToonAssets.createOutlinedMesh(
+      sDaisTier2Geo,
+      velvetMat,
+      1.025,
+      true,
+    );
+    sDais2.position.y = cfg.daisHeight * 0.775;
+    this.serenaDaisGroup.add(sDais2);
+
+    // Dormant teal ward seal shown while Serena has not yet been defeated
+    const leftSealMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.sunkenTeal,
+        transparent: true,
+        opacity: 0.15,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.serenaDormantSeal = new THREE.Mesh(dormantSealGeo, leftSealMat);
+    this.serenaDormantSeal.position.y = cfg.daisHeight + 1.18;
+    this.serenaDaisGroup.add(this.serenaDormantSeal);
+
+    // Active Tide-Pool & Captive Serena Alcove Group (shown when serenaDefeated === true)
+    this.serenaActiveGroup = new THREE.Group();
+    this.serenaDaisGroup.add(this.serenaActiveGroup);
+
+    // Enchanted shallow bioluminescent tide-pool basin atop the velvet dais
+    const tidePoolRimMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.seaStoneMid, {
+        emissive: PALETTE.biolumCyan,
+        emissiveIntensity: 0.24,
+      }),
+    );
+    const tidePoolRim = new THREE.Mesh(
+      this.trackGeo(
+        new THREE.TorusGeometry(cfg.serenaDaisRadius - 0.24, 0.065, 8, 28),
+      ),
+      tidePoolRimMat,
+    );
+    tidePoolRim.rotation.x = Math.PI / 2;
+    tidePoolRim.position.y = cfg.daisHeight + 0.02;
+    this.serenaActiveGroup.add(tidePoolRim);
+
+    this.serenaPoolMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.biolumCyan,
+        transparent: true,
+        opacity: 0.52,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.serenaPoolMesh = new THREE.Mesh(
+      this.trackGeo(new THREE.CircleGeometry(cfg.serenaDaisRadius - 0.25, 28)),
+      this.serenaPoolMat,
+    );
+    this.serenaPoolMesh.rotation.x = -Math.PI / 2;
+    this.serenaPoolMesh.position.y = cfg.serenaPoolSurfaceY;
+    this.serenaActiveGroup.add(this.serenaPoolMesh);
+
+    // 12-Segment Diegetic Tidal Core Floor Rune Ring around Serena's Dais
+    const serenaSegCount = cfg.runeSegmentCount;
+    const serenaSegArc = ((Math.PI * 2) / serenaSegCount) * 0.78;
+    for (let i = 0; i < serenaSegCount; i++) {
+      const startAngle = (i / serenaSegCount) * Math.PI * 2 - Math.PI * 0.5;
+      const segGeo = this.trackGeo(
+        new THREE.RingGeometry(
+          cfg.serenaRuneRingInnerRadius,
+          cfg.serenaRuneRingOuterRadius,
+          6,
+          1,
+          startAngle,
+          serenaSegArc,
+        ),
       );
-      d1.position.y = cfg.daisHeight * 0.275;
-      dg.add(d1);
-
-      const { group: d2 } = ToonAssets.createOutlinedMesh(
-        dormantTier2Geo,
-        velvetMat,
-        1.03,
-        true,
-      );
-      d2.position.y = cfg.daisHeight * 0.775;
-      dg.add(d2);
-
-      const sealMat = this.trackMat(
+      const segMat = this.trackMat(
         new THREE.MeshBasicMaterial({
-          color: ds.color,
+          color: PALETTE.biolumCyan,
           transparent: true,
-          opacity: 0.14,
+          opacity: 0.9,
           side: THREE.DoubleSide,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
         }),
       );
-      const sealCylinder = new THREE.Mesh(dormantSealGeo, sealMat);
-      sealCylinder.position.y = cfg.daisHeight + 1.18;
-      dg.add(sealCylinder);
+      const segMesh = new THREE.Mesh(segGeo, segMat);
+      segMesh.rotation.x = -Math.PI / 2;
+      segMesh.position.y = 0.022;
+      this.serenaDaisGroup.add(segMesh);
+      this.serenaDaisRuneSegments.push(segMat);
+    }
 
-      const ring = new THREE.Mesh(
-        this.trackGeo(
-          new THREE.RingGeometry(
-            cfg.dormantDaisRadius + 0.08,
-            cfg.dormantDaisRadius + 0.2,
-            24,
-          ),
-        ),
-        this.trackMat(new THREE.MeshBasicMaterial({ color: ds.color })),
+    // Shared Arcane Rune-Cuff material & geometry
+    this.cuffMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.glowViolet,
+      }),
+    );
+    const cuffGeo = this.trackGeo(
+      new THREE.TorusGeometry(cfg.wristCuffRadius, cfg.wristCuffTube, 8, 16),
+    );
+    const cuffPipGeo = this.trackGeo(new THREE.OctahedronGeometry(0.022, 0));
+
+    const attachWristCuff = (anchor: THREE.Object3D): void => {
+      const cuffGroup = new THREE.Group();
+      const ring = new THREE.Mesh(cuffGeo, this.cuffMat!);
+      ring.rotation.x = Math.PI / 2;
+      cuffGroup.add(ring);
+
+      for (let p = 0; p < 4; p++) {
+        const pa = (p / 4) * Math.PI * 2;
+        const pip = new THREE.Mesh(cuffPipGeo, this.cuffMat!);
+        pip.position.set(
+          Math.cos(pa) * (cfg.wristCuffRadius + 0.015),
+          0,
+          Math.sin(pa) * (cfg.wristCuffRadius + 0.015),
+        );
+        cuffGroup.add(pip);
+      }
+      anchor.add(cuffGroup);
+    };
+
+    // Dedicated Captive SerenaRig mounted on the tide-pool dais facing into the Siphon Gallery
+    this._captiveSerenaRig = new SerenaRig(this.serenaDaisGroup);
+    this._captiveSerenaRig.root.position.set(0, cfg.daisHeight, 0);
+    this._captiveSerenaRig.root.rotation.set(0, cfg.serenaFacingYaw, 0);
+    attachWristCuff(this._captiveSerenaRig.leftWristAnchor);
+    attachWristCuff(this._captiveSerenaRig.rightWristAnchor);
+
+    // Oriented peripheral frame matching Serena's facing direction for twin pearl conduits & Tidal Reservoir
+    const serenaPeripherals = new THREE.Group();
+    serenaPeripherals.rotation.y = cfg.serenaFacingYaw - Math.PI;
+    this.serenaActiveGroup.add(serenaPeripherals);
+
+    const pearlOrbMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.serenaPearl, {
+        emissive: PALETTE.biolumCyan,
+        emissiveIntensity: 0.65,
+      }),
+    );
+    const pearlConduitShaftMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.seaStoneDark, {
+        emissive: PALETTE.biolumCyan,
+        emissiveIntensity: 0.16,
+      }),
+    );
+    const pearlConduitGeo = this.trackGeo(
+      new THREE.CylinderGeometry(0.13, 0.22, cfg.conduitHeight * 0.72, 8),
+    );
+    const pearlTipGeo = this.trackGeo(new THREE.SphereGeometry(0.16, 14, 12));
+
+    sides.forEach((side) => {
+      const cg = new THREE.Group();
+      cg.position.set(
+        side * cfg.serenaConduitOffsetX,
+        cfg.daisHeight,
+        cfg.serenaConduitOffsetZ,
       );
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.y = 0.02;
-      dg.add(ring);
 
-      this.root.add(dg);
-      this._pillarColliders.push({
-        x: ds.pos.x,
-        z: ds.pos.z,
-        radius: cfg.dormantDaisCollisionRadius,
-        height: 2.5,
-      });
+      const { group: shaft } = ToonAssets.createOutlinedMesh(
+        pearlConduitGeo,
+        pearlConduitShaftMat,
+        1.06,
+        true,
+      );
+      shaft.position.y = cfg.conduitHeight * 0.36;
+      cg.add(shaft);
+
+      const pearlOrb = new THREE.Mesh(pearlTipGeo, pearlOrbMat);
+      pearlOrb.position.y = cfg.conduitTipY - cfg.daisHeight;
+      cg.add(pearlOrb);
+
+      const tipAnchor = new THREE.Object3D();
+      tipAnchor.position.y = cfg.conduitTipY - cfg.daisHeight;
+      cg.add(tipAnchor);
+
+      if (side > 0) {
+        this.serenaLeftConduitTip = tipAnchor;
+      } else {
+        this.serenaRightConduitTip = tipAnchor;
+      }
+      serenaPeripherals.add(cg);
+    });
+
+    // Vertical Tidal Core Reservoir Crystal beside Serena's tide-pool dais
+    const sResGroup = new THREE.Group();
+    sResGroup.position.set(
+      cfg.serenaReservoirOffsetX,
+      0,
+      cfg.serenaReservoirOffsetZ,
+    );
+
+    const sResPedestalGeo = this.trackGeo(
+      new THREE.CylinderGeometry(0.4, 0.54, 0.42, 6),
+    );
+    const { group: sResBase } = ToonAssets.createOutlinedMesh(
+      sResPedestalGeo,
+      pearlConduitShaftMat,
+      1.05,
+      true,
+    );
+    sResBase.position.y = 0.21;
+    sResGroup.add(sResBase);
+
+    const sResHousingGeo = this.trackGeo(
+      new THREE.CylinderGeometry(0.32, 0.34, cfg.reservoirHeight, 6, 1, true),
+    );
+    const sResHousing = new THREE.Mesh(sResHousingGeo, crystalGlassMat);
+    sResHousing.position.y = 0.42 + cfg.reservoirHeight * 0.5;
+    sResGroup.add(sResHousing);
+
+    const sStrutGeo = this.trackGeo(
+      new THREE.BoxGeometry(0.06, cfg.reservoirHeight + 0.12, 0.06),
+    );
+    for (let s = 0; s < 3; s++) {
+      const sa = (s / 3) * Math.PI * 2;
+      const strut = new THREE.Mesh(sStrutGeo, pierMat);
+      strut.position.set(
+        Math.cos(sa) * 0.35,
+        0.42 + cfg.reservoirHeight * 0.5,
+        Math.sin(sa) * 0.35,
+      );
+      sResGroup.add(strut);
+    }
+
+    const sResCoreGeo = this.trackGeo(
+      new THREE.CylinderGeometry(
+        cfg.reservoirCoreRadius,
+        cfg.reservoirCoreRadius,
+        cfg.reservoirHeight - 0.14,
+        8,
+      ),
+    );
+    sResCoreGeo.translate(0, (cfg.reservoirHeight - 0.14) * 0.5, 0);
+
+    this.serenaReservoirCoreMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.biolumCyan, {
+        emissive: PALETTE.biolumCyan,
+        emissiveIntensity: 0.9,
+      }),
+    );
+    this.serenaReservoirCoreMesh = new THREE.Mesh(
+      sResCoreGeo,
+      this.serenaReservoirCoreMat,
+    );
+    this.serenaReservoirCoreMesh.position.y = 0.46;
+    sResGroup.add(this.serenaReservoirCoreMesh);
+
+    const sResCapGeo = this.trackGeo(new THREE.ConeGeometry(0.36, 0.62, 6));
+    const { group: sResCap } = ToonAssets.createOutlinedMesh(
+      sResCapGeo,
+      pearlConduitShaftMat,
+      1.05,
+      true,
+    );
+    sResCap.position.y = 0.42 + cfg.reservoirHeight + 0.31;
+    sResGroup.add(sResCap);
+
+    this.serenaReservoirLight = new THREE.PointLight(
+      PALETTE.biolumCyan,
+      cfg.reservoirLightIntensity,
+      cfg.reservoirLightDistance,
+      1.7,
+    );
+    this.serenaReservoirLight.position.set(
+      0,
+      0.42 + cfg.reservoirHeight * 0.55,
+      0,
+    );
+    sResGroup.add(this.serenaReservoirLight);
+    serenaPeripherals.add(sResGroup);
+
+    this.root.add(this.serenaDaisGroup);
+    this._pillarColliders.push({
+      x: cfg.serenaDaisPos.x,
+      z: cfg.serenaDaisPos.z,
+      radius: cfg.daisCollisionRadius,
+      height: 2.2,
     });
 
     // -----------------------------------------------------------------------
@@ -2221,36 +2650,6 @@ export class MageTowerLevel {
     this._captiveMarinaRig.root.position.set(0, cfg.daisHeight, 0);
     this._captiveMarinaRig.root.rotation.set(0, cfg.marinaFacingYaw, 0);
 
-    // Glowing Royal-Violet Arcane Rune-Cuffs attached directly to Marina's wrists
-    this.cuffMat = this.trackMat(
-      new THREE.MeshBasicMaterial({
-        color: PALETTE.glowViolet,
-      }),
-    );
-    const cuffGeo = this.trackGeo(
-      new THREE.TorusGeometry(cfg.wristCuffRadius, cfg.wristCuffTube, 8, 16),
-    );
-    const cuffPipGeo = this.trackGeo(new THREE.OctahedronGeometry(0.022, 0));
-
-    const attachWristCuff = (anchor: THREE.Object3D): void => {
-      const cuffGroup = new THREE.Group();
-      const ring = new THREE.Mesh(cuffGeo, this.cuffMat!);
-      ring.rotation.x = Math.PI / 2;
-      cuffGroup.add(ring);
-
-      for (let p = 0; p < 4; p++) {
-        const pa = (p / 4) * Math.PI * 2;
-        const pip = new THREE.Mesh(cuffPipGeo, this.cuffMat!);
-        pip.position.set(
-          Math.cos(pa) * (cfg.wristCuffRadius + 0.015),
-          0,
-          Math.sin(pa) * (cfg.wristCuffRadius + 0.015),
-        );
-        cuffGroup.add(pip);
-      }
-      anchor.add(cuffGroup);
-    };
-
     attachWristCuff(this._captiveMarinaRig.leftWristAnchor);
     attachWristCuff(this._captiveMarinaRig.rightWristAnchor);
 
@@ -2315,7 +2714,14 @@ export class MageTowerLevel {
     );
     this.leftTetherMesh = new THREE.Mesh(tetherGeo, this.tetherMat);
     this.rightTetherMesh = new THREE.Mesh(tetherGeo, this.tetherMat);
-    this.root.add(this.leftTetherMesh, this.rightTetherMesh);
+    this.serenaLeftTetherMesh = new THREE.Mesh(tetherGeo, this.tetherMat);
+    this.serenaRightTetherMesh = new THREE.Mesh(tetherGeo, this.tetherMat);
+    this.root.add(
+      this.leftTetherMesh,
+      this.rightTetherMesh,
+      this.serenaLeftTetherMesh,
+      this.serenaRightTetherMesh,
+    );
 
     // Tall Vertical Cryo Core Reservoir Crystal mounted beside Marina's dais
     const resGroup = new THREE.Group();
@@ -2413,27 +2819,73 @@ export class MageTowerLevel {
     });
 
     // Initialize sealed state until synced from persisted store state
-    this.setGalleryUnlocked(false);
+    this.setGalleryCaptives(false, false);
     this.updateMarinaCaptiveState(cfg.defaultCoreCharge, 0, 0.016);
+    this.updateSerenaCaptiveState(cfg.defaultCoreCharge, 0, 0.016);
   }
 
   /**
-   * Shows/hides the shimmering royal-violet ward across the southern archway,
-   * toggles the captive Marina rig & energy tethers, and illuminates the gallery braziers.
+   * Unlocks the Siphon Gallery southern doorway when either Marina or Serena is defeated,
+   * and toggles each captive sovereign's alcove rig, tethers, and reservoir independently.
+   */
+  public setGalleryCaptives(marinaUnlocked: boolean, serenaUnlocked: boolean): void {
+    const anyUnlocked = marinaUnlocked || serenaUnlocked;
+    this.galleryUnlocked = anyUnlocked;
+    this.marinaCaptiveUnlocked = marinaUnlocked;
+    this.serenaCaptiveUnlocked = serenaUnlocked;
+
+    if (this.galleryWardGroup) {
+      this.galleryWardGroup.visible = !anyUnlocked;
+    }
+    if (this._captiveMarinaRig) {
+      this._captiveMarinaRig.root.visible = marinaUnlocked;
+    }
+    if (this.leftTetherMesh) {
+      this.leftTetherMesh.visible = marinaUnlocked;
+    }
+    if (this.rightTetherMesh) {
+      this.rightTetherMesh.visible = marinaUnlocked;
+    }
+    if (this.reservoirLight && !marinaUnlocked) {
+      this.reservoirLight.intensity = 0;
+    }
+
+    if (this.serenaDormantSeal) {
+      this.serenaDormantSeal.visible = !serenaUnlocked;
+    }
+    if (this.serenaActiveGroup) {
+      this.serenaActiveGroup.visible = serenaUnlocked;
+    }
+    if (this._captiveSerenaRig) {
+      this._captiveSerenaRig.root.visible = serenaUnlocked;
+    }
+    if (this.serenaLeftTetherMesh) {
+      this.serenaLeftTetherMesh.visible = serenaUnlocked;
+    }
+    if (this.serenaRightTetherMesh) {
+      this.serenaRightTetherMesh.visible = serenaUnlocked;
+    }
+    if (this.serenaReservoirLight && !serenaUnlocked) {
+      this.serenaReservoirLight.intensity = 0;
+    }
+
+    for (let i = 0; i < this.galleryBraziers.length; i++) {
+      const br = this.galleryBraziers[i];
+      if (!br) continue;
+      br.flameMesh.visible = anyUnlocked;
+      br.light.intensity = anyUnlocked
+        ? SIPHON_GALLERY_CONFIG.brazierLightIntensity
+        : 0;
+    }
+  }
+
+  /**
+   * Backward-compatible toggle invoked by SceneManager when gallery walkability unlocks.
    */
   public setGalleryUnlocked(unlocked: boolean): void {
     this.galleryUnlocked = unlocked;
     if (this.galleryWardGroup) {
       this.galleryWardGroup.visible = !unlocked;
-    }
-    if (this._captiveMarinaRig) {
-      this._captiveMarinaRig.root.visible = unlocked;
-    }
-    if (this.leftTetherMesh) {
-      this.leftTetherMesh.visible = unlocked;
-    }
-    if (this.rightTetherMesh) {
-      this.rightTetherMesh.visible = unlocked;
     }
     for (let i = 0; i < this.galleryBraziers.length; i++) {
       const br = this.galleryBraziers[i];
@@ -2442,9 +2894,6 @@ export class MageTowerLevel {
       br.light.intensity = unlocked
         ? SIPHON_GALLERY_CONFIG.brazierLightIntensity
         : 0;
-    }
-    if (this.reservoirLight && !unlocked) {
-      this.reservoirLight.intensity = 0;
     }
   }
 
@@ -2467,12 +2916,115 @@ export class MageTowerLevel {
     const clamped = THREE.MathUtils.clamp(charge, 0, 1);
 
     // 1. Update Captive Marina kneeling posture, breathing & bleach/restoration
-    if (this._captiveMarinaRig && this.galleryUnlocked) {
+    if (this._captiveMarinaRig && this.marinaCaptiveUnlocked) {
       this._captiveMarinaRig.applyCaptiveDaisPose(clamped, time, dt);
     }
 
     // 2. Update wrist energy tethers, Cryo Core Reservoir Crystal & 12-segment floor rune ring
     this.updateLobbySiphonBackdrop(clamped, time);
+  }
+
+  /**
+   * Updates the bound Serena rig in Left Alcove II, pulsing wrist tether strands to the
+   * twin pearl conduits, enchanted shallow tide-pool shimmer, 12-segment dais rune ring,
+   * and vertical Tidal Core Reservoir Crystal smoothly from `charge` (0.0 -> 1.0).
+   */
+  public updateSerenaCaptiveState(
+    charge: number,
+    time: number,
+    dt: number,
+  ): void {
+    const clamped = THREE.MathUtils.clamp(charge, 0, 1);
+
+    if (this._captiveSerenaRig && this.serenaCaptiveUnlocked) {
+      this._captiveSerenaRig.applyCaptiveDaisPose(clamped, time, dt);
+    }
+
+    this.updateSerenaLobbySiphonBackdrop(clamped, time);
+  }
+
+  /**
+   * Updates Serena's Alcove II diegetic peripherals (wrist tether strands, shallow tide-pool,
+   * Tidal Core Reservoir fill height/emissive, and 12-segment floor rune ring) without
+   * overriding captive Serena's active FinisherSystem kiss pose during `LOBBY_SIPHON`.
+   */
+  public updateSerenaLobbySiphonBackdrop(charge: number, time: number): void {
+    const cfg = SIPHON_GALLERY_CONFIG;
+    const clamped = THREE.MathUtils.clamp(charge, 0, 1);
+
+    if (
+      this._captiveSerenaRig &&
+      this.serenaCaptiveUnlocked &&
+      this.serenaLeftConduitTip &&
+      this.serenaRightConduitTip &&
+      this.serenaLeftTetherMesh &&
+      this.serenaRightTetherMesh
+    ) {
+      this.root.updateMatrixWorld(true);
+      this._captiveSerenaRig.getLeftWristWorldPosition(this.scratchWristL);
+      this._captiveSerenaRig.getRightWristWorldPosition(this.scratchWristR);
+      this.serenaLeftConduitTip.getWorldPosition(this.scratchTipL);
+      this.serenaRightConduitTip.getWorldPosition(this.scratchTipR);
+
+      this.alignTetherCylinder(
+        this.serenaLeftTetherMesh,
+        this.scratchWristL,
+        this.scratchTipL,
+      );
+      this.alignTetherCylinder(
+        this.serenaRightTetherMesh,
+        this.scratchWristR,
+        this.scratchTipR,
+      );
+    }
+
+    const pulse = 0.62 + 0.28 * Math.sin(time * 3.8);
+    if (this.tetherMat) {
+      this.tetherMat.opacity = pulse;
+    }
+
+    if (this.serenaPoolMat && this.serenaPoolMesh) {
+      this.serenaPoolMat.color
+        .copy(this.scratchColorA)
+        .lerp(this.scratchColorTeal, 0.25 + clamped * 0.75);
+      this.serenaPoolMat.opacity =
+        0.28 + clamped * 0.34 + Math.sin(time * 2.4) * 0.05;
+    }
+
+    if (this.serenaReservoirCoreMesh && this.serenaReservoirCoreMat) {
+      const fillScale = Math.max(cfg.reservoirMinFillScale, clamped);
+      this.serenaReservoirCoreMesh.scale.set(1, fillScale, 1);
+      this.serenaReservoirCoreMat.color
+        .copy(this.scratchColorA)
+        .lerp(this.scratchColorTeal, clamped);
+      this.serenaReservoirCoreMat.emissive
+        .copy(this.scratchColorA)
+        .lerp(this.scratchColorTeal, clamped);
+      this.serenaReservoirCoreMat.emissiveIntensity =
+        0.15 + clamped * (0.85 + 0.14 * Math.sin(time * 3.2));
+    }
+    if (this.serenaReservoirLight) {
+      this.serenaReservoirLight.intensity = this.serenaCaptiveUnlocked
+        ? cfg.reservoirLightIntensity * (0.12 + clamped * 0.88)
+        : 0;
+    }
+
+    const segCount = this.serenaDaisRuneSegments.length;
+    for (let i = 0; i < segCount; i++) {
+      const segMat = this.serenaDaisRuneSegments[i];
+      if (!segMat) continue;
+      const segThreshold = (i + 1) / segCount;
+      const prevThreshold = i / segCount;
+      const segFill = THREE.MathUtils.clamp(
+        (clamped - prevThreshold) / Math.max(0.001, segThreshold - prevThreshold),
+        0,
+        1,
+      );
+      segMat.color.copy(this.scratchColorA).lerp(this.scratchColorTeal, segFill);
+      segMat.opacity = this.serenaCaptiveUnlocked
+        ? 0.22 + segFill * 0.74
+        : 0.14;
+    }
   }
 
   /**
@@ -2486,7 +3038,7 @@ export class MageTowerLevel {
 
     if (
       this._captiveMarinaRig &&
-      this.galleryUnlocked &&
+      this.marinaCaptiveUnlocked &&
       this.leftConduitTip &&
       this.rightConduitTip &&
       this.leftTetherMesh &&
@@ -2530,7 +3082,7 @@ export class MageTowerLevel {
         0.15 + clamped * (0.85 + 0.14 * Math.sin(time * 3.2));
     }
     if (this.reservoirLight) {
-      this.reservoirLight.intensity = this.galleryUnlocked
+      this.reservoirLight.intensity = this.marinaCaptiveUnlocked
         ? cfg.reservoirLightIntensity * (0.12 + clamped * 0.88)
         : 0;
     }
@@ -2548,7 +3100,7 @@ export class MageTowerLevel {
         1,
       );
       segMat.color.copy(this.scratchColorA).lerp(this.scratchColorB, segFill);
-      segMat.opacity = this.galleryUnlocked ? 0.22 + segFill * 0.74 : 0.12;
+      segMat.opacity = this.marinaCaptiveUnlocked ? 0.22 + segFill * 0.74 : 0.12;
     }
   }
 
@@ -2617,10 +3169,15 @@ export class MageTowerLevel {
       }
     }
 
-    // 4. Rotate Stolen Frost Tiara Trophy when unlocked
+    // 4. Rotate Stolen Sovereign Trophies (Frost Tiara & Coral Tiara + Pearl) when unlocked
     if (this.trophyCrownGroup && this.isTrophyVisible) {
       this.trophyCrownGroup.rotation.y = time * 0.85;
       this.trophyCrownGroup.position.y = 1.56 + Math.sin(time * 2.4) * 0.06;
+    }
+    if (this.serenaTrophyGroup && this.isSerenaTrophyVisible) {
+      this.serenaTrophyGroup.rotation.y = -time * 0.78;
+      this.serenaTrophyGroup.position.y =
+        1.62 + Math.sin(time * 2.4 + 1.4) * 0.06;
     }
 
     // 5. Animate Abyssal Target Crystal idle hover & damped hit reaction wobble
@@ -2729,6 +3286,10 @@ export class MageTowerLevel {
     if (this._captiveMarinaRig) {
       this._captiveMarinaRig.dispose();
       this._captiveMarinaRig = null;
+    }
+    if (this._captiveSerenaRig) {
+      this._captiveSerenaRig.dispose();
+      this._captiveSerenaRig = null;
     }
     for (let i = 0; i < this.ownedGeometries.length; i++) {
       this.ownedGeometries[i]?.dispose();

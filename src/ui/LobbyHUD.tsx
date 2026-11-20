@@ -20,6 +20,7 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
   const gameState = useGameStore((s) => s.gameState);
   const encoreTier = useGameStore((s) => s.encoreTier);
   const marinaCoreCharge = useGameStore((s) => s.marinaCoreCharge);
+  const serenaCoreCharge = useGameStore((s) => s.serenaCoreCharge);
   const lobbyPrompt = useGameStore((s) => s.lobbyPrompt);
   const lobbyDummyHit = useGameStore((s) => s.lobbyDummyHit);
   const audioMuted = useGameStore((s) => s.audioMuted);
@@ -44,9 +45,13 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
   const isSealedGallery =
     lobbyPrompt?.kind === LOBBY_PROMPT_KINDS.SIPHON_GALLERY_WARD;
   const isMarinaDais = lobbyPrompt?.kind === LOBBY_PROMPT_KINDS.MARINA_DAIS;
+  const isSerenaDais = lobbyPrompt?.kind === LOBBY_PROMPT_KINDS.SERENA_DAIS;
   const isSealed = isSealedRealm2 || isSealedRealm3 || isSealedGallery;
   const marinaChargePct = Math.round(
     Math.max(0, Math.min(1, marinaCoreCharge)) * 100,
+  );
+  const serenaChargePct = Math.round(
+    Math.max(0, Math.min(1, serenaCoreCharge)) * 100,
   );
 
   return (
@@ -180,7 +185,7 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
               className="font-display text-xs sm:text-sm md:text-base font-bold tracking-[0.18em] uppercase"
               style={{
                 color:
-                  isRealm2Active || isSealedRealm2
+                  isRealm2Active || isSealedRealm2 || isSerenaDais
                     ? PALETTE.hex.biolumCyan
                     : isSealedRealm3
                       ? PALETTE.hex.harmonicEmerald
@@ -198,23 +203,31 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
                   ? PALETTE.hex.drainedAshSilver
                   : isRealm2Active
                     ? PALETTE.hex.atlanteanGold
-                    : isMarinaDais
-                      ? PALETTE.hex.frostRunes
-                      : PALETTE.hex.pulseLavender,
+                    : isSerenaDais
+                      ? PALETTE.hex.biolumCyan
+                      : isMarinaDais
+                        ? PALETTE.hex.frostRunes
+                        : PALETTE.hex.pulseLavender,
               }}
             >
               {lobbyPrompt.subtitle}
             </div>
 
-            {isMarinaDais && (
+            {(isMarinaDais || isSerenaDais) && (
               <div className="mt-2.5 w-56 sm:w-64 mx-auto">
                 <div className="h-2 w-full rounded-full bg-slate-950/90 border border-sky-400/40 overflow-hidden p-[1px]">
                   <div
                     className="bar-fill h-full rounded-full transition-all duration-150"
                     style={{
-                      width: `${marinaChargePct}%`,
-                      background: `linear-gradient(90deg, ${PALETTE.hex.frostRunes}, ${PALETTE.hex.iceHighlights})`,
-                      boxShadow: `0 0 12px ${PALETTE.hex.frostRunes}`,
+                      width: `${isSerenaDais ? serenaChargePct : marinaChargePct}%`,
+                      background: isSerenaDais
+                        ? `linear-gradient(90deg, ${PALETTE.hex.kelpEmerald}, ${PALETTE.hex.biolumCyan}, ${PALETTE.hex.pearlWhite})`
+                        : `linear-gradient(90deg, ${PALETTE.hex.frostRunes}, ${PALETTE.hex.iceHighlights})`,
+                      boxShadow: `0 0 12px ${
+                        isSerenaDais
+                          ? PALETTE.hex.biolumCyan
+                          : PALETTE.hex.frostRunes
+                      }`,
                     }}
                   />
                 </div>

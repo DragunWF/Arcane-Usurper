@@ -395,12 +395,13 @@ export class ChamberSystem implements ISystem {
     const nextWave = this.currentWaveIndex + 1;
     const store = useGameStore.getState();
     const applyRealmRechargeBonus = (): void => {
-      if (this.activeRealm === 2) {
-        store.addSerenaCoreCharge(
+      if (store.marinaDefeated) {
+        store.addMarinaCoreCharge(
           SIPHON_GALLERY_CONFIG.chamberWaveRechargeBonus,
         );
-      } else {
-        store.addMarinaCoreCharge(
+      }
+      if (store.serenaDefeated) {
+        store.addSerenaCoreCharge(
           SIPHON_GALLERY_CONFIG.chamberWaveRechargeBonus,
         );
       }
