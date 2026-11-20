@@ -605,12 +605,12 @@ export const FINISHER_CONFIG = Object.freeze({
   spaceTapSurgeBoost: 0.06,
 
   // Dominance Pose Alignment & Smooth Reactive Animation (Zero Air Gap across [1-4])
-  defaultRootSeparation: 0.56,
-  dipRootSeparation: 0.4,
+  defaultRootSeparation: 0.54,
+  dipRootSeparation: 0.37,
   dipBossSpineAngleRad: Math.PI * 0.25,
-  dipMageExtraPitch: 0.32,
+  dipMageExtraPitch: 0.46,
   reinsRootSeparation: 0.48,
-  staffLeanRootSeparation: 0.54,
+  staffLeanRootSeparation: 0.52,
   poseBlendSpeed: 6.5,
   poseTransitionDurationSec: 0.25,
   earlyBreathFreq: 5.5,
@@ -622,7 +622,9 @@ export const FINISHER_CONFIG = Object.freeze({
   savorSwayFreq: 1.2,
   pendulumFreq: 1.55,
   pendulumAmp: 0.085,
-  lipLockMaxCorrection: 0.14,
+  lipLockMaxCorrection: 0.28,
+  finisherStaffLightIntensity: 1.85,
+  finisherStaffLightSurgeBoost: 0.45,
 
   // Energy Ribbon & Rim-Light FX
   ribbonSegments: 22,
@@ -772,11 +774,11 @@ export const CAMERA_CONFIG = Object.freeze({
   finisherDefaultElevation: 0.34,
   finisherZoomSpeed: 0.0018,
   finisherOrbitLerp: 10.0,
-  orbitRimVioletIntensity: 3.4,
-  orbitRimFrostIntensity: 3.0,
-  orbitRimDistance: 5.5,
-  orbitRimOffsetRadius: 1.45,
-  orbitRimOffsetY: 0.45,
+  orbitRimVioletIntensity: 0.95,
+  orbitRimFrostIntensity: 0.9,
+  orbitRimDistance: 6.5,
+  orbitRimOffsetRadius: 2.15,
+  orbitRimOffsetY: 0.78,
 } as const);
 
 // ============================================================================

@@ -307,7 +307,25 @@ export class FinisherSystem implements ISystem {
       }
     }
 
-    // 6. Enforce Exact Root Separation & Face-to-Face Lip Alignment (~0.25s smooth blend)
+    // 6. Pose Boss FIRST so we can read her exact world-space mouth/headAnchor after dip rotation
+    const bx = boss.transform.position.x;
+    const bz = boss.transform.position.z;
+    const dirX = Math.sin(boss.transform.rotationY);
+    const dirZ = Math.cos(boss.transform.rotationY);
+
+    this.bossRig.root.position.set(bx, 0, bz);
+    this.bossRig.root.rotation.y = boss.transform.rotationY;
+    this.bossRig.applyFinisherPose(
+      sb.finisherPose,
+      sb.siphonProgress,
+      elapsed,
+      dt,
+      throttle,
+    );
+    this.bossRig.root.updateMatrixWorld(true);
+    this.bossRig.headAnchor.getWorldPosition(this.scratchBossHead);
+
+    // Compute exact world-space root placement relative to Boss root (and dipped headAnchor in Pose [2])
     const targetSep = this.getTargetSeparationForPose(sb.finisherPose);
     const sepLerpAlpha =
       1 -
@@ -321,33 +339,26 @@ export class FinisherSystem implements ISystem {
       sepLerpAlpha,
     );
 
-    const bx = boss.transform.position.x;
-    const bz = boss.transform.position.z;
-    const dirX = Math.sin(boss.transform.rotationY);
-    const dirZ = Math.cos(boss.transform.rotationY);
+    // In Pose [2], Marina's dipped head translates backward along -dir; shift Mage root closer along dir
+    // so his deeply pitched torso/head aligns flush with her tilted mouth with zero air gap
+    const headForwardProj =
+      (this.scratchBossHead.x - bx) * dirX +
+      (this.scratchBossHead.z - bz) * dirZ;
+    const dipShift =
+      sb.finisherPose === FINISHER_POSE_IDS.BALLROOM_DIP
+        ? Math.min(0, headForwardProj) * 0.45
+        : 0;
+    const effectiveSep = Math.max(0.28, this.currentSeparation + dipShift);
 
-    player.transform.position.x = bx + dirX * this.currentSeparation;
+    player.transform.position.x = bx + dirX * effectiveSep;
     player.transform.position.y = 0;
-    player.transform.position.z = bz + dirZ * this.currentSeparation;
+    player.transform.position.z = bz + dirZ * effectiveSep;
     player.transform.rotationY = Math.atan2(
       bx - player.transform.position.x,
       bz - player.transform.position.z,
     );
 
-    // Pose Boss first so headAnchor defines the exact fixed lip-contact pivot in world space
-    this.bossRig.root.position.set(bx, 0, bz);
-    this.bossRig.root.rotation.y = boss.transform.rotationY;
-    this.bossRig.applyFinisherPose(
-      sb.finisherPose,
-      sb.siphonProgress,
-      elapsed,
-      dt,
-      throttle,
-    );
-    this.bossRig.root.updateMatrixWorld(true);
-    this.bossRig.headAnchor.getWorldPosition(this.scratchBossHead);
-
-    // Pose Dark Mage with smooth interpolation + zero-gap lip lock onto boss headAnchor
+    // Pose Dark Mage with smooth interpolation + zero-gap world-space lip lock onto boss headAnchor
     this.mageRig.root.position.set(
       player.transform.position.x,
       0,

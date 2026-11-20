@@ -95,29 +95,29 @@ export class CameraRig {
     this.camera.near = CAMERA_CONFIG.nearPlane;
     this.camera.updateProjectionMatrix();
 
-    // Dual-tone subtle violet/ice-blue rim lights framing the focal target in 360° Finisher/Diorama orbit
+    // Subtle low-intensity (<= 1.2) dual-tone violet/ice-blue rim lights behind/beside focal target
     this.violetRimLight = new THREE.PointLight(
       PALETTE.voidRibbon,
       CAMERA_CONFIG.orbitRimVioletIntensity,
       CAMERA_CONFIG.orbitRimDistance,
-      1.8,
+      2.0,
     );
     this.violetRimLight.position.set(
       -CAMERA_CONFIG.orbitRimOffsetRadius,
       CAMERA_CONFIG.orbitRimOffsetY,
-      CAMERA_CONFIG.orbitRimOffsetRadius * 0.6,
+      -CAMERA_CONFIG.orbitRimOffsetRadius * 0.75,
     );
 
     this.frostRimLight = new THREE.PointLight(
       PALETTE.frostRibbon,
       CAMERA_CONFIG.orbitRimFrostIntensity,
       CAMERA_CONFIG.orbitRimDistance,
-      1.8,
+      2.0,
     );
     this.frostRimLight.position.set(
       CAMERA_CONFIG.orbitRimOffsetRadius,
       CAMERA_CONFIG.orbitRimOffsetY,
-      -CAMERA_CONFIG.orbitRimOffsetRadius * 0.6,
+      -CAMERA_CONFIG.orbitRimOffsetRadius * 0.75,
     );
 
     this.orbitRimGroup.add(this.violetRimLight, this.frostRimLight);

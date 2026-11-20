@@ -1648,10 +1648,10 @@ export class MarinaRig implements BossRigAdapter {
 
     if (poseId === FINISHER_POSE_IDS.BALLROOM_DIP) {
       // Pose [2]: Glacial Ballroom Dip (~45° backward dip)
-      targetBodyY = THREE.MathUtils.lerp(0.78, 0.74, limpness);
+      targetBodyY = THREE.MathUtils.lerp(0.68, 0.64, limpness);
       targetTorsoX =
-        -FINISHER_CONFIG.dipBossSpineAngleRad - limpness * 0.08;
-      targetHeadX = -0.22 - limpness * 0.04;
+        -FINISHER_CONFIG.dipBossSpineAngleRad - limpness * 0.06;
+      targetHeadX = -0.18 - limpness * 0.04;
       targetLeftHipX = 0.28;
       targetRightHipX = -0.16;
       targetLeftKneeX = 0.52;
