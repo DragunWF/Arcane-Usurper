@@ -60,8 +60,10 @@ export class FinisherSystem implements ISystem {
   private readonly staffAloftRibbon: DynamicRibbon;
   private readonly hairReinStrand: DynamicRibbon;
 
-  // Reusable scratch vectors (zero per-frame GC allocations)
+  // Reusable scratch vectors & quaternions (zero per-frame GC allocations)
   private readonly scratchBossHead = new THREE.Vector3();
+  private readonly scratchBossHeadQuat = new THREE.Quaternion();
+  private readonly scratchBossFaceNormal = new THREE.Vector3();
   private readonly scratchMageMouth = new THREE.Vector3();
   private readonly scratchMageCrystal = new THREE.Vector3();
   private readonly scratchMageLeftHand = new THREE.Vector3();
@@ -334,6 +336,13 @@ export class FinisherSystem implements ISystem {
     );
     this.bossRig.root.updateMatrixWorld(true);
     this.bossRig.headAnchor.getWorldPosition(this.scratchBossHead);
+    // Extract Marina's live world-space face-outward normal (+Z of headAnchor),
+    // automatically following her dipped head angle in Pose [2] and tilted chin in [1/3/4]
+    this.bossRig.headAnchor.getWorldQuaternion(this.scratchBossHeadQuat);
+    this.scratchBossFaceNormal
+      .set(0, 0, 1)
+      .applyQuaternion(this.scratchBossHeadQuat)
+      .normalize();
 
     // Compute exact world-space root placement relative to Boss root (and dipped headAnchor in Pose [2])
     const targetSep = this.getTargetSeparationForPose(sb.finisherPose);
@@ -368,7 +377,7 @@ export class FinisherSystem implements ISystem {
       bz - player.transform.position.z,
     );
 
-    // Pose Dark Mage with synchronized coupled head motion + zero-gap world-space lip lock onto boss headAnchor
+    // Pose Dark Mage with synchronized -> <- press-and-ease motion along Marina's world face normal
     this.mageRig.root.position.set(
       player.transform.position.x,
       0,
@@ -383,6 +392,7 @@ export class FinisherSystem implements ISystem {
       throttle,
       this.scratchBossHead,
       headChoreography,
+      this.scratchBossFaceNormal,
     );
 
     // 7. Update Lip-to-Lip Energy Ribbons, Pose [2] Aloft Staff Frost Ribbon, & Pose [3] Hair Strand

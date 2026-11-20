@@ -15,10 +15,18 @@ import {
  * the Dark Mage and any sovereign BossRigAdapter move in exact phase-locked harmony.
  */
 export interface FinisherHeadChoreography {
-  /** Complementary side-to-side head tilt (same local sign tilts facing heads to opposite world sides). */
+  /** Smooth asymmetric press-and-ease pulse in [0, 1] (1 = lingering press peak, 0 = ease gap). */
+  readonly pulse: number;
+  /** Target separation along Marina's world-space face normal (0 at peak press, kissEaseGap at ease). */
+  readonly lipSeparationGap: number;
+  /** Marina's local +Z head shift along her face normal (eager press 0->50%, passive yield 50->100%). */
+  readonly bossFaceNormalOffset: number;
+  /** Complementary side-to-side head tilt alternating gently across consecutive presses. */
   readonly roll: number;
-  /** Rhythmic deepening kiss press/nod (+ presses Mage forward, - yields Boss slightly). */
-  readonly pitchPress: number;
+  /** Dark Mage forward pitch nod into each press. */
+  readonly magePitchNod: number;
+  /** Marina complementary pitch response (eager forward nod 0->50%, soft backward yield 50->100%). */
+  readonly bossPitchResponse: number;
   /** Gentle synchronized horizontal nuzzle sway. */
   readonly yawSway: number;
   /** Overwhelmed neck tremor on Boss during 0%->50% drain (fades to 0 past 50%). */
@@ -28,7 +36,7 @@ export interface FinisherHeadChoreography {
 }
 
 /**
- * Computes synchronized multi-frequency lip-pivot head choreography scaled by
+ * Computes synchronized asymmetric -> <- press-and-ease kiss choreography scaled by
  * active drain throttle (SAVOR / FLOW / SURGE) and drain progress (0% -> 100%).
  */
 export function computeFinisherHeadChoreography(
@@ -39,41 +47,83 @@ export function computeFinisherHeadChoreography(
   const isSurge = throttleMode === DRAIN_THROTTLE_MODES.SURGE;
   const isSavor = throttleMode === DRAIN_THROTTLE_MODES.SAVOR;
 
-  const freq = isSurge
-    ? FINISHER_CONFIG.headSwayFreqSurge
+  // Throttle-scaled kiss press-and-ease cycle frequency (Hz)
+  const pulseHz = isSurge
+    ? FINISHER_CONFIG.surgePulseHz
     : isSavor
-      ? FINISHER_CONFIG.headSwayFreqSavor
-      : FINISHER_CONFIG.headSwayFreqFlow;
-  const rollAmp = isSurge
-    ? FINISHER_CONFIG.headRollAmpSurge
-    : isSavor
-      ? FINISHER_CONFIG.headRollAmpSavor
-      : FINISHER_CONFIG.headRollAmpFlow;
-  const pitchAmp = isSurge
-    ? FINISHER_CONFIG.headPitchAmpSurge
-    : isSavor
-      ? FINISHER_CONFIG.headPitchAmpSavor
-      : FINISHER_CONFIG.headPitchAmpFlow;
-  const yawAmp = isSurge
-    ? FINISHER_CONFIG.headYawAmpSurge
-    : isSavor
-      ? FINISHER_CONFIG.headYawAmpSavor
-      : FINISHER_CONFIG.headYawAmpFlow;
+      ? FINISHER_CONFIG.savorPulseHz
+      : FINISHER_CONFIG.flowPulseHz;
+  const pulsePhase = time * pulseHz * Math.PI * 2;
 
-  const rollWave =
-    0.72 * Math.sin(time * freq) +
-    0.28 * Math.sin(time * freq * FINISHER_CONFIG.headHarmonicRatio + 0.9);
-  const pitchWave =
-    0.68 * Math.sin(time * freq * FINISHER_CONFIG.headPitchFreqRatio + 0.4) +
-    0.32 * Math.cos(time * freq * 2.1);
-  const yawWave = Math.sin(time * freq * FINISHER_CONFIG.headYawFreqRatio + 1.4);
+  // Asymmetric wave in [0, 1]: exponent < 1 lingers gently at peak contact (pulse -> 1)
+  // before easing back smoothly to pulse -> 0 (~1.8cm gap)
+  const rawCos = 0.5 - 0.5 * Math.cos(pulsePhase);
+  const pulse = Math.pow(
+    THREE.MathUtils.clamp(rawCos, 0, 1),
+    FINISHER_CONFIG.kissAsymmetryExponent,
+  );
 
+  // Drain-state agency:
+  // 0%->50%: both lean into the -> <- press together (~65% Mage / ~35% Marina)
+  // 50%->100% & ENDLESS_SAVOR: Marina relaxes completely; Mage drives 100% forward while
+  // Marina yields softly backward under each press and drifts passively forward on ease
   const half = FINISHER_CONFIG.limpThreshold;
   const earlyResistance = 1 - THREE.MathUtils.clamp(drainProgress / half, 0, 1);
   const limpness = THREE.MathUtils.clamp(
     (drainProgress - half) / (1 - half),
     0,
     1,
+  );
+
+  const activeBossOffset = THREE.MathUtils.lerp(
+    -FINISHER_CONFIG.kissEaseGap * FINISHER_CONFIG.kissEarlyBossShare,
+    FINISHER_CONFIG.kissPressDepth * FINISHER_CONFIG.kissEarlyBossShare,
+    pulse,
+  );
+  const passiveBossOffset = -FINISHER_CONFIG.kissPassiveYieldDepth * pulse;
+  const bossFaceNormalOffset = THREE.MathUtils.lerp(
+    activeBossOffset,
+    passiveBossOffset,
+    limpness,
+  );
+
+  // Target world-space separation along Marina's face normal: 0 at peak press, kissEaseGap at ease
+  const lipSeparationGap = (1 - pulse) * FINISHER_CONFIG.kissEaseGap;
+
+  // Subtle alternating head-tilt roll (±kissRollAmp) across consecutive presses + gentle yaw nuzzle
+  const alternatingRoll =
+    Math.sin(pulsePhase * FINISHER_CONFIG.kissAlternatingRollRatio) *
+    FINISHER_CONFIG.kissRollAmp;
+  const subtleRollHarmonic =
+    Math.sin(pulsePhase * 0.21 + 0.8) * (FINISHER_CONFIG.kissRollAmp * 0.35);
+  const roll = alternatingRoll + subtleRollHarmonic;
+
+  const yawAmp = isSurge
+    ? FINISHER_CONFIG.headYawAmpSurge
+    : isSavor
+      ? FINISHER_CONFIG.headYawAmpSavor
+      : FINISHER_CONFIG.headYawAmpFlow;
+  const yawSway =
+    Math.sin(pulsePhase * FINISHER_CONFIG.kissAlternatingRollRatio * 1.15 + 1.1) *
+    yawAmp *
+    0.55;
+
+  // Complementary pitch nod: Mage nods smoothly into press; Marina meets early presses, yields late
+  const magePitchNod =
+    (pulse - 0.35) *
+    FINISHER_CONFIG.kissPitchNod *
+    THREE.MathUtils.lerp(
+      FINISHER_CONFIG.kissEarlyMageShare + 0.25,
+      1.15,
+      limpness,
+    );
+  const bossPitchResponse = THREE.MathUtils.lerp(
+    (pulse - 0.4) *
+      FINISHER_CONFIG.kissPitchNod *
+      FINISHER_CONFIG.kissEarlyBossShare *
+      1.2,
+    -pulse * FINISHER_CONFIG.kissPitchNod * 0.9,
+    limpness,
   );
 
   const tremorScale = isSurge
@@ -95,9 +145,13 @@ export function computeFinisherHeadChoreography(
   );
 
   return {
-    roll: rollWave * rollAmp,
-    pitchPress: pitchWave * pitchAmp,
-    yawSway: yawWave * yawAmp,
+    pulse,
+    lipSeparationGap,
+    bossFaceNormalOffset,
+    roll,
+    magePitchNod,
+    bossPitchResponse,
+    yawSway,
     bossTremor,
     bossYieldScale,
   };

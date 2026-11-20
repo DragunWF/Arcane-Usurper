@@ -63,6 +63,7 @@ export class DarkMageRig {
   private readonly headTopAnchor = new THREE.Object3D();
   private readonly mouthAnchor = new THREE.Object3D();
   private readonly scratchMouthWorld = new THREE.Vector3();
+  private readonly scratchTargetLipWorld = new THREE.Vector3();
   private readonly scratchLipDelta = new THREE.Vector3();
   private readonly scratchInvQuat = new THREE.Quaternion();
   private readonly finisherPoseState = {
@@ -1100,6 +1101,7 @@ export class DarkMageRig {
     throttleMode: DrainThrottleMode = DRAIN_THROTTLE_MODES.FLOW,
     bossLipWorldPos: THREE.Vector3 | null = null,
     headChoreography?: FinisherHeadChoreography,
+    bossFaceNormalWorld: THREE.Vector3 | null = null,
   ): void {
     // Guarantee cloak, hood, mantle & robes stay true dark obsidian (never washed purple)
     this.restoreObsidianMaterials();
@@ -1362,19 +1364,19 @@ export class DarkMageRig {
     this.hoodTailPivot.rotation.z =
       Math.cos(time * (robeSpeed * 0.72)) * (robeAmp * 1.2);
 
-    // Torso draws gently while head executes coupled lip-pivot choreography:
-    // - Same-sign local roll tilts facing heads to opposite world sides (affectionate nestle, no nose clip)
-    // - Positive pitchPress deepens his press as Marina yields back
+    // Torso draws gently while head executes asymmetric -> <- press-and-ease choreography:
+    // - Same-sign local roll tilts facing heads to opposite world sides (gentle alternating angle)
+    // - Positive magePitchNod presses smoothly into each kiss peak and eases on pullback
     // - Inverted local yaw tracks Marina's horizontal nuzzle sway in lockstep
     this.torsoGroup.rotation.set(
-      st.torsoX + torsoDrawPitch,
+      st.torsoX + torsoDrawPitch + (headAnim.pulse - 0.5) * 0.025,
       0,
       st.torsoZ +
-        headAnim.roll * 0.22 +
-        Math.sin(time * (siphonFreq * 0.5)) * 0.012 * siphonAmp,
+        headAnim.roll * 0.2 +
+        Math.sin(time * (siphonFreq * 0.5)) * 0.01 * siphonAmp,
     );
     this.headGroup.rotation.set(
-      st.headX - torsoDrawPitch * 0.85 + headAnim.pitchPress,
+      st.headX - torsoDrawPitch * 0.85 + headAnim.magePitchNod,
       -headAnim.yawSway,
       st.headZ + headAnim.roll,
     );
@@ -1402,11 +1404,24 @@ export class DarkMageRig {
     );
     this.staffGroup.rotation.set(st.staffRotX, 0, st.staffRotZ);
 
-    // 3. Fixed-Pivot Zero-Gap World-Space Lip-Contact Alignment against bossLipWorldPos
+    // 3. Asymmetric -> <- Press-and-Ease Lip Alignment along Marina's World Face Normal
+    //    - At pulse = 1 (press peak): target gap = 0.0m (firm lip contact, zero clipping)
+    //    - At pulse = 0 (ease phase): target gap = +kissEaseGap (~1.8cm along Marina's dipped face normal)
     if (bossLipWorldPos) {
+      this.scratchTargetLipWorld.copy(bossLipWorldPos);
+      if (bossFaceNormalWorld) {
+        this.scratchTargetLipWorld.addScaledVector(
+          bossFaceNormalWorld,
+          headAnim.lipSeparationGap,
+        );
+      }
+
       this.root.updateMatrixWorld(true);
       this.mouthAnchor.getWorldPosition(this.scratchMouthWorld);
-      this.scratchLipDelta.subVectors(bossLipWorldPos, this.scratchMouthWorld);
+      this.scratchLipDelta.subVectors(
+        this.scratchTargetLipWorld,
+        this.scratchMouthWorld,
+      );
 
       this.scratchInvQuat.copy(this.root.quaternion).invert();
       this.scratchLipDelta.applyQuaternion(this.scratchInvQuat);
@@ -1420,7 +1435,7 @@ export class DarkMageRig {
       const corrY = THREE.MathUtils.clamp(
         this.bodyPivot.position.y + this.scratchLipDelta.y,
         0.54,
-        1.06,
+        1.08,
       );
       const corrZ = THREE.MathUtils.clamp(
         st.bodyOffsetZ + this.scratchLipDelta.z,
@@ -1428,8 +1443,9 @@ export class DarkMageRig {
         maxCorr,
       );
 
-      st.bodyOffsetX = THREE.MathUtils.lerp(st.bodyOffsetX, corrX, 0.75);
-      st.bodyOffsetZ = THREE.MathUtils.lerp(st.bodyOffsetZ, corrZ, 0.75);
+      // High responsiveness (0.9) preserves crisp 1.8cm -> <- travel even at 2.5 Hz SURGE
+      st.bodyOffsetX = THREE.MathUtils.lerp(st.bodyOffsetX, corrX, 0.9);
+      st.bodyOffsetZ = THREE.MathUtils.lerp(st.bodyOffsetZ, corrZ, 0.9);
       this.bodyPivot.position.set(st.bodyOffsetX, corrY, st.bodyOffsetZ);
     }
 

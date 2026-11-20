@@ -1824,13 +1824,14 @@ export class MarinaRig implements BossRigAdapter {
       0,
       st.torsoZ + savorDreamySway + surgeShudder,
     );
-    // Coupled lip-pivot head choreography: counter-stabilizes chest heave while adding
-    // expressive roll, deepening pitch yield, gentle nuzzle yaw, early tremor (0->50%),
-    // and deeper passive neck relaxation past 50% drain & Endless Savor.
+    // Coupled -> <- press-and-ease head choreography:
+    // - Translates headGroup along its local face normal (+Z) by bossFaceNormalOffset
+    //   (leaning eagerly into early presses 0->50%, yielding softly back past 50% & Endless Savor)
+    // - Complementary pitch nod/yield, alternating subtle roll, and early neck tremor
     const bossHeadPitch =
       st.headX -
-      chestBreathPitch * 0.85 -
-      headAnim.pitchPress * headAnim.bossYieldScale -
+      chestBreathPitch * 0.85 +
+      headAnim.bossPitchResponse -
       limpness * FINISHER_CONFIG.passiveNeckDroopPitch;
     const bossHeadYaw =
       headAnim.yawSway * headAnim.bossYieldScale + headAnim.bossTremor * 0.65;
@@ -1840,6 +1841,14 @@ export class MarinaRig implements BossRigAdapter {
       headAnim.roll * headAnim.bossYieldScale +
       headAnim.bossTremor;
     this.headGroup.rotation.set(bossHeadPitch, bossHeadYaw, bossHeadRoll);
+
+    // Apply face-normal travel in torso local space so Pose [2] dipped head yields accurately along its normal
+    const headPitchForNormal = bossHeadPitch;
+    this.headGroup.position.set(
+      0,
+      0.515 - Math.sin(headPitchForNormal) * headAnim.bossFaceNormalOffset,
+      0.008 + Math.cos(headPitchForNormal) * headAnim.bossFaceNormalOffset,
+    );
 
     this.leftLegPivot.rotation.set(st.leftHipX, 0, -0.08);
     this.rightLegPivot.rotation.set(st.rightHipX, 0, 0.08);
@@ -1944,6 +1953,7 @@ export class MarinaRig implements BossRigAdapter {
     this.bodyPivot.position.y = DIORAMA_CONFIG.collapseBodyY + sigh;
     this.bodyPivot.rotation.set(-Math.PI * 0.46, 0, 0.16);
     this.torsoGroup.rotation.x = 0.08 + sigh * 0.8;
+    this.headGroup.position.set(0, 0.515, 0.008);
     this.headGroup.rotation.set(0.14, 0.26, 0.22);
     this.leftLegPivot.rotation.set(0.14, 0, -0.18);
     this.rightLegPivot.rotation.set(-0.08, 0, 0.24);
@@ -1990,6 +2000,7 @@ export class MarinaRig implements BossRigAdapter {
     this.bodyPivot.position.y = 0.96 + wave * 0.025;
     this.bodyPivot.rotation.set(0, 0, 0);
     this.torsoGroup.rotation.x = -0.04;
+    this.headGroup.position.set(0, 0.515, 0.008);
     this.headGroup.rotation.set(0.2, waveCos * 0.07, wave * 0.04);
     this.leftLegPivot.rotation.set(0.06, 0, -0.05);
     this.rightLegPivot.rotation.set(-0.06, 0, 0.05);
@@ -2045,6 +2056,7 @@ export class MarinaRig implements BossRigAdapter {
 
     this.bodyPivot.position.set(0, 0.88 + BOSS_CONFIG.floatHeight, 0);
     this.bodyPivot.rotation.set(0, 0, 0);
+    this.headGroup.position.set(0, 0.515, 0.008);
     this.headGroup.rotation.set(0, 0, 0);
     this.root.position.set(
       BOSS_CONFIG.spawnX,

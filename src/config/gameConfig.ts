@@ -635,7 +635,19 @@ export const FINISHER_CONFIG = Object.freeze({
   dipStaffRotX: 2.96,
   dipStaffRotZ: -0.18,
 
-  // Coupled Lip-Pivot Head Choreography (All 4 Poses, Scaled by Throttle & Drain)
+  // Coupled Lip-Pivot Head Choreography & Asymmetric -> <- Kiss Press-and-Ease (All 4 Poses)
+  kissPressDepth: 0.022,
+  kissEaseGap: 0.018,
+  kissPitchNod: 0.06,
+  savorPulseHz: 0.75,
+  flowPulseHz: 1.25,
+  surgePulseHz: 2.5,
+  kissRollAmp: 0.05,
+  kissAsymmetryExponent: 0.68,
+  kissAlternatingRollRatio: 0.38,
+  kissEarlyMageShare: 0.65,
+  kissEarlyBossShare: 0.35,
+  kissPassiveYieldDepth: 0.014,
   headSwayFreqSavor: 0.72,
   headSwayFreqFlow: 1.25,
   headSwayFreqSurge: 2.35,
