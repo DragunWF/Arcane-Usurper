@@ -54,11 +54,15 @@ export class DarkMageRig {
   private staffFrostLight: THREE.PointLight | null = null;
   private encoreTier = 0;
 
-  // Defeat "Forced Frost Puppet" Diorama & Finisher Pose [3] Accessories
+  // Defeat "Forced Frost Puppet" Diorama, Unhooded Finisher Mode & Pose [3] Accessories
   private defeatBlushGroup: THREE.Group | null = null;
   private puppetCrystalLeft: THREE.Group | null = null;
   private puppetCrystalRight: THREE.Group | null = null;
   private hairReinLoop: THREE.Group | null = null;
+  private hoodUpCowlGroup: THREE.Group | null = null;
+  private unhoodedHeadGroup: THREE.Group | null = null;
+  private drapedCollarCowlGroup: THREE.Group | null = null;
+  private isHoodDown = false;
   private readonly leftHandAnchor = new THREE.Object3D();
   private readonly rightHandAnchor = new THREE.Object3D();
   private readonly headTopAnchor = new THREE.Object3D();
@@ -73,6 +77,7 @@ export class DarkMageRig {
     bodyOffsetX: 0,
     bodyOffsetZ: 0,
     torsoX: 0.54,
+    torsoY: 0,
     torsoZ: 0,
     headX: 0.32,
     headZ: 0,
@@ -639,9 +644,10 @@ export class DarkMageRig {
     this.mouthAnchor.position.set(0, 0.132, 0.118);
     this.headGroup.add(this.mouthAnchor);
 
-    // 4. Rounded Draped Cloth Cowl wrapping naturally around the head
+    // 4. Rounded Draped Cloth Cowl wrapping naturally around the head (Pointed Combat Hood)
     const cowlGroup = new THREE.Group();
     cowlGroup.position.set(0, 0.175, 0.0);
+    this.hoodUpCowlGroup = cowlGroup;
     this.headGroup.add(cowlGroup);
 
     const hoodDomeGeo = new THREE.SphereGeometry(
@@ -742,6 +748,197 @@ export class DarkMageRig {
     tailTip.position.set(0, 0.35, -0.048);
     tailTip.rotation.x = -0.32;
     this.hoodTailPivot.add(tailTip);
+
+    // 6. Unhooded Finisher Mode: Draped Collar Cowl & Shadow-Draped Gothic Anime Hair
+    this.buildUnhoodedHairAndDrapedCollar();
+  }
+
+  /**
+   * Builds the unhooded head & collar sub-groups toggled during Siphon Kiss finishers:
+   * - Draped Collar Cowl resting in folded dark-obsidian fabric layers around his neck & shoulders
+   * - Shadow-Draped Gothic Anime Hair with swept bangs framing his upper face & glowing violet eyes.
+   */
+  private buildUnhoodedHairAndDrapedCollar(): void {
+    // A. Draped Collar Cowl around neck & upper shoulders (attached to torsoGroup)
+    const collarGroup = new THREE.Group();
+    collarGroup.position.set(0, 0.525, 0.0);
+    collarGroup.visible = false;
+    this.drapedCollarCowlGroup = collarGroup;
+    this.torsoGroup.add(collarGroup);
+
+    const { group: outerFold } = ToonAssets.createOutlinedMesh(
+      new THREE.TorusGeometry(0.145, 0.044, 10, 22),
+      this.matAbyssal,
+      1.055,
+    );
+    outerFold.rotation.x = Math.PI * 0.5 + 0.14;
+    outerFold.scale.set(1.12, 1.05, 0.88);
+    outerFold.position.set(0, 0.005, -0.012);
+    collarGroup.add(outerFold);
+
+    const { group: innerFold } = ToonAssets.createOutlinedMesh(
+      new THREE.TorusGeometry(0.116, 0.032, 8, 20),
+      this.matShadowSlate,
+      1.055,
+    );
+    innerFold.rotation.x = Math.PI * 0.5 + 0.08;
+    innerFold.scale.set(1.08, 1.02, 0.9);
+    innerFold.position.set(0, 0.036, -0.008);
+    collarGroup.add(innerFold);
+
+    const collarAmethystRim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.152, 0.011, 8, 24),
+      this.matAmethystTrim,
+    );
+    collarAmethystRim.rotation.x = Math.PI * 0.5 + 0.14;
+    collarAmethystRim.scale.set(1.12, 1.05, 0.88);
+    collarAmethystRim.position.set(0, 0.018, -0.006);
+    collarGroup.add(collarAmethystRim);
+
+    // Lowered pointed hood fabric draped backward behind his upper shoulders
+    const { group: drapedBackHood } = ToonAssets.createOutlinedMesh(
+      new THREE.ConeGeometry(0.135, 0.34, 10),
+      this.matAbyssal,
+      1.06,
+    );
+    drapedBackHood.scale.set(1.05, 1.0, 0.62);
+    drapedBackHood.position.set(0, -0.08, -0.185);
+    drapedBackHood.rotation.x = -Math.PI * 0.76;
+    collarGroup.add(drapedBackHood);
+
+    // B. Shadow-Draped Gothic Hair (attached to headGroup so it tracks head pitch/yaw/roll)
+    const hairGroup = new THREE.Group();
+    hairGroup.visible = false;
+    this.unhoodedHeadGroup = hairGroup;
+    this.headGroup.add(hairGroup);
+
+    const headCenterY = 0.185;
+    const { group: hairCrown } = ToonAssets.createOutlinedMesh(
+      new THREE.SphereGeometry(
+        0.126,
+        20,
+        16,
+        0,
+        Math.PI * 2,
+        0,
+        Math.PI * 0.64,
+      ),
+      this.matAbyssal,
+      1.05,
+    );
+    hairCrown.scale.set(0.96, 1.06, 1.06);
+    hairCrown.rotation.x = -0.14;
+    hairCrown.position.set(0, headCenterY + 0.015, -0.004);
+    hairGroup.add(hairCrown);
+
+    // Swept Gothic bangs framing his brow while leaving glowing violet eyes visible beneath the fringe
+    const bangSpecs = [
+      { x: 0.0, y: 0.254, z: 0.106, r: 0.028, h: 0.115, rx: -0.22, rz: 0.05, slate: false },
+      { x: -0.036, y: 0.252, z: 0.102, r: 0.03, h: 0.125, rx: -0.18, rz: 0.16, slate: true },
+      { x: 0.036, y: 0.252, z: 0.102, r: 0.03, h: 0.125, rx: -0.18, rz: -0.14, slate: false },
+      { x: -0.072, y: 0.242, z: 0.088, r: 0.028, h: 0.138, rx: -0.12, rz: 0.26, slate: false },
+      { x: 0.072, y: 0.242, z: 0.088, r: 0.028, h: 0.138, rx: -0.12, rz: -0.26, slate: true },
+      { x: -0.102, y: 0.225, z: 0.062, r: 0.026, h: 0.155, rx: -0.05, rz: 0.34, slate: true },
+      { x: 0.102, y: 0.225, z: 0.062, r: 0.026, h: 0.155, rx: -0.05, rz: -0.34, slate: false },
+    ];
+    bangSpecs.forEach((b) => {
+      const { group: bang } = ToonAssets.createOutlinedMesh(
+        new THREE.ConeGeometry(b.r, b.h, 6),
+        b.slate ? this.matShadowSlate : this.matAbyssal,
+        1.065,
+      );
+      bang.scale.set(1.0, 1.0, 0.46);
+      bang.rotation.x = Math.PI + b.rx;
+      bang.rotation.z = b.rz;
+      bang.position.set(b.x, b.y, b.z);
+      hairGroup.add(bang);
+    });
+
+    // Layered temple & cheek side-locks framing his jawline
+    for (const side of [-1, 1] as const) {
+      const { group: sideLock } = ToonAssets.createOutlinedMesh(
+        new THREE.ConeGeometry(0.032, 0.22, 6),
+        this.matAbyssal,
+        1.065,
+      );
+      sideLock.scale.set(0.68, 1.0, 0.92);
+      sideLock.rotation.x = Math.PI + 0.06;
+      sideLock.rotation.z = side * 0.12;
+      sideLock.position.set(side * 0.112, 0.145, 0.028);
+      hairGroup.add(sideLock);
+
+      const { group: earLock } = ToonAssets.createOutlinedMesh(
+        new THREE.ConeGeometry(0.03, 0.19, 6),
+        this.matShadowSlate,
+        1.065,
+      );
+      earLock.scale.set(0.72, 1.0, 0.88);
+      earLock.rotation.x = Math.PI + 0.16;
+      earLock.rotation.z = side * 0.22;
+      earLock.position.set(side * 0.116, 0.155, -0.025);
+      hairGroup.add(earLock);
+    }
+
+    // Feathered back-and-crown anime hair spikes around the occipital/nape arc
+    const backSpikeCount = 9;
+    for (let i = 0; i < backSpikeCount; i++) {
+      const t = i / (backSpikeCount - 1) - 0.5;
+      const yaw = t * Math.PI * 0.88;
+      const isSlate = i % 2 === 1;
+      const spikeLen = 0.21 - Math.abs(t) * 0.04;
+
+      const { group: spike } = ToonAssets.createOutlinedMesh(
+        new THREE.ConeGeometry(0.036, spikeLen, 6),
+        isSlate ? this.matShadowSlate : this.matAbyssal,
+        1.065,
+      );
+      spike.scale.set(0.92, 1.0, 0.58);
+      spike.position.set(
+        Math.sin(yaw) * 0.11,
+        0.135 + (1 - Math.abs(t)) * 0.02,
+        -Math.cos(yaw) * 0.105,
+      );
+      spike.rotation.y = -yaw;
+      spike.rotation.x = Math.PI + 0.36;
+      hairGroup.add(spike);
+    }
+
+    // Upper crown layered strands for dynamic 360° orbit silhouette
+    const crownSpikeSpecs = [
+      { x: 0.0, y: 0.295, z: -0.035, rx: 2.35, rz: 0.0 },
+      { x: -0.045, y: 0.285, z: -0.025, rx: 2.42, rz: 0.32 },
+      { x: 0.045, y: 0.285, z: -0.025, rx: 2.42, rz: -0.32 },
+    ];
+    crownSpikeSpecs.forEach((cs, idx) => {
+      const { group: crownLock } = ToonAssets.createOutlinedMesh(
+        new THREE.ConeGeometry(0.032, 0.145, 5),
+        idx === 0 ? this.matShadowSlate : this.matAbyssal,
+        1.065,
+      );
+      crownLock.scale.set(0.88, 1.0, 0.52);
+      crownLock.position.set(cs.x, cs.y, cs.z);
+      crownLock.rotation.x = cs.rx;
+      crownLock.rotation.z = cs.rz;
+      hairGroup.add(crownLock);
+    });
+  }
+
+  /**
+   * Toggles between the pointed combat hood (`down = false`) and the unhooded
+   * shadow-draped gothic hair + folded collar cowl (`down = true`) used during Siphon Kiss finishers.
+   */
+  public setHoodDown(down: boolean): void {
+    if (this.isHoodDown === down) return;
+    this.isHoodDown = down;
+    if (this.hoodUpCowlGroup) {
+      this.hoodUpCowlGroup.visible = !down;
+    }
+    if (this.unhoodedHeadGroup) {
+      this.unhoodedHeadGroup.visible = down;
+    }
+    if (this.drapedCollarCowlGroup) {
+      this.drapedCollarCowlGroup.visible = down;
+    }
   }
 
   private buildArticulatedArmsAndStaff(): void {
@@ -1141,6 +1338,7 @@ export class DarkMageRig {
    */
   public resetCombatPose(): void {
     this.finisherPoseState.initialized = false;
+    this.setHoodDown(false);
     this.restoreObsidianMaterials();
     if (this.defeatBlushGroup) this.defeatBlushGroup.visible = false;
     if (this.puppetCrystalLeft) this.puppetCrystalLeft.visible = false;
@@ -1175,9 +1373,11 @@ export class DarkMageRig {
     bossLipWorldPos: THREE.Vector3 | null = null,
     headChoreography?: FinisherHeadChoreography,
     bossFaceNormalWorld: THREE.Vector3 | null = null,
+    waistWrapRadius: number = FINISHER_CONFIG.marinaWaistWrapRadius,
   ): void {
-    // Guarantee cloak, hood, mantle & robes stay true dark obsidian (never washed purple)
+    // Guarantee cloak, collar, mantle & robes stay true dark obsidian (never washed purple)
     this.restoreObsidianMaterials();
+    this.setHoodDown(true);
     const headAnim =
       headChoreography ??
       computeFinisherHeadChoreography(time, drainProgress, throttleMode);
@@ -1200,11 +1400,20 @@ export class DarkMageRig {
     const isSurge = throttleMode === DRAIN_THROTTLE_MODES.SURGE;
     const isSavor = throttleMode === DRAIN_THROTTLE_MODES.SAVOR;
 
-    // 1. Target Base Stance for Poses [1-4] (All arms physically contact & hold Marina)
-    // Pose [1] Default (Chin-Lift Tilt): left gloved hand raised forward/inward beneath Marina's chin,
-    // right hand grips planted obsidian staff beside them.
+    // Parameterize shoulder outward abduction & elbow inward flexion by boss.waistWrapRadius
+    // so upper arms clear Marina's (0.42m) or Serena's (0.30m) torso/shoulders with zero clipping
+    const clearanceRatio =
+      (waistWrapRadius * FINISHER_CONFIG.waistClearanceScale) /
+      FINISHER_CONFIG.marinaWaistWrapRadius;
+    const shoulderFlare =
+      FINISHER_CONFIG.shoulderFlareBaseRad * clearanceRatio;
+    const elbowWrap =
+      FINISHER_CONFIG.elbowWrapBaseRad * (0.82 + 0.18 * clearanceRatio);
+
+    // 1. Target Base Stance for Poses [1-4] (Clip-free outer embrace + open side-profile sightlines)
     let targetBodyY = 0.72;
     let targetTorsoX = 0.54;
+    let targetTorsoY: number = FINISHER_CONFIG.torsoCounterYawRad;
     let targetTorsoZ = 0;
     let targetHeadX = 0.3;
     let targetHeadZ = 0;
@@ -1214,23 +1423,25 @@ export class DarkMageRig {
     let targetRightHipZ = 0.06;
     let targetLeftKneeX = 0.24;
     let targetRightKneeX = 0.16;
-    let targetLeftShoulderX = -1.18;
-    let targetLeftShoulderY = 0.18;
-    let targetLeftShoulderZ = 0.34;
-    let targetLeftElbowX = -0.82;
-    let targetLeftElbowZ = 0.26;
-    let targetRightShoulderX = -0.42;
-    let targetRightShoulderY = 0;
-    let targetRightShoulderZ = -0.26;
-    let targetRightElbowX = -0.58;
+    // Pose [1] Default (Chin-Lift Tilt): left upper arm flares outward around her shoulder line,
+    // forearm angles inward from the outside to cup beneath her chin; right hand grips planted staff.
+    let targetLeftShoulderX = -1.14;
+    let targetLeftShoulderY = -0.24;
+    let targetLeftShoulderZ = shoulderFlare;
+    let targetLeftElbowX = -0.92;
+    let targetLeftElbowZ = -elbowWrap * 0.48;
+    let targetRightShoulderX = -0.38;
+    let targetRightShoulderY = 0.12;
+    let targetRightShoulderZ = -shoulderFlare * 0.78;
+    let targetRightElbowX = -0.56;
     let targetRightElbowZ = 0;
     let targetStaffRotX = Math.PI * 0.34;
     let targetStaffRotZ = -0.14;
 
     if (poseId === FINISHER_POSE_IDS.BALLROOM_DIP) {
-      // Pose [2]: Glacial Ballroom Dip — lowered lunging knee bend + deep forward torso/head pitch
-      // (+0.46 rad extra) so mouth locks flush onto dipped Marina; left arm wraps around her dipped
-      // waist/mid-back; right arm raises Obsidian Siphon Staff high aloft absorbing frost ribbons.
+      // Pose [2]: Ballroom Dip — lowered lunging knee bend + deep forward torso/head pitch
+      // so mouth locks flush onto dipped sovereign; left arm flares outward & wraps around the
+      // outside of her dipped waist/mid-back; right arm raises Obsidian Siphon Staff high aloft.
       targetBodyY = 0.78;
       targetLeftHipX = -0.34;
       targetLeftHipZ = -0.08;
@@ -1238,16 +1449,14 @@ export class DarkMageRig {
       targetRightHipZ = 0.08;
       targetLeftKneeX = 0.68;
       targetRightKneeX = 0.48;
-      targetTorsoX = 0.48 + FINISHER_CONFIG.dipMageExtraPitch; // ~0.94 rad deep forward dip follow
+      targetTorsoX = 0.48 + FINISHER_CONFIG.dipMageExtraPitch;
+      targetTorsoY = FINISHER_CONFIG.torsoCounterYawRad * 0.85;
       targetHeadX = 0.24;
-      // Left arm wraps forward & inward around Marina's dipped waist/mid-back
-      targetLeftShoulderX = -1.42;
-      targetLeftShoulderY = 0.26;
-      targetLeftShoulderZ = 0.46;
-      targetLeftElbowX = -0.92;
-      targetLeftElbowZ = 0.56;
-      // Right arm raises hand upward & outward holding Obsidian Siphon Staff upright / diagonally
-      // skyward (~18° off vertical) with crystal high overhead as a channeling beacon (zero clipping)
+      targetLeftShoulderX = -1.34;
+      targetLeftShoulderY = -0.28;
+      targetLeftShoulderZ = shoulderFlare * 1.18;
+      targetLeftElbowX = -1.04;
+      targetLeftElbowZ = -elbowWrap * 0.62;
       targetRightShoulderX = FINISHER_CONFIG.dipRightShoulderX;
       targetRightShoulderY = FINISHER_CONFIG.dipRightShoulderY;
       targetRightShoulderZ = FINISHER_CONFIG.dipRightShoulderZ;
@@ -1256,26 +1465,27 @@ export class DarkMageRig {
       targetStaffRotX = FINISHER_CONFIG.dipStaffRotX;
       targetStaffRotZ = FINISHER_CONFIG.dipStaffRotZ;
     } else if (poseId === FINISHER_POSE_IDS.HAIR_REINS) {
-      // Pose [3]: Silver-Hair Reins — left forearm raised across chest/shoulder with silver hair lock
-      // looped around wrist; right gloved hand reaches forward/inward to steady Marina's shoulder.
+      // Pose [3]: Hair Reins — left forearm raised out to the side with hair lock looped around wrist;
+      // right arm flares outward past her torso and wraps forearm inward onto her outer shoulder.
       targetBodyY = 0.72;
       targetTorsoX = 0.56;
+      targetTorsoY = -FINISHER_CONFIG.torsoCounterYawRad * 0.85;
       targetHeadX = 0.28;
-      targetLeftShoulderX = -1.32;
-      targetLeftShoulderY = 0.22;
-      targetLeftShoulderZ = 0.38;
-      targetLeftElbowX = -1.35;
-      targetLeftElbowZ = 0.48;
-      targetRightShoulderX = -0.98;
-      targetRightShoulderY = -0.16;
-      targetRightShoulderZ = -0.24;
-      targetRightElbowX = -0.68;
-      targetRightElbowZ = -0.24;
+      targetLeftShoulderX = -1.24;
+      targetLeftShoulderY = -0.26;
+      targetLeftShoulderZ = shoulderFlare * 1.1;
+      targetLeftElbowX = -1.28;
+      targetLeftElbowZ = -elbowWrap * 0.42;
+      targetRightShoulderX = -0.96;
+      targetRightShoulderY = 0.24;
+      targetRightShoulderZ = -shoulderFlare * 0.95;
+      targetRightElbowX = -0.84;
+      targetRightElbowZ = elbowWrap * 0.45;
       targetStaffRotX = Math.PI * 0.58;
       targetStaffRotZ = -0.22;
     } else if (poseId === FINISHER_POSE_IDS.STAFF_LEAN) {
       // Pose [4]: Staff-Prop Lean — right elbow/forearm braced casually against upright planted staff,
-      // ankles crossed, while left arm extends forward so gloved hand rests on kneeling Marina's head/chin.
+      // ankles crossed, while left arm flares around her shoulder to rest gloved hand along her cheek/chin.
       targetBodyY = 0.72;
       targetLeftHipX = 0.06;
       targetLeftHipZ = 0.14;
@@ -1284,17 +1494,18 @@ export class DarkMageRig {
       targetLeftKneeX = 0.12;
       targetRightKneeX = 0.28;
       targetTorsoX = 0.52;
+      targetTorsoY = FINISHER_CONFIG.torsoCounterYawRad;
       targetTorsoZ = -0.11;
       targetHeadX = 0.3;
       targetHeadZ = 0.09;
-      targetLeftShoulderX = -1.16;
-      targetLeftShoulderY = 0.14;
-      targetLeftShoulderZ = 0.3;
-      targetLeftElbowX = -0.46;
-      targetLeftElbowZ = 0.22;
+      targetLeftShoulderX = -1.12;
+      targetLeftShoulderY = -0.22;
+      targetLeftShoulderZ = shoulderFlare * 0.96;
+      targetLeftElbowX = -0.78;
+      targetLeftElbowZ = -elbowWrap * 0.44;
       targetRightShoulderX = -0.68;
-      targetRightShoulderY = 0;
-      targetRightShoulderZ = -0.38;
+      targetRightShoulderY = 0.16;
+      targetRightShoulderZ = -shoulderFlare * 0.92;
       targetRightElbowX = -1.08;
       targetRightElbowZ = 0.18;
       targetStaffRotX = Math.PI * 0.14;
@@ -1309,6 +1520,7 @@ export class DarkMageRig {
       st.bodyOffsetX = 0;
       st.bodyOffsetZ = 0;
       st.torsoX = this.torsoGroup.rotation.x;
+      st.torsoY = this.torsoGroup.rotation.y;
       st.torsoZ = this.torsoGroup.rotation.z;
       st.headX = this.headGroup.rotation.x;
       st.headZ = this.headGroup.rotation.z;
@@ -1334,6 +1546,7 @@ export class DarkMageRig {
 
     st.bodyY = THREE.MathUtils.lerp(st.bodyY, targetBodyY, lerpAlpha);
     st.torsoX = THREE.MathUtils.lerp(st.torsoX, targetTorsoX, lerpAlpha);
+    st.torsoY = THREE.MathUtils.lerp(st.torsoY, targetTorsoY, lerpAlpha);
     st.torsoZ = THREE.MathUtils.lerp(st.torsoZ, targetTorsoZ, lerpAlpha);
     st.headX = THREE.MathUtils.lerp(st.headX, targetHeadX, lerpAlpha);
     st.headZ = THREE.MathUtils.lerp(st.headZ, targetHeadZ, lerpAlpha);
@@ -1437,20 +1650,18 @@ export class DarkMageRig {
     this.hoodTailPivot.rotation.z =
       Math.cos(time * (robeSpeed * 0.72)) * (robeAmp * 1.2);
 
-    // Torso draws gently while head executes asymmetric -> <- press-and-ease choreography:
-    // - Same-sign local roll tilts facing heads to opposite world sides (gentle alternating angle)
-    // - Positive magePitchNod presses smoothly into each kiss peak and eases on pullback
-    // - Inverted local yaw tracks Marina's horizontal nuzzle sway in lockstep
+    // Torso angles slightly off-axis (torsoCounterYawRad) to open camera sightlines & arm pocket room
+    // while head counter-rotates in yaw and executes asymmetric -> <- press-and-ease choreography:
     this.torsoGroup.rotation.set(
       st.torsoX + torsoDrawPitch + (headAnim.pulse - 0.5) * 0.025,
-      0,
+      st.torsoY,
       st.torsoZ +
         headAnim.roll * 0.2 +
         Math.sin(time * (siphonFreq * 0.5)) * 0.01 * siphonAmp,
     );
     this.headGroup.rotation.set(
       st.headX - torsoDrawPitch * 0.85 + headAnim.magePitchNod,
-      -headAnim.yawSway,
+      -st.torsoY * 0.92 - headAnim.yawSway,
       st.headZ + headAnim.roll,
     );
 
@@ -1566,6 +1777,7 @@ export class DarkMageRig {
    * dimmed staff, blushing beneath his cowl, waving glowing frost-crystals in rhythm.
    */
   public applyDefeatedPuppetPose(time: number): void {
+    this.setHoodDown(false);
     this.restoreObsidianMaterials();
     if (this.defeatBlushGroup) this.defeatBlushGroup.visible = true;
     if (this.puppetCrystalLeft) this.puppetCrystalLeft.visible = true;

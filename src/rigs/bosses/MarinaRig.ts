@@ -77,6 +77,7 @@ export class MarinaRig implements BossRigAdapter {
   public readonly id: string = BOSS_CONFIG.defaultId;
   public readonly displayName: string = BOSS_CONFIG.defaultDisplayName;
   public readonly title: string = BOSS_CONFIG.defaultTitle;
+  public readonly waistWrapRadius: number = FINISHER_CONFIG.marinaWaistWrapRadius;
   public readonly root: THREE.Group;
   public readonly bodyPivot: THREE.Group;
   public readonly headAnchor: THREE.Object3D;

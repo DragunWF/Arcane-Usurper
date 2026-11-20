@@ -238,6 +238,7 @@ export class FinisherSystem implements ISystem {
 
   public hideVisuals(): void {
     this.fxGroup.visible = false;
+    this.mageRig.setHoodDown(false);
   }
 
   public resetState(): void {
@@ -247,6 +248,7 @@ export class FinisherSystem implements ISystem {
     this.spiralPhase = 0;
     this.currentSeparation = FINISHER_CONFIG.defaultRootSeparation;
     this.fxGroup.visible = false;
+    this.mageRig.setHoodDown(false);
     this.audio.setSiphonThrottle(DRAIN_THROTTLE_MODES.FLOW);
   }
 
@@ -522,7 +524,8 @@ export class FinisherSystem implements ISystem {
       bz - player.transform.position.z,
     );
 
-    // Pose Dark Mage with synchronized -> <- press-and-ease motion along Marina's world face normal
+    // Pose Dark Mage unhooded with synchronized -> <- press-and-ease motion & per-boss waist clearance
+    this.mageRig.setHoodDown(true);
     this.mageRig.root.position.set(
       player.transform.position.x,
       by,
@@ -538,6 +541,7 @@ export class FinisherSystem implements ISystem {
       this.scratchBossHead,
       headChoreography,
       this.scratchBossFaceNormal,
+      activeRig.waistWrapRadius,
     );
 
     // 7. Update Lip-to-Lip Energy Ribbons, Pose [2] Aloft Staff Frost Ribbon, & Pose [3] Hair Strand
@@ -617,6 +621,7 @@ export class FinisherSystem implements ISystem {
     // 9. Trigger 100% Siphon Climax -> Victory Floor Collapse Diorama (never fires in Endless Savor or Lobby Siphon)
     if (isFinisher && sb.siphonProgress >= 1.0) {
       this.fxGroup.visible = false;
+      this.mageRig.setHoodDown(false);
       this.callbacks.onSiphonClimax();
     }
   }
