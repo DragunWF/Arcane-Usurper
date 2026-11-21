@@ -14,6 +14,7 @@ import {
   SIPHON_BEAM_CONFIG,
   SIPHON_GALLERY_CONFIG,
   type DrainThrottleMode,
+  type FinisherMode,
   type FinisherPoseId,
   type GameState,
 } from '../../config/gameConfig';
@@ -41,6 +42,7 @@ export interface LobbySiphonAnchorConfig {
 export interface IFinisherCallbacks {
   getGameState: () => GameState;
   onSiphonClimax: () => void;
+  onLobbyBeamComplete?: () => void;
   onLobbySiphonTick?: (
     charge: number,
     elapsed: number,
@@ -323,6 +325,7 @@ export class FinisherSystem implements ISystem {
   public beginLobbySiphonSession(
     initialCharge: number,
     anchor?: LobbySiphonAnchorConfig,
+    mode: FinisherMode = FINISHER_MODES.KISS,
   ): void {
     this.resetState();
     if (anchor) {
@@ -336,7 +339,11 @@ export class FinisherSystem implements ISystem {
       };
     }
     const clamped = THREE.MathUtils.clamp(initialCharge, 0, 1);
-    if (clamped <= SIPHON_GALLERY_CONFIG.minDrainableCharge) {
+    const isBeam = mode === FINISHER_MODES.BEAM;
+    if (isBeam) {
+      this.lobbyCharge = clamped;
+      this.lobbyDepleted = clamped <= 0;
+    } else if (clamped <= SIPHON_GALLERY_CONFIG.minDrainableCharge) {
       this.lobbyCharge = 0;
       this.lobbyDepleted = true;
     } else {
@@ -350,10 +357,14 @@ export class FinisherSystem implements ISystem {
         : this.lobbyAnchor.targetId === 'serena'
           ? 2
           : 1;
-    this.startSiphonAudio(
-      realm,
-      this.lobbyDepleted ? 1.0 : 1.0 - this.lobbyCharge,
-    );
+    if (isBeam) {
+      this.startBeamSiphonAudio(realm);
+    } else {
+      this.startSiphonAudio(
+        realm,
+        this.lobbyDepleted ? 1.0 : 1.0 - this.lobbyCharge,
+      );
+    }
   }
 
   public startSiphonAudio(
@@ -420,7 +431,8 @@ export class FinisherSystem implements ISystem {
     if (
       !boss ||
       boss.siphonableBoss.tauntCooldown > 0 ||
-      (state === GAME_STATES.SIPHON_FINISHER &&
+      ((state === GAME_STATES.SIPHON_FINISHER ||
+        state === GAME_STATES.LOBBY_SIPHON) &&
         boss.siphonableBoss.finisherMode === FINISHER_MODES.BEAM)
     ) {
       return;
@@ -550,11 +562,12 @@ export class FinisherSystem implements ISystem {
     const sb = boss.siphonableBoss;
     const intent = player.playerIntent;
 
-    // Ranged Umbral Siphon Beam ([R]) branch — arena bosses only (never Endless Savor or Lobby Siphon)
-    if (isFinisher && sb.finisherMode === FINISHER_MODES.BEAM) {
+    // Ranged Umbral Siphon Beam ([R]) branch — staggered arena bosses & Siphon Gallery alcoves
+    if ((isFinisher || isLobbySiphon) && sb.finisherMode === FINISHER_MODES.BEAM) {
       this.updateBeamFinisher(
         dt,
         elapsed,
+        isLobbySiphon,
         player.transform,
         boss.transform,
         sb,
@@ -922,15 +935,19 @@ export class FinisherSystem implements ISystem {
   }
 
   /**
-   * Executes the ranged Umbral Siphon Beam ([R]) finisher on a staggered arena boss:
-   * - Dark Mage stands off at `standoffDistance` channeling a pulsing royal-violet/obsidian tether
+   * Executes the ranged Umbral Siphon Beam ([R]) finisher on a staggered arena boss
+   * or a captive Siphon Gallery sovereign:
+   * - Dark Mage stands off at `standoffDistance` (arena) or `lobbyStandoffDistance` (gallery)
+   *   channeling a pulsing royal-violet/obsidian tether with his staff in hand
    * - Sovereign kneels shielding her face while trembling & bleaching 0% -> 100%
    * - 10 pooled realm-colored essence orbs stream back along the beam into the staff crystal
-   * - High-voltage pitch-climbing audio climaxes at 1.0 and transitions directly to Victory Diorama
+   * - High-voltage pitch-climbing audio climaxes at completion and transitions cleanly
+   *   (Victory Diorama in arenas; bound alcove release back to LOBBY in Siphon Gallery)
    */
   private updateBeamFinisher(
     dt: number,
     elapsed: number,
+    isLobbySiphon: boolean,
     playerTransform: { position: { x: number; y: number; z: number }; rotationY: number },
     bossTransform: { position: { x: number; y: number; z: number }; rotationY: number },
     sb: { siphonProgress: number; isEndlessSavor: boolean },
@@ -944,27 +961,70 @@ export class FinisherSystem implements ISystem {
       this.startBeamSiphonAudio(activeRealm);
     }
 
-    // Advance beam drain smoothly over 3.5s
-    sb.siphonProgress = Math.min(
-      1.0,
-      sb.siphonProgress + dt / SIPHON_BEAM_CONFIG.drainDurationSec,
-    );
+    const drainStep = dt / SIPHON_BEAM_CONFIG.drainDurationSec;
+    if (isLobbySiphon) {
+      this.lobbyCharge = Math.max(0, this.lobbyCharge - drainStep);
+      sb.siphonProgress = 1.0 - this.lobbyCharge;
 
-    const bx = bossTransform.position.x;
-    const bz = bossTransform.position.z;
-    const bossYaw = bossTransform.rotationY;
+      this.lobbyChargeSyncAccum += dt;
+      if (
+        this.lobbyCharge <= 0 ||
+        this.lobbyChargeSyncAccum >=
+          SIPHON_GALLERY_CONFIG.chargeStoreSyncIntervalSec * 0.5
+      ) {
+        this.lobbyChargeSyncAccum = 0;
+        const store = useGameStore.getState();
+        if (this.lobbyAnchor.targetId === 'miku') {
+          store.setMikuCoreCharge(this.lobbyCharge);
+        } else if (this.lobbyAnchor.targetId === 'serena') {
+          store.setSerenaCoreCharge(this.lobbyCharge);
+        } else {
+          store.setMarinaCoreCharge(this.lobbyCharge);
+        }
+      }
+    } else {
+      // Advance arena beam drain smoothly over 3.5s
+      sb.siphonProgress = Math.min(1.0, sb.siphonProgress + drainStep);
+    }
+
+    let bx = bossTransform.position.x;
+    let by = 0;
+    let bz = bossTransform.position.z;
+    let bossYaw = bossTransform.rotationY;
+
+    if (isLobbySiphon) {
+      bx = this.lobbyAnchor.daisPos.x;
+      by = this.lobbyAnchor.daisHeight;
+      bz = this.lobbyAnchor.daisPos.z;
+      bossYaw = this.lobbyAnchor.facingYaw;
+      // Captive sovereign stays mounted on her alcove dais local origin (0, daisHeight, 0)
+      activeRig.root.position.set(0, by, 0);
+      activeRig.root.rotation.set(0, bossYaw, 0);
+    } else {
+      activeRig.root.position.set(bx, 0, bz);
+      activeRig.root.rotation.set(0, bossYaw, 0);
+    }
+
     const dirX = Math.sin(bossYaw);
     const dirZ = Math.cos(bossYaw);
 
-    // Hold Boss grounded at center facing Dark Mage
-    activeRig.root.position.set(bx, 0, bz);
-    activeRig.root.rotation.set(0, bossYaw, 0);
     activeRig.applyBeamFinisherPose(sb.siphonProgress, elapsed);
     activeRig.root.updateMatrixWorld(true);
 
-    // Position Dark Mage at exact standoffDistance facing the Boss
-    const mageX = bx + dirX * SIPHON_BEAM_CONFIG.standoffDistance;
-    const mageZ = bz + dirZ * SIPHON_BEAM_CONFIG.standoffDistance;
+    if (isLobbySiphon && this.callbacks.onLobbySiphonTick) {
+      this.callbacks.onLobbySiphonTick(
+        this.lobbyCharge,
+        elapsed,
+        this.lobbyAnchor.targetId,
+      );
+    }
+
+    // Position Dark Mage at exact standoff distance along outward facing axis
+    const standoff = isLobbySiphon
+      ? SIPHON_BEAM_CONFIG.lobbyStandoffDistance
+      : SIPHON_BEAM_CONFIG.standoffDistance;
+    const mageX = bx + dirX * standoff;
+    const mageZ = bz + dirZ * standoff;
     const mageYaw = Math.atan2(bx - mageX, bz - mageZ);
     playerTransform.position.x = mageX;
     playerTransform.position.y = 0;
@@ -980,8 +1040,9 @@ export class FinisherSystem implements ISystem {
     this.mageRig.getStaffCrystalWorldPosition(this.scratchMageCrystal);
     this.scratchBossChest.set(
       bx,
-      SIPHON_BEAM_CONFIG.bossChestTargetOffsetY *
-        (1 - sb.siphonProgress * 0.14),
+      by +
+        SIPHON_BEAM_CONFIG.bossChestTargetOffsetY *
+          (1 - sb.siphonProgress * 0.14),
       bz,
     );
 
@@ -1086,15 +1147,25 @@ export class FinisherSystem implements ISystem {
       );
     }
 
-    // Complete at 1.0 -> stop audio/VFX, fire climax, transition directly to Victory Diorama
-    if (sb.siphonProgress >= 1.0) {
+    // Complete when fully drained (coreCharge <= 0 in Lobby Siphon, siphonProgress >= 1.0 in Arena)
+    const isComplete = isLobbySiphon
+      ? this.lobbyCharge <= 0
+      : sb.siphonProgress >= 1.0;
+    if (isComplete) {
       if (!this.climaxAudioFired) {
         this.climaxAudioFired = true;
         this.audio.playSiphonClimax(activeRealm);
       }
       this.beamFxGroup.visible = false;
       this.stopSiphonAudio();
-      this.callbacks.onSiphonClimax();
+      if (isLobbySiphon) {
+        this.lobbyCharge = 0;
+        this.lobbyDepleted = true;
+        sb.siphonProgress = 1.0;
+        this.callbacks.onLobbyBeamComplete?.();
+      } else {
+        this.callbacks.onSiphonClimax();
+      }
     }
   }
 

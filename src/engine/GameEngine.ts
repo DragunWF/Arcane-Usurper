@@ -19,6 +19,7 @@ import {
   NG_PLUS_CONFIG,
   PLAYER_CONFIG,
   SERENA_CONFIG,
+  SIPHON_BEAM_CONFIG,
   SIPHON_GALLERY_CONFIG,
   SUNKEN_CHAMBER_CONFIG,
   type BossPhase,
@@ -56,7 +57,7 @@ export interface IGameController {
   startGame(): void;
   enterSanctum(): void;
   returnToSanctum(): void;
-  triggerLobbyInteract(): void;
+  triggerLobbyInteract(mode?: FinisherMode): void;
   releaseLobbySiphon(): void;
   resetDuel(encoreTier?: number): void;
   setPaused(paused: boolean): void;
@@ -263,8 +264,8 @@ export class GameEngine implements IGameController {
           this.enterChambersRun(useGameStore.getState().encoreTier, 3);
           this.cameraRig.requestLock();
         },
-        onEnterLobbySiphon: (target) => {
-          this.enterLobbySiphon(target);
+        onEnterLobbySiphon: (target, mode) => {
+          this.enterLobbySiphon(target, mode);
         },
         onEncoreTierToggled: () => {
           this.renderSyncSystem.flushHudSnapshot();
@@ -368,6 +369,7 @@ export class GameEngine implements IGameController {
       {
         getGameState: () => this.state,
         onSiphonClimax: () => this.dioramaSystem.enterVictoryDiorama(true),
+        onLobbyBeamComplete: () => this.releaseLobbySiphon(),
         onLobbySiphonTick: (charge, elapsed, targetId) => {
           if (targetId === 'serena') {
             this.sceneManager.mageTowerLevel.updateSerenaLobbySiphonBackdrop(
@@ -686,10 +688,10 @@ export class GameEngine implements IGameController {
     this.cameraRig.requestLock();
   }
 
-  public triggerLobbyInteract(): void {
+  public triggerLobbyInteract(mode: FinisherMode = FINISHER_MODES.KISS): void {
     if (this.state === GAME_STATES.LOBBY) {
       this.sound.unlock();
-      this.lobbySystem.executeActiveInteraction();
+      this.lobbySystem.executeActiveInteraction(mode);
     }
   }
 
@@ -1340,11 +1342,14 @@ export class GameEngine implements IGameController {
   }
 
   /**
-   * Transitions from a Siphon Gallery dais in LOBBY into interactive `LOBBY_SIPHON`
-   * against bound captive Marina, Serena, or Miku with all 4 poses,
-   * 3-tier drain throttle, [F] accessory-flick taunt, and 360° spherical orbit/zoom.
+   * Transitions from a Siphon Gallery dais in LOBBY into `LOBBY_SIPHON`
+   * against bound captive Marina, Serena, or Miku in either close-range Kiss (`[E]`)
+   * or ranged Umbral Siphon Beam (`[R]`) mode.
    */
-  public enterLobbySiphon(target: 'marina' | 'serena' | 'miku' = 'marina'): void {
+  public enterLobbySiphon(
+    target: 'marina' | 'serena' | 'miku' = 'marina',
+    mode: FinisherMode = FINISHER_MODES.KISS,
+  ): void {
     const isSerena = target === 'serena';
     const isMiku = target === 'miku';
     const captiveRig = isSerena
@@ -1360,28 +1365,39 @@ export class GameEngine implements IGameController {
       : isMiku
         ? store.mikuCoreCharge
         : store.marinaCoreCharge;
-    const startsDepleted =
-      initialCharge <= SIPHON_GALLERY_CONFIG.minDrainableCharge;
+    const isBeam = mode === FINISHER_MODES.BEAM;
+    if (isBeam && initialCharge <= 0) return;
+
+    const startsDepleted = isBeam
+      ? false
+      : initialCharge <= SIPHON_GALLERY_CONFIG.minDrainableCharge;
+
+    const daisPos = isSerena
+      ? SIPHON_GALLERY_CONFIG.serenaDaisPos
+      : isMiku
+        ? SIPHON_GALLERY_CONFIG.mikuDaisPos
+        : SIPHON_GALLERY_CONFIG.marinaDaisPos;
+    const facingYaw = isSerena
+      ? SIPHON_GALLERY_CONFIG.serenaFacingYaw
+      : isMiku
+        ? SIPHON_GALLERY_CONFIG.mikuFacingYaw
+        : SIPHON_GALLERY_CONFIG.marinaFacingYaw;
 
     this.activeLobbySiphonTarget = target;
     this.state = GAME_STATES.LOBBY_SIPHON;
     this.inputSystem.resetTransientInputs();
     this.cameraRig.exitLock();
     this.finisherSystem.setLobbyBossRig(captiveRig);
-    this.finisherSystem.beginLobbySiphonSession(initialCharge, {
-      targetId: target,
-      daisPos: isSerena
-        ? SIPHON_GALLERY_CONFIG.serenaDaisPos
-        : isMiku
-          ? SIPHON_GALLERY_CONFIG.mikuDaisPos
-          : SIPHON_GALLERY_CONFIG.marinaDaisPos,
-      daisHeight: SIPHON_GALLERY_CONFIG.daisHeight,
-      facingYaw: isSerena
-        ? SIPHON_GALLERY_CONFIG.serenaFacingYaw
-        : isMiku
-          ? SIPHON_GALLERY_CONFIG.mikuFacingYaw
-          : SIPHON_GALLERY_CONFIG.marinaFacingYaw,
-    });
+    this.finisherSystem.beginLobbySiphonSession(
+      initialCharge,
+      {
+        targetId: target,
+        daisPos,
+        daisHeight: SIPHON_GALLERY_CONFIG.daisHeight,
+        facingYaw,
+      },
+      mode,
+    );
 
     const boss = this.world.queryFirst('siphonableBoss');
     if (boss) {
@@ -1390,12 +1406,36 @@ export class GameEngine implements IGameController {
         : 1.0 - initialCharge;
       boss.siphonableBoss.isEndlessSavor = startsDepleted;
       boss.siphonableBoss.finisherPose = FINISHER_POSE_IDS.UPRIGHT_EMBRACE;
-      boss.siphonableBoss.finisherMode = FINISHER_MODES.KISS;
+      boss.siphonableBoss.finisherMode = mode;
       boss.siphonableBoss.drainThrottle = DRAIN_THROTTLE_MODES.FLOW;
       boss.siphonableBoss.tauntDizzyTimer = 0;
     }
 
-    captiveRig.setExpression(BOSS_EXPRESSIONS.SIPHON_KISS);
+    if (isBeam) {
+      const mageX =
+        daisPos.x +
+        Math.sin(facingYaw) * SIPHON_BEAM_CONFIG.lobbyStandoffDistance;
+      const mageZ =
+        daisPos.z +
+        Math.cos(facingYaw) * SIPHON_BEAM_CONFIG.lobbyStandoffDistance;
+      const mageYaw = Math.atan2(daisPos.x - mageX, daisPos.z - mageZ);
+      const player = this.world.queryFirst('playerTag', 'transform', 'velocity');
+      if (player) {
+        player.transform.position.x = mageX;
+        player.transform.position.y = 0;
+        player.transform.position.z = mageZ;
+        player.transform.rotationY = mageYaw;
+        player.velocity.vx = 0;
+        player.velocity.vy = 0;
+        player.velocity.vz = 0;
+      }
+      this.mageRig.setStaffPlanted(false);
+    }
+
+    const expression = isBeam
+      ? BOSS_EXPRESSIONS.STAGGER
+      : BOSS_EXPRESSIONS.SIPHON_KISS;
+    captiveRig.setExpression(expression);
     this.sound.setMode(AUDIO_MODES.SIPHON);
 
     store.setLobbySiphonTarget(target);
@@ -1412,7 +1452,7 @@ export class GameEngine implements IGameController {
     store.setGameState(GAME_STATES.LOBBY_SIPHON);
     store.setLobbyPrompt(null);
     store.setFinisherPose(FINISHER_POSE_IDS.UPRIGHT_EMBRACE);
-    store.setFinisherMode(FINISHER_MODES.KISS);
+    store.setFinisherMode(mode);
     store.setDrainThrottle(DRAIN_THROTTLE_MODES.FLOW);
     store.setEndlessSavor(startsDepleted);
     if (startsDepleted) {
@@ -1424,24 +1464,26 @@ export class GameEngine implements IGameController {
         store.setMarinaCoreCharge(0);
       }
     }
-    store.setBossExpression(BOSS_EXPRESSIONS.SIPHON_KISS);
+    store.setBossExpression(expression);
     store.setAudioMode(AUDIO_MODES.SIPHON);
     store.syncCombatSnapshot({
       siphonProgress: startsDepleted ? 1.0 : 1.0 - initialCharge,
       tauntDizzyTimer: 0,
     });
 
-    captiveRig.root.updateMatrixWorld(true);
-    captiveRig.headAnchor.getWorldPosition(this.orbitCameraTarget.position);
-    this.cameraRig.resetSphericalOrbit(
-      isSerena
-        ? SIPHON_GALLERY_CONFIG.serenaSiphonInitialAzimuth
-        : isMiku
-          ? SIPHON_GALLERY_CONFIG.mikuSiphonInitialAzimuth
-          : SIPHON_GALLERY_CONFIG.siphonInitialAzimuth,
-      CAMERA_CONFIG.finisherDefaultElevation,
-      CAMERA_CONFIG.finisherDefaultDistance,
-    );
+    if (!isBeam) {
+      captiveRig.root.updateMatrixWorld(true);
+      captiveRig.headAnchor.getWorldPosition(this.orbitCameraTarget.position);
+      this.cameraRig.resetSphericalOrbit(
+        isSerena
+          ? SIPHON_GALLERY_CONFIG.serenaSiphonInitialAzimuth
+          : isMiku
+            ? SIPHON_GALLERY_CONFIG.mikuSiphonInitialAzimuth
+            : SIPHON_GALLERY_CONFIG.siphonInitialAzimuth,
+        CAMERA_CONFIG.finisherDefaultElevation,
+        CAMERA_CONFIG.finisherDefaultDistance,
+      );
+    }
   }
 
   /**
@@ -1458,7 +1500,13 @@ export class GameEngine implements IGameController {
     this.finisherSystem.hideVisuals();
     this.finisherSystem.resetState();
     this.sound.stopSiphonLoop();
+    this.sound.stopBeamSiphonLoop();
     this.inputSystem.resetTransientInputs();
+
+    const boss = this.world.queryFirst('siphonableBoss');
+    if (boss) {
+      boss.siphonableBoss.finisherMode = FINISHER_MODES.KISS;
+    }
 
     const store = useGameStore.getState();
     if (isSerena) {
@@ -1469,6 +1517,7 @@ export class GameEngine implements IGameController {
       store.setMarinaCoreCharge(remainingCharge);
     }
     store.setEndlessSavor(false);
+    store.setFinisherMode(FINISHER_MODES.KISS);
 
     const daisPos = isSerena
       ? SIPHON_GALLERY_CONFIG.serenaDaisPos
@@ -1597,24 +1646,54 @@ export class GameEngine implements IGameController {
           this.sceneManager,
         );
       } else if (this.state === GAME_STATES.LOBBY_SIPHON) {
-        const captiveRig =
-          this.activeLobbySiphonTarget === 'serena'
-            ? this.sceneManager.mageTowerLevel.captiveSerenaRig
-            : this.activeLobbySiphonTarget === 'miku'
-              ? this.sceneManager.mageTowerLevel.captiveMikuRig
-              : this.sceneManager.mageTowerLevel.captiveMarinaRig;
-        if (captiveRig) {
-          captiveRig.root.updateMatrixWorld(true);
-          captiveRig.headAnchor.getWorldPosition(
-            this.orbitCameraTarget.position,
+        const activeBoss = this.world.queryFirst('siphonableBoss');
+        if (
+          activeBoss &&
+          activeBoss.siphonableBoss.finisherMode === FINISHER_MODES.BEAM &&
+          player
+        ) {
+          const daisPos =
+            this.activeLobbySiphonTarget === 'serena'
+              ? SIPHON_GALLERY_CONFIG.serenaDaisPos
+              : this.activeLobbySiphonTarget === 'miku'
+                ? SIPHON_GALLERY_CONFIG.mikuDaisPos
+                : SIPHON_GALLERY_CONFIG.marinaDaisPos;
+          this.scratchBeamMagePos.set(
+            player.transform.position.x,
+            player.transform.position.y,
+            player.transform.position.z,
+          );
+          this.scratchBeamBossPos.set(
+            daisPos.x,
+            SIPHON_GALLERY_CONFIG.daisHeight,
+            daisPos.z,
+          );
+          this.cameraRig.updateBeamFinisherCamera(
+            dt,
+            this.scratchBeamMagePos,
+            this.scratchBeamBossPos,
+            true,
+          );
+        } else {
+          const captiveRig =
+            this.activeLobbySiphonTarget === 'serena'
+              ? this.sceneManager.mageTowerLevel.captiveSerenaRig
+              : this.activeLobbySiphonTarget === 'miku'
+                ? this.sceneManager.mageTowerLevel.captiveMikuRig
+                : this.sceneManager.mageTowerLevel.captiveMarinaRig;
+          if (captiveRig) {
+            captiveRig.root.updateMatrixWorld(true);
+            captiveRig.headAnchor.getWorldPosition(
+              this.orbitCameraTarget.position,
+            );
+          }
+          this.cameraRig.update(
+            dt,
+            this.state,
+            this.playerCameraTarget,
+            this.orbitCameraTarget,
           );
         }
-        this.cameraRig.update(
-          dt,
-          this.state,
-          this.playerCameraTarget,
-          this.orbitCameraTarget,
-        );
       } else if (
         this.state === GAME_STATES.SIPHON_FINISHER ||
         this.state === GAME_STATES.ENDLESS_SAVOR

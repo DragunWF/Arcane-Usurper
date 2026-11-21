@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import {
+  FINISHER_MODES,
   GAME_STATES,
   LOBBY_CONFIG,
   LOBBY_PROMPT_KINDS,
   SIPHON_GALLERY_CONFIG,
+  type FinisherMode,
   type GameState,
 } from '../../config/gameConfig';
 import type { IAudioTrigger } from '../../engine/SoundEngine';
@@ -21,7 +23,10 @@ export interface ILobbyCallbacks {
   onEnterRealm1: () => void;
   onEnterRealm2: () => void;
   onEnterRealm3: () => void;
-  onEnterLobbySiphon: (target: 'marina' | 'serena' | 'miku') => void;
+  onEnterLobbySiphon: (
+    target: 'marina' | 'serena' | 'miku',
+    mode: FinisherMode,
+  ) => void;
   onEncoreTierToggled: (nextTier: number) => void;
   onSyncGalleryUnlocked: (unlocked: boolean) => void;
 }
@@ -144,10 +149,21 @@ export class LobbySystem implements ISystem {
   }
 
   /**
-   * Triggers the currently highlighted Sanctum `[E]` interaction (via keyboard or HUD click).
+   * Triggers the currently highlighted Sanctum `[E]` or Siphon Gallery `[R]` interaction
+   * (via keyboard or HUD click).
    */
-  public executeActiveInteraction(): void {
+  public executeActiveInteraction(
+    mode: FinisherMode = FINISHER_MODES.KISS,
+  ): void {
     if (!this.activePrompt) return;
+
+    const isDaisPrompt =
+      this.activePrompt.kind === LOBBY_PROMPT_KINDS.MARINA_DAIS ||
+      this.activePrompt.kind === LOBBY_PROMPT_KINDS.SERENA_DAIS ||
+      this.activePrompt.kind === LOBBY_PROMPT_KINDS.MIKU_DAIS;
+    if (mode === FINISHER_MODES.BEAM && !isDaisPrompt) {
+      return;
+    }
 
     if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.REALM_1) {
       const store = useGameStore.getState();
@@ -200,30 +216,33 @@ export class LobbySystem implements ISystem {
     if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.MARINA_DAIS) {
       const store = useGameStore.getState();
       if (!store.marinaDefeated) return;
+      if (mode === FINISHER_MODES.BEAM && this.liveMarinaCharge <= 0) return;
       store.setMarinaCoreCharge(this.liveMarinaCharge);
       this.lastSyncedStoreCharge = this.liveMarinaCharge;
       this.setPromptIfChanged(null);
-      this.callbacks.onEnterLobbySiphon('marina');
+      this.callbacks.onEnterLobbySiphon('marina', mode);
       return;
     }
 
     if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.SERENA_DAIS) {
       const store = useGameStore.getState();
       if (!store.serenaDefeated) return;
+      if (mode === FINISHER_MODES.BEAM && this.liveSerenaCharge <= 0) return;
       store.setSerenaCoreCharge(this.liveSerenaCharge);
       this.lastSyncedSerenaCharge = this.liveSerenaCharge;
       this.setPromptIfChanged(null);
-      this.callbacks.onEnterLobbySiphon('serena');
+      this.callbacks.onEnterLobbySiphon('serena', mode);
       return;
     }
 
     if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.MIKU_DAIS) {
       const store = useGameStore.getState();
       if (!store.mikuDefeated) return;
+      if (mode === FINISHER_MODES.BEAM && this.liveMikuCharge <= 0) return;
       store.setMikuCoreCharge(this.liveMikuCharge);
       this.lastSyncedMikuCharge = this.liveMikuCharge;
       this.setPromptIfChanged(null);
-      this.callbacks.onEnterLobbySiphon('miku');
+      this.callbacks.onEnterLobbySiphon('miku', mode);
       return;
     }
 
@@ -574,7 +593,9 @@ export class LobbySystem implements ISystem {
     this.setPromptIfChanged(bestPrompt);
 
     if (bestPrompt && player.playerIntent.portalInteractRequested) {
-      this.executeActiveInteraction();
+      this.executeActiveInteraction(FINISHER_MODES.KISS);
+    } else if (bestPrompt && player.playerIntent.beamFinisherExecuteRequested) {
+      this.executeActiveInteraction(FINISHER_MODES.BEAM);
     }
   }
 

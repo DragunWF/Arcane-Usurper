@@ -157,14 +157,14 @@ export class InputSystem implements ISystem {
         return;
       }
 
-      // Execute Arcane Siphon Kiss ([E]) or Umbral Siphon Beam ([R]) in STAGGER
+      // Execute Arcane Siphon Kiss ([E]) or Umbral Siphon Beam ([R]) in STAGGER or LOBBY Siphon Gallery
       if (e.code === 'KeyE' && state === GAME_STATES.STAGGER) {
         this.queuedFinisherExecute = true;
         return;
       }
       if (
         e.code === SIPHON_BEAM_CONFIG.triggerKey &&
-        state === GAME_STATES.STAGGER
+        (state === GAME_STATES.STAGGER || state === GAME_STATES.LOBBY)
       ) {
         this.queuedBeamFinisherExecute = true;
         return;

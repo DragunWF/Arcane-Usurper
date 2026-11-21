@@ -2878,8 +2878,13 @@ export const SIPHON_BEAM_CONFIG = Object.freeze({
 
   // Standoff & Dramatic 3/4 Side Framing
   standoffDistance: 4.2,
+  lobbyStandoffDistance: 2.85,
   cameraSideOffset: 3.6,
   cameraHeightOffset: 2.1,
+  lobbyCameraSideOffset: 2.65,
+  lobbyCameraHeightOffset: 1.95,
+  lobbyCameraBackOffset: 0.65,
+  lobbyCameraMidpointFocusY: 1.12,
   cameraLerpSpeed: 8.0,
   cameraMidpointFocusY: 1.02,
   cameraBossBias: 0.45,

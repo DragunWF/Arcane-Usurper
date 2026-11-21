@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  FINISHER_MODES,
   GAME_STATES,
   LOBBY_PROMPT_KINDS,
   PALETTE,
@@ -166,94 +167,138 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
       )}
 
       {/* Contextual Bottom-Center Interaction Banner */}
-      {lobbyPrompt && (
-        <div className="fixed bottom-12 sm:bottom-16 left-1/2 -translate-x-1/2 z-30 pointer-events-auto max-w-[calc(100vw-2rem)]">
-          <button
-            type="button"
-            onClick={() => controller?.triggerLobbyInteract()}
-            className={`px-6 sm:px-8 py-3.5 rounded-2xl border backdrop-blur-md text-center transition-all cursor-pointer ${
-              isSealed ? 'opacity-95' : 'ascend-btn hover:scale-[1.02]'
-            }`}
-            style={
-              isSealed
-                ? {
-                    backgroundColor: `${PALETTE.hex.abyssalCloak}E6`,
-                    borderColor: isSealedRealm2
-                      ? PALETTE.hex.sunkenTeal
-                      : isSealedGallery
-                        ? PALETTE.hex.amethystTrim
-                        : PALETTE.hex.harmonicMagenta,
-                  }
-                : undefined
-            }
-          >
-            <div
-              className="font-display text-xs sm:text-sm md:text-base font-bold tracking-[0.18em] uppercase"
-              style={{
-                color:
-                  isRealm2Active || isSealedRealm2 || isSerenaDais
-                    ? PALETTE.hex.biolumCyan
-                    : isRealm3Active || isSealedRealm3 || isMikuDais
-                      ? PALETTE.hex.harmonicEmerald
-                      : isSealedGallery
-                        ? PALETTE.hex.pulseLavender
-                        : PALETTE.hex.iceHighlights,
-              }}
-            >
-              {lobbyPrompt.title}
-            </div>
-            <div
-              className="mt-1 text-[10px] sm:text-[11px] font-semibold tracking-[0.2em] uppercase"
-              style={{
-                color: isSealed
-                  ? PALETTE.hex.drainedAshSilver
-                  : isRealm3Active || isMikuDais
-                    ? PALETTE.hex.harmonicMagenta
-                    : isRealm2Active
-                      ? PALETTE.hex.atlanteanGold
+      {lobbyPrompt &&
+        (isMarinaDais || isSerenaDais || isMikuDais ? (
+          <div className="fixed bottom-12 sm:bottom-16 left-1/2 -translate-x-1/2 z-30 pointer-events-auto max-w-[calc(100vw-2rem)] flex flex-col items-center gap-2.5">
+            {/* Live Core Charge Bar Header */}
+            <div className="frost-panel rounded-2xl px-5 py-2.5 border-purple-400/45 text-center w-[280px] sm:w-[340px]">
+              <div
+                className="text-[10px] sm:text-[11px] font-semibold tracking-[0.2em] uppercase"
+                style={{
+                  color: isMikuDais
+                    ? PALETTE.hex.harmonicEmerald
+                    : isSerenaDais
+                      ? PALETTE.hex.biolumCyan
+                      : PALETTE.hex.frostRunes,
+                }}
+              >
+                {lobbyPrompt.subtitle}
+              </div>
+              <div className="mt-2 h-2 w-full rounded-full bg-slate-950/90 border border-sky-400/40 overflow-hidden p-[1px]">
+                <div
+                  className="bar-fill h-full rounded-full transition-all duration-150"
+                  style={{
+                    width: `${
+                      isMikuDais
+                        ? mikuChargePct
+                        : isSerenaDais
+                          ? serenaChargePct
+                          : marinaChargePct
+                    }%`,
+                    background: isMikuDais
+                      ? `linear-gradient(90deg, ${PALETTE.hex.harmonicEmerald}, ${PALETTE.hex.mikuCyan}, ${PALETTE.hex.harmonicMagenta})`
                       : isSerenaDais
-                        ? PALETTE.hex.biolumCyan
-                        : isMarinaDais
-                          ? PALETTE.hex.frostRunes
-                          : PALETTE.hex.pulseLavender,
-              }}
-            >
-              {lobbyPrompt.subtitle}
+                        ? `linear-gradient(90deg, ${PALETTE.hex.kelpEmerald}, ${PALETTE.hex.biolumCyan}, ${PALETTE.hex.pearlWhite})`
+                        : `linear-gradient(90deg, ${PALETTE.hex.frostRunes}, ${PALETTE.hex.iceHighlights})`,
+                    boxShadow: `0 0 12px ${
+                      isMikuDais
+                        ? PALETTE.hex.harmonicEmerald
+                        : isSerenaDais
+                          ? PALETTE.hex.biolumCyan
+                          : PALETTE.hex.frostRunes
+                    }`,
+                  }}
+                />
+              </div>
             </div>
 
-            {(isMarinaDais || isSerenaDais || isMikuDais) && (
-              <div className="mt-2.5 w-56 sm:w-64 mx-auto">
-                <div className="h-2 w-full rounded-full bg-slate-950/90 border border-sky-400/40 overflow-hidden p-[1px]">
-                  <div
-                    className="bar-fill h-full rounded-full transition-all duration-150"
-                    style={{
-                      width: `${
-                        isMikuDais
-                          ? mikuChargePct
-                          : isSerenaDais
-                            ? serenaChargePct
-                            : marinaChargePct
-                      }%`,
-                      background: isMikuDais
-                        ? `linear-gradient(90deg, ${PALETTE.hex.harmonicEmerald}, ${PALETTE.hex.mikuCyan}, ${PALETTE.hex.harmonicMagenta})`
-                        : isSerenaDais
-                          ? `linear-gradient(90deg, ${PALETTE.hex.kelpEmerald}, ${PALETTE.hex.biolumCyan}, ${PALETTE.hex.pearlWhite})`
-                          : `linear-gradient(90deg, ${PALETTE.hex.frostRunes}, ${PALETTE.hex.iceHighlights})`,
-                      boxShadow: `0 0 12px ${
-                        isMikuDais
-                          ? PALETTE.hex.harmonicEmerald
-                          : isSerenaDais
-                            ? PALETTE.hex.biolumCyan
-                            : PALETTE.hex.frostRunes
-                      }`,
-                    }}
-                  />
-                </div>
+            {/* Dual Siphon Prompts: [E] Close-Range Kiss vs. [R] Ranged Beam */}
+            <div className="flex flex-col sm:flex-row items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() =>
+                  controller?.triggerLobbyInteract(FINISHER_MODES.KISS)
+                }
+                className="ascend-btn px-5 sm:px-6 py-3 rounded-xl font-display text-xs sm:text-sm font-bold tracking-[0.18em] text-fuchsia-100 uppercase cursor-pointer hover:scale-[1.02] transition-all flex flex-col items-center leading-tight"
+              >
+                <span>[E] ARCANE SIPHON KISS</span>
+                <span className="mt-0.5 text-[10px] font-sans font-semibold tracking-[0.2em] text-fuchsia-200/80">
+                  Close-Range
+                </span>
+              </button>
+              {(isMikuDais
+                ? mikuCoreCharge > 0
+                : isSerenaDais
+                  ? serenaCoreCharge > 0
+                  : marinaCoreCharge > 0) && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    controller?.triggerLobbyInteract(FINISHER_MODES.BEAM)
+                  }
+                  className="frost-panel px-5 sm:px-6 py-3 rounded-xl border border-violet-400/75 bg-violet-950/80 hover:bg-violet-900/85 hover:border-fuchsia-300 hover:scale-[1.02] shadow-[0_0_24px_rgba(139,92,246,0.45)] font-display text-xs sm:text-sm font-bold tracking-[0.18em] text-violet-100 uppercase cursor-pointer transition-all flex flex-col items-center leading-tight"
+                >
+                  <span>[R] UMBRAL SIPHON BEAM</span>
+                  <span className="mt-0.5 text-[10px] font-sans font-semibold tracking-[0.2em] text-violet-200/80">
+                    Ranged Drain
+                  </span>
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="fixed bottom-12 sm:bottom-16 left-1/2 -translate-x-1/2 z-30 pointer-events-auto max-w-[calc(100vw-2rem)]">
+            <button
+              type="button"
+              onClick={() => controller?.triggerLobbyInteract()}
+              className={`px-6 sm:px-8 py-3.5 rounded-2xl border backdrop-blur-md text-center transition-all cursor-pointer ${
+                isSealed ? 'opacity-95' : 'ascend-btn hover:scale-[1.02]'
+              }`}
+              style={
+                isSealed
+                  ? {
+                      backgroundColor: `${PALETTE.hex.abyssalCloak}E6`,
+                      borderColor: isSealedRealm2
+                        ? PALETTE.hex.sunkenTeal
+                        : isSealedGallery
+                          ? PALETTE.hex.amethystTrim
+                          : PALETTE.hex.harmonicMagenta,
+                    }
+                  : undefined
+              }
+            >
+              <div
+                className="font-display text-xs sm:text-sm md:text-base font-bold tracking-[0.18em] uppercase"
+                style={{
+                  color:
+                    isRealm2Active || isSealedRealm2
+                      ? PALETTE.hex.biolumCyan
+                      : isRealm3Active || isSealedRealm3
+                        ? PALETTE.hex.harmonicEmerald
+                        : isSealedGallery
+                          ? PALETTE.hex.pulseLavender
+                          : PALETTE.hex.iceHighlights,
+                }}
+              >
+                {lobbyPrompt.title}
               </div>
-            )}
-          </button>
-        </div>
-      )}
+              <div
+                className="mt-1 text-[10px] sm:text-[11px] font-semibold tracking-[0.2em] uppercase"
+                style={{
+                  color: isSealed
+                    ? PALETTE.hex.drainedAshSilver
+                    : isRealm3Active
+                      ? PALETTE.hex.harmonicMagenta
+                      : isRealm2Active
+                        ? PALETTE.hex.atlanteanGold
+                        : PALETTE.hex.pulseLavender,
+                }}
+              >
+                {lobbyPrompt.subtitle}
+              </div>
+            </button>
+          </div>
+        ))}
 
       {/* Compact Bottom-Left Sanctum Controls Hint */}
       <div className="hidden sm:block absolute bottom-5 left-6 frost-panel rounded-xl px-3.5 py-2 text-[10px] tracking-[0.14em] uppercase text-sky-200/80">

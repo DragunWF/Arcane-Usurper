@@ -61,7 +61,7 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
 
   const isLobbySiphon = gameState === GAME_STATES.LOBBY_SIPHON;
   const isBeamFinisher =
-    gameState === GAME_STATES.SIPHON_FINISHER &&
+    (gameState === GAME_STATES.SIPHON_FINISHER || isLobbySiphon) &&
     finisherMode === FINISHER_MODES.BEAM;
   const active =
     gameState === GAME_STATES.SIPHON_FINISHER ||
@@ -79,10 +79,12 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
       ? serenaCoreCharge
       : marinaCoreCharge;
   const drainPct = Math.round(Math.max(0, Math.min(1, siphonProgress)) * 100);
-  const beamRemainingCorePct = Math.max(0, 100 - drainPct);
   const chargePct = Math.round(
     Math.max(0, Math.min(1, activeCoreCharge)) * 100,
   );
+  const beamRemainingCorePct = isLobbySiphon
+    ? chargePct
+    : Math.max(0, 100 - drainPct);
   const isLobbyDepleted = isLobbySiphon && (isEndlessSavor || chargePct <= 0);
   const showEndlessBanner = !isBeamFinisher && (isEndlessSavor || isLobbyDepleted);
   const displayPct = isBeamFinisher

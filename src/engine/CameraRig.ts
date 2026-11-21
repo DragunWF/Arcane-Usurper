@@ -10,6 +10,7 @@ import {
   LOBBY_CONFIG,
   PALETTE,
   SIPHON_BEAM_CONFIG,
+  SIPHON_GALLERY_CONFIG,
   type GameState,
 } from '../config/gameConfig';
 import {
@@ -886,11 +887,14 @@ export class CameraRig {
   /**
    * Dramatic 3/4 side framing for the ranged Umbral Siphon Beam ([R]) finisher,
    * smoothly tracking both the Dark Mage raising his staff and the shielding Boss.
+   * When `isLobbyGallery` is true, picks the open gallery-interior side and tighter
+   * offsets so the camera never clips into Siphon Gallery walls or pillars.
    */
   public updateBeamFinisherCamera(
     dt: number,
     magePos: THREE.Vector3,
     bossPos: THREE.Vector3,
+    isLobbyGallery = false,
   ): void {
     this.activeMode = 'COMBAT';
     this._shouldHideRig = false;
@@ -900,9 +904,10 @@ export class CameraRig {
     const dist = Math.hypot(dx, dz) || 1;
     const axisX = dx / dist;
     const axisZ = dz / dist;
+
     // Perpendicular side axis for a clean 3/4 side composition framing both silhouettes
-    const sideX = -axisZ;
-    const sideZ = axisX;
+    let sideX = -axisZ;
+    let sideZ = axisX;
 
     const midX = THREE.MathUtils.lerp(
       magePos.x,
@@ -915,19 +920,41 @@ export class CameraRig {
       SIPHON_BEAM_CONFIG.cameraBossBias,
     );
 
-    this.desiredLookAt.set(
-      midX,
-      SIPHON_BEAM_CONFIG.cameraMidpointFocusY,
-      midZ,
-    );
+    const sideOffset = isLobbyGallery
+      ? SIPHON_BEAM_CONFIG.lobbyCameraSideOffset
+      : SIPHON_BEAM_CONFIG.cameraSideOffset;
+    const heightOffset = isLobbyGallery
+      ? SIPHON_BEAM_CONFIG.lobbyCameraHeightOffset
+      : SIPHON_BEAM_CONFIG.cameraHeightOffset;
+    const backOffset = isLobbyGallery
+      ? SIPHON_BEAM_CONFIG.lobbyCameraBackOffset
+      : SIPHON_BEAM_CONFIG.standoffDistance * 0.22;
+    const focusY = isLobbyGallery
+      ? SIPHON_BEAM_CONFIG.lobbyCameraMidpointFocusY
+      : SIPHON_BEAM_CONFIG.cameraMidpointFocusY;
+
+    if (isLobbyGallery) {
+      // Pick whichever lateral side faces into the open center of the Siphon Gallery
+      const centerZ = SIPHON_GALLERY_CONFIG.galleryCenterZ;
+      const candPosX = midX + sideX * sideOffset - axisX * backOffset;
+      const candPosZ = midZ + sideZ * sideOffset - axisZ * backOffset;
+      const candNegX = midX - sideX * sideOffset - axisX * backOffset;
+      const candNegZ = midZ - sideZ * sideOffset - axisZ * backOffset;
+      const distPosSq =
+        candPosX * candPosX + (candPosZ - centerZ) * (candPosZ - centerZ);
+      const distNegSq =
+        candNegX * candNegX + (candNegZ - centerZ) * (candNegZ - centerZ);
+      if (distNegSq < distPosSq) {
+        sideX = -sideX;
+        sideZ = -sideZ;
+      }
+    }
+
+    this.desiredLookAt.set(midX, focusY, midZ);
     this.desiredPos.set(
-      midX +
-        sideX * SIPHON_BEAM_CONFIG.cameraSideOffset -
-        axisX * (SIPHON_BEAM_CONFIG.standoffDistance * 0.22),
-      SIPHON_BEAM_CONFIG.cameraHeightOffset,
-      midZ +
-        sideZ * SIPHON_BEAM_CONFIG.cameraSideOffset -
-        axisZ * (SIPHON_BEAM_CONFIG.standoffDistance * 0.22),
+      midX + sideX * sideOffset - axisX * backOffset,
+      heightOffset,
+      midZ + sideZ * sideOffset - axisZ * backOffset,
     );
 
     const alpha =
