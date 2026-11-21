@@ -9,6 +9,7 @@ import {
   GAME_STATES,
   LOBBY_CONFIG,
   PALETTE,
+  SIPHON_BEAM_CONFIG,
   type GameState,
 } from '../config/gameConfig';
 import {
@@ -869,6 +870,75 @@ export class CameraRig {
     }
 
     // Apply decaying camera shake
+    this.camera.position.copy(this.currentPosition);
+    if (this.shakeIntensity > 0.001) {
+      this.camera.position.x += (Math.random() - 0.5) * this.shakeIntensity;
+      this.camera.position.y += (Math.random() - 0.5) * this.shakeIntensity;
+      this.shakeIntensity = Math.max(
+        0,
+        this.shakeIntensity - dt * CAMERA_CONFIG.shakeDecayRate,
+      );
+    }
+
+    this.camera.lookAt(this.currentLookAt);
+  }
+
+  /**
+   * Dramatic 3/4 side framing for the ranged Umbral Siphon Beam ([R]) finisher,
+   * smoothly tracking both the Dark Mage raising his staff and the shielding Boss.
+   */
+  public updateBeamFinisherCamera(
+    dt: number,
+    magePos: THREE.Vector3,
+    bossPos: THREE.Vector3,
+  ): void {
+    this.activeMode = 'COMBAT';
+    this._shouldHideRig = false;
+
+    const dx = bossPos.x - magePos.x;
+    const dz = bossPos.z - magePos.z;
+    const dist = Math.hypot(dx, dz) || 1;
+    const axisX = dx / dist;
+    const axisZ = dz / dist;
+    // Perpendicular side axis for a clean 3/4 side composition framing both silhouettes
+    const sideX = -axisZ;
+    const sideZ = axisX;
+
+    const midX = THREE.MathUtils.lerp(
+      magePos.x,
+      bossPos.x,
+      SIPHON_BEAM_CONFIG.cameraBossBias,
+    );
+    const midZ = THREE.MathUtils.lerp(
+      magePos.z,
+      bossPos.z,
+      SIPHON_BEAM_CONFIG.cameraBossBias,
+    );
+
+    this.desiredLookAt.set(
+      midX,
+      SIPHON_BEAM_CONFIG.cameraMidpointFocusY,
+      midZ,
+    );
+    this.desiredPos.set(
+      midX +
+        sideX * SIPHON_BEAM_CONFIG.cameraSideOffset -
+        axisX * (SIPHON_BEAM_CONFIG.standoffDistance * 0.22),
+      SIPHON_BEAM_CONFIG.cameraHeightOffset,
+      midZ +
+        sideZ * SIPHON_BEAM_CONFIG.cameraSideOffset -
+        axisZ * (SIPHON_BEAM_CONFIG.standoffDistance * 0.22),
+    );
+
+    const alpha =
+      1 - Math.exp(-Math.max(0, dt) * SIPHON_BEAM_CONFIG.cameraLerpSpeed);
+    this.currentPosition.lerp(this.desiredPos, alpha);
+    this.currentLookAt.lerp(this.desiredLookAt, alpha);
+
+    this.orbitRimGroup.visible = true;
+    this.orbitRimGroup.position.copy(this.desiredLookAt);
+    this.orbitRimGroup.rotation.y = Math.atan2(axisX, axisZ);
+
     this.camera.position.copy(this.currentPosition);
     if (this.shakeIntensity > 0.001) {
       this.camera.position.x += (Math.random() - 0.5) * this.shakeIntensity;

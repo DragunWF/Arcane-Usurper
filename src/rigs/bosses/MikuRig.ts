@@ -1917,6 +1917,80 @@ export class MikuRig extends BossBase {
   }
 
   /**
+   * Ranged Umbral Siphon Beam ([R]) kneeling shield-to-slump pose:
+   * Miku drops to one knee raising an arm across her face against the blinding violet beam,
+   * her twin-tails whipped back by the current before drooping bleached & limp toward 1.0.
+   */
+  public applyBeamFinisherPose(drainProgress: number, time: number): void {
+    this.finisherPoseState.initialized = false;
+    this.resetResistanceState();
+    this.applyDrainBleach(drainProgress);
+
+    const pose = this.computeBeamShieldPose(drainProgress, time);
+
+    this.bodyPivot.position.set(0, pose.bodyY, 0);
+    this.bodyPivot.rotation.set(0.06 + pose.slump * 0.08, 0, pose.tremor * 0.25);
+
+    this.torsoGroup.rotation.set(pose.torsoX, 0, pose.torsoZ);
+    this.headGroup.position.set(0, 0.515, 0.008);
+    this.headGroup.rotation.set(pose.headX, pose.headY, pose.headZ);
+    this.headAccessory.rotation.set(0, 0, pose.tremor * 0.45);
+    this.necktiePivot.rotation.x = -0.06 - (1 - pose.slump) * 0.22;
+
+    // One-knee drop stance (left knee down, right leg propped)
+    this.leftLegPivot.rotation.set(-0.18, 0, -0.08);
+    this.rightLegPivot.rotation.set(-1.12, 0, 0.14);
+    this.leftKneePivot.rotation.x = 1.72;
+    this.rightKneePivot.rotation.x = 1.38;
+
+    // Left arm shielding face from blinding beam -> falls slack; right arm bracing -> slumps
+    this.leftShoulderPivot.rotation.set(
+      pose.leftShoulderX,
+      0,
+      pose.leftShoulderZ,
+    );
+    this.leftElbowPivot.rotation.set(pose.leftElbowX, 0, pose.leftElbowZ);
+    this.rightShoulderPivot.rotation.set(
+      pose.rightShoulderX,
+      0,
+      pose.rightShoulderZ,
+    );
+    this.rightElbowPivot.rotation.set(pose.rightElbowX, 0, 0);
+
+    // Twin-tails blown back under beam force then drooping ash-silver as power drains
+    const blowBack = (1 - pose.slump) * 0.36;
+    for (let i = 0; i < this.twinTails.length; i++) {
+      const tt = this.twinTails[i];
+      if (!tt) continue;
+      const flutter = Math.sin(time * 15.0 + tt.side) * 0.08 * (1 - pose.slump * 0.72);
+      tt.seg1.rotation.set(
+        0.26 + blowBack + flutter,
+        0,
+        tt.side * THREE.MathUtils.lerp(0.62, 0.24, pose.slump) + flutter * 0.5,
+      );
+      tt.seg2.rotation.set(0.28 + blowBack * 0.7 + flutter, 0, tt.side * 0.12);
+      tt.seg3.rotation.set(0.32 + flutter, 0, 0);
+      tt.seg4.rotation.set(0.24 + flutter, 0, 0);
+    }
+
+    for (let i = 0; i < this.skirtPanels.length; i++) {
+      const sp = this.skirtPanels[i];
+      if (!sp) continue;
+      sp.pivot.rotation.x =
+        -0.38 + Math.sin(time * 13.0 + sp.angle * 3) * 0.045 * (1 - pose.slump * 0.6);
+    }
+
+    const haloScale = Math.max(0.01, (1 - pose.drain) * 0.76);
+    this.harmonicHalo.visible = pose.drain < 0.88;
+    this.harmonicHalo.scale.setScalar(haloScale);
+    this.harmonicHalo.rotation.z = time * (1.1 - pose.drain * 0.8);
+    this.phaseAuraRings.visible = false;
+
+    this.stageLight.intensity =
+      ARENA_CONFIG.lighting.tiaraLightStaggerBase * (1 - pose.drain * 0.92);
+  }
+
+  /**
    * Victory Diorama floor collapse pose: Miku collapsed gracefully onto the concert stage
    * floor bleached ash-silver with her twin-tails fanned wide beside her.
    */

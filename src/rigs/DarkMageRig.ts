@@ -9,6 +9,7 @@ import {
   NG_PLUS_CONFIG,
   PALETTE,
   PLAYER_CONFIG,
+  SIPHON_BEAM_CONFIG,
   type DrainThrottleMode,
   type FinisherPoseId,
 } from '../config/gameConfig';
@@ -1515,6 +1516,67 @@ export class DarkMageRig {
       siphonPulse * 0.16;
     if (this.staffFrostLight && this.encoreTier >= 1) {
       this.staffFrostLight.intensity = 1.1;
+    }
+  }
+
+  /**
+   * Ranged Umbral Siphon Beam ([R]) stance: keeps the Obsidian Siphon Staff held
+   * firmly in his right hand, plants boots wide facing the boss, aims the staff tip
+   * forward toward her chest, and applies subtle high-voltage channeling recoil.
+   */
+  public applyBeamFinisherPose(time: number): void {
+    const cfg = SIPHON_BEAM_CONFIG;
+    this.finisherPoseState.initialized = false;
+    this.restoreObsidianMaterials();
+    this.setStaffPlanted(false);
+    if (this.defeatBlushGroup) this.defeatBlushGroup.visible = false;
+    if (this.puppetCrystalLeft) this.puppetCrystalLeft.visible = false;
+    if (this.puppetCrystalRight) this.puppetCrystalRight.visible = false;
+    this.staffGroup.visible = true;
+
+    const recoil =
+      Math.sin(time * cfg.mageRecoilFreqHz) * cfg.mageRecoilAmpRad;
+    const secondary =
+      Math.cos(time * (cfg.mageRecoilFreqHz * 0.5)) * cfg.mageRecoilAmpRad * 0.5;
+
+    // Wide braced power stance
+    this.bodyPivot.position.set(0, cfg.mageBodyY + secondary * 0.25, 0);
+    this.bodyPivot.rotation.set(0, 0, 0);
+    this.torsoGroup.rotation.set(cfg.mageTorsoPitch + recoil * 0.4, 0, 0);
+    this.headGroup.rotation.set(-0.08 - recoil * 0.25, 0, 0);
+
+    this.leftLegPivot.rotation.set(-0.18, 0, -cfg.mageStanceHipSpread);
+    this.rightLegPivot.rotation.set(0.16, 0, cfg.mageStanceHipSpread);
+    this.leftKneePivot.rotation.x = 0.26;
+    this.rightKneePivot.rotation.x = 0.22;
+
+    // Right arm aims the Obsidian Siphon Staff forward toward the boss's chest
+    this.rightShoulderPivot.rotation.set(-1.18 + recoil, 0.08, -0.14);
+    this.rightElbowPivot.rotation.set(-0.34 - recoil * 0.65, 0, 0.08);
+    this.staffGroup.rotation.set(Math.PI * 0.44 + recoil * 0.35, 0, 0);
+
+    // Left arm channels forward-outward to stabilize the arcane current
+    this.leftShoulderPivot.rotation.set(-0.88 - recoil * 0.5, 0.16, 0.38);
+    this.leftElbowPivot.rotation.set(-0.62 + secondary, 0, 0.24);
+
+    // Robes & hood-tail billow strongly under the siphoning draft
+    const billow = Math.sin(time * 8.5) * 0.065;
+    this.frontLeftRobe.rotation.x = -0.12 + billow;
+    this.frontRightRobe.rotation.x = -0.12 - billow;
+    this.backRobePivot.rotation.x = 0.24 + Math.abs(billow);
+    this.hoodTailPivot.rotation.x = -Math.PI * 0.72 + 0.14 + billow * 1.4;
+    this.hoodTailPivot.rotation.z = secondary * 1.8;
+
+    // Overcharged staff crystal spin & glow
+    this.staffCrystal.rotation.y = time * 11.0;
+    this.staffCrystal.position.y = 1.54 + Math.sin(time * 9.0) * 0.025;
+    this.staffRuneRing.rotation.y = -time * 8.5;
+    this.staffLight.intensity =
+      FINISHER_CONFIG.finisherStaffLightIntensity +
+      FINISHER_CONFIG.finisherStaffLightSurgeBoost * 1.8 +
+      Math.sin(time * cfg.beamPulseFreqHz) * 0.35;
+    if (this.staffFrostLight && this.encoreTier >= 1) {
+      this.staffFrostLight.intensity = 1.4;
     }
   }
 

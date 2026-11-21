@@ -5,6 +5,7 @@ import {
   DIORAMA_CONFIG,
   DRAIN_THROTTLE_MODES,
   SIPHON_AUDIO_CONFIG,
+  SIPHON_BEAM_CONFIG,
   type AudioMode,
   type DrainThrottleMode,
 } from '../config/gameConfig';
@@ -41,6 +42,9 @@ export interface IAudioTrigger {
   playSiphonMicroChime(realm: SiphonRealmId, drainProgress: number): void;
   playSiphonClimax(realm: SiphonRealmId): void;
   stopSiphonLoop(): void;
+  startBeamSiphonLoop(realm: SiphonRealmId): void;
+  updateBeamSiphonLoop(drainProgress: number, dt: number): void;
+  stopBeamSiphonLoop(): void;
   playVoidBolt(): void;
   playShadowBlink(): void;
   playUmbralPulse(): void;
@@ -99,6 +103,21 @@ interface ActiveSiphonNodes {
   chimeStepIdx: number;
 }
 
+interface ActiveBeamSiphonNodes {
+  realm: SiphonRealmId;
+  masterGain: GainNode;
+  coreOsc: OscillatorNode;
+  overtoneOsc: OscillatorNode;
+  subOsc: OscillatorNode;
+  overtoneGain: GainNode;
+  subGain: GainNode;
+  filter: BiquadFilterNode;
+  noiseSource: AudioBufferSourceNode | null;
+  noiseFilter: BiquadFilterNode | null;
+  noiseGain: GainNode | null;
+  crackleAccum: number;
+}
+
 interface WindowWithWebkitAudio extends Window {
   webkitAudioContext?: typeof AudioContext;
 }
@@ -124,6 +143,7 @@ export class SoundEngine implements IAudioTrigger {
   // Active Continuous SFX Loops
   private activeLaserNodes: ActiveLaserNodes | null = null;
   private activeSiphonNodes: ActiveSiphonNodes | null = null;
+  private activeBeamSiphonNodes: ActiveBeamSiphonNodes | null = null;
 
   // Dynamic Sequencer & Split Channel Gain State
   private _mode: AudioMode = AUDIO_MODES.SILENT;
@@ -2722,6 +2742,224 @@ export class SoundEngine implements IAudioTrigger {
   }
 
   /**
+   * Starts the high-voltage Umbral Siphon Beam ([R]) roaring arcane laser hum
+   * routed strictly through sfxGain.
+   */
+  public startBeamSiphonLoop(realm: SiphonRealmId): void {
+    this.stopSiphonLoop();
+    this.stopBeamSiphonLoop();
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+
+    const ctx = this.ctx;
+    const sfxGain = this.sfxGain;
+    const cfg = SIPHON_BEAM_CONFIG;
+    const now = ctx.currentTime;
+
+    const masterGain = ctx.createGain();
+    masterGain.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    masterGain.gain.setTargetAtTime(
+      cfg.audioGain,
+      now,
+      cfg.audioRampTimeConstantSec,
+    );
+    masterGain.connect(sfxGain);
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(cfg.audioFilterStartHz, now);
+    filter.Q.value = cfg.audioFilterQ;
+    filter.connect(masterGain);
+
+    const coreOsc = ctx.createOscillator();
+    coreOsc.type = 'sawtooth';
+    coreOsc.frequency.setValueAtTime(cfg.audioBaseHz, now);
+    coreOsc.connect(filter);
+
+    const overtoneOsc = ctx.createOscillator();
+    overtoneOsc.type = 'triangle';
+    overtoneOsc.frequency.setValueAtTime(
+      cfg.audioBaseHz * cfg.audioOvertoneRatio,
+      now,
+    );
+    const overtoneGain = ctx.createGain();
+    overtoneGain.gain.setValueAtTime(cfg.audioOvertoneGainScale, now);
+    overtoneOsc.connect(overtoneGain);
+    overtoneGain.connect(filter);
+
+    const subOsc = ctx.createOscillator();
+    subOsc.type = 'sine';
+    subOsc.frequency.setValueAtTime(cfg.audioBaseHz * cfg.audioSubRatio, now);
+    const subGain = ctx.createGain();
+    subGain.gain.setValueAtTime(cfg.audioSubGainScale, now);
+    subOsc.connect(subGain);
+    subGain.connect(masterGain);
+
+    coreOsc.start(now);
+    overtoneOsc.start(now);
+    subOsc.start(now);
+
+    let noiseSource: AudioBufferSourceNode | null = null;
+    let noiseFilter: BiquadFilterNode | null = null;
+    let noiseGain: GainNode | null = null;
+    const roarBuf = this.pinkNoiseBuffer ?? this.noiseBuffer;
+    if (roarBuf) {
+      noiseSource = ctx.createBufferSource();
+      noiseSource.buffer = roarBuf;
+      noiseSource.loop = true;
+
+      noiseFilter = ctx.createBiquadFilter();
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.setValueAtTime(cfg.audioFilterStartHz * 1.4, now);
+      noiseFilter.Q.value = 1.6;
+
+      noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(cfg.audioNoiseRoarGainScale, now);
+
+      noiseSource.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(masterGain);
+      noiseSource.start(now);
+    }
+
+    this.activeBeamSiphonNodes = {
+      realm,
+      masterGain,
+      coreOsc,
+      overtoneOsc,
+      subOsc,
+      overtoneGain,
+      subGain,
+      filter,
+      noiseSource,
+      noiseFilter,
+      noiseGain,
+      crackleAccum: 0,
+    };
+  }
+
+  /**
+   * Climbs the roaring beam hum from audioBaseHz -> audioPeakHz and fires
+   * filtered electric discharge crackles at crackleRateHz as the boss core empties.
+   */
+  public updateBeamSiphonLoop(drainProgress: number, dt: number): void {
+    if (
+      !this.canPlaySfx() ||
+      !this.ctx ||
+      !this.sfxGain ||
+      !this.activeBeamSiphonNodes
+    ) {
+      return;
+    }
+
+    const ctx = this.ctx;
+    const nodes = this.activeBeamSiphonNodes;
+    const cfg = SIPHON_BEAM_CONFIG;
+    const now = ctx.currentTime;
+    const drain = Math.max(0, Math.min(1, drainProgress));
+    const safeDt = Math.max(0.001, Math.min(dt, 0.05));
+
+    const targetHz = cfg.audioBaseHz + (cfg.audioPeakHz - cfg.audioBaseHz) * drain;
+    const targetFilterHz =
+      cfg.audioFilterStartHz +
+      (cfg.audioFilterPeakHz - cfg.audioFilterStartHz) * drain;
+
+    nodes.coreOsc.frequency.setTargetAtTime(
+      targetHz,
+      now,
+      cfg.audioRampTimeConstantSec,
+    );
+    nodes.overtoneOsc.frequency.setTargetAtTime(
+      targetHz * cfg.audioOvertoneRatio,
+      now,
+      cfg.audioRampTimeConstantSec,
+    );
+    nodes.subOsc.frequency.setTargetAtTime(
+      targetHz * cfg.audioSubRatio,
+      now,
+      cfg.audioRampTimeConstantSec,
+    );
+    nodes.filter.frequency.setTargetAtTime(
+      targetFilterHz,
+      now,
+      cfg.audioRampTimeConstantSec,
+    );
+    if (nodes.noiseFilter) {
+      nodes.noiseFilter.frequency.setTargetAtTime(
+        targetFilterHz * 1.25,
+        now,
+        cfg.audioRampTimeConstantSec,
+      );
+    }
+
+    // Filtered electric discharge crackles at crackleRateHz
+    const crackleInterval = 1 / Math.max(1, cfg.crackleRateHz);
+    nodes.crackleAccum += safeDt;
+    if (nodes.crackleAccum >= crackleInterval) {
+      nodes.crackleAccum = 0;
+      const crackleFreq = cfg.audioCrackleCenterHz * (0.75 + Math.random() * 0.55);
+      const crackleGain = cfg.audioCrackleGain * (0.65 + drain * 0.6);
+      this.playNoiseBurst(
+        now,
+        'bandpass',
+        crackleFreq,
+        crackleFreq * 0.72,
+        cfg.audioCrackleQ,
+        crackleGain,
+        cfg.audioCrackleDurationSec,
+      );
+    }
+  }
+
+  /**
+   * Smoothly fades out and disconnects all high-voltage Umbral Siphon Beam nodes.
+   */
+  public stopBeamSiphonLoop(): void {
+    const nodes = this.activeBeamSiphonNodes;
+    if (!nodes) return;
+    this.activeBeamSiphonNodes = null;
+
+    const cfg = SIPHON_BEAM_CONFIG;
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    try {
+      nodes.masterGain.gain.cancelScheduledValues(now);
+      nodes.masterGain.gain.setTargetAtTime(
+        AUDIO_CONFIG.minGainFloor,
+        now,
+        cfg.audioStopFadeOutSec * 0.35,
+      );
+      const stopAt = now + cfg.audioStopCleanupDelaySec;
+      nodes.coreOsc.onended = () => {
+        try {
+          nodes.coreOsc.disconnect();
+          nodes.overtoneOsc.disconnect();
+          nodes.subOsc.disconnect();
+          nodes.overtoneGain.disconnect();
+          nodes.subGain.disconnect();
+          nodes.filter.disconnect();
+          nodes.noiseSource?.disconnect();
+          nodes.noiseFilter?.disconnect();
+          nodes.noiseGain?.disconnect();
+          nodes.masterGain.disconnect();
+        } catch {
+          // Nodes may already be disconnected
+        }
+      };
+      nodes.coreOsc.stop(stopAt);
+      nodes.overtoneOsc.stop(stopAt);
+      nodes.subOsc.stop(stopAt);
+      nodes.noiseSource?.stop(stopAt);
+    } catch {
+      try {
+        nodes.masterGain.disconnect();
+      } catch {
+        // Ignore already-disconnected graph
+      }
+    }
+  }
+
+  /**
    * Stops the sequencer timer, ambient wind bed, and releases the Web Audio context.
    */
   public dispose(): void {
@@ -2731,6 +2969,7 @@ export class SoundEngine implements IAudioTrigger {
     }
     this.stopLaserLoop();
     this.stopSiphonLoop();
+    this.stopBeamSiphonLoop();
 
     try {
       this.windSource?.stop();

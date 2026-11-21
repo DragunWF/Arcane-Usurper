@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   BOSS_PHASES,
+  FINISHER_MODES,
   GAME_STATES,
   PALETTE,
   PLAYER_CONFIG,
@@ -449,15 +450,28 @@ export function CombatHUD({ controller }: CombatHUDProps) {
               </div>
             )}
 
-          {/* Lower-Center Amethyst Finisher Prompt (STAGGER within 8.5m) */}
+          {/* Lower-Center Dual Amethyst Finisher Prompts (STAGGER within 8.5m) */}
           {gameState === GAME_STATES.STAGGER && canExecuteFinisher && (
-            <div className="fixed bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 pointer-events-auto z-30">
+            <div className="fixed bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 pointer-events-auto z-30 flex flex-col sm:flex-row items-center gap-3 max-w-[calc(100vw-2rem)]">
               <button
                 type="button"
-                onClick={() => controller?.triggerFinisher()}
-                className="ascend-btn px-6 sm:px-9 py-3.5 rounded-xl font-display text-xs sm:text-sm md:text-base font-bold tracking-[0.2em] text-fuchsia-100 uppercase cursor-pointer animate-pulse"
+                onClick={() => controller?.triggerFinisher(FINISHER_MODES.KISS)}
+                className="ascend-btn px-5 sm:px-7 py-3 rounded-xl font-display text-xs sm:text-sm font-bold tracking-[0.18em] text-fuchsia-100 uppercase cursor-pointer animate-pulse flex flex-col items-center leading-tight"
               >
-                [E] EXECUTE ARCANE SIPHON KISS
+                <span>[E] ARCANE SIPHON KISS</span>
+                <span className="mt-0.5 text-[10px] font-sans font-semibold tracking-[0.2em] text-fuchsia-200/80">
+                  Close-Range
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => controller?.triggerFinisher(FINISHER_MODES.BEAM)}
+                className="frost-panel px-5 sm:px-7 py-3 rounded-xl border border-violet-400/75 bg-violet-950/80 hover:bg-violet-900/85 hover:border-fuchsia-300 shadow-[0_0_24px_rgba(139,92,246,0.45)] font-display text-xs sm:text-sm font-bold tracking-[0.18em] text-violet-100 uppercase cursor-pointer transition-all flex flex-col items-center leading-tight"
+              >
+                <span>[R] UMBRAL SIPHON BEAM</span>
+                <span className="mt-0.5 text-[10px] font-sans font-semibold tracking-[0.2em] text-violet-200/80">
+                  Ranged Drain
+                </span>
               </button>
             </div>
           )}

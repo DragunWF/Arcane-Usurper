@@ -261,6 +261,7 @@ export class DioramaSystem implements ISystem {
     }
 
     this.audio.stopSiphonLoop();
+    this.audio.stopBeamSiphonLoop();
     this.mageRig.setStaffPlanted(false);
     this.bossRig.applyDrainBleach(1.0);
     this.bossRig.setExpression(BOSS_EXPRESSIONS.DRAINED_FAINT, this.spiralPhase);
@@ -335,6 +336,7 @@ export class DioramaSystem implements ISystem {
    */
   public enterDefeatDiorama(): void {
     this.audio.stopSiphonLoop();
+    this.audio.stopBeamSiphonLoop();
     this.mageRig.setStaffPlanted(false);
     this.callbacks.clearAllCombatEntities();
     this.callbacks.setGameState(GAME_STATES.DEFEAT_DIORAMA);

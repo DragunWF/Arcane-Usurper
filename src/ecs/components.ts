@@ -4,6 +4,7 @@ import type {
   BossPhase,
   DestructiblePropType,
   DrainThrottleMode,
+  FinisherMode,
   FinisherPoseId,
   ServantAIState,
   ServantArchetype,
@@ -89,6 +90,7 @@ export interface PlayerIntentComponent {
   blinkRequested: boolean;
   pulseRequested: boolean;
   finisherExecuteRequested: boolean;
+  beamFinisherExecuteRequested: boolean;
   portalInteractRequested: boolean;
   tauntRequested: boolean;
   surgeTapRequested: boolean;
@@ -177,6 +179,7 @@ export interface BossPhaseStateComponent {
 
 export interface SiphonableBossComponent {
   siphonProgress: number;
+  finisherMode: FinisherMode;
   finisherPose: FinisherPoseId;
   drainThrottle: DrainThrottleMode;
   isEndlessSavor: boolean;

@@ -5,6 +5,7 @@ import {
   FINISHER_POSE_IDS,
   FINISHER_RESISTANCE_CONFIG,
   PALETTE,
+  SIPHON_BEAM_CONFIG,
   type BossExpression,
   type BossPhase,
   type DrainThrottleMode,
@@ -201,6 +202,29 @@ export interface FinisherArmTargets {
 }
 
 /**
+ * Shared kneeling-shield-to-slump posture computed on `BossBase` for the
+ * ranged Umbral Siphon Beam ([R]) finisher across Marina, Serena, and Miku.
+ */
+export interface BossBeamShieldPose {
+  readonly drain: number;
+  readonly slump: number;
+  readonly tremor: number;
+  readonly bodyY: number;
+  readonly torsoX: number;
+  readonly torsoZ: number;
+  readonly headX: number;
+  readonly headY: number;
+  readonly headZ: number;
+  readonly leftShoulderX: number;
+  readonly leftShoulderZ: number;
+  readonly leftElbowX: number;
+  readonly leftElbowZ: number;
+  readonly rightShoulderX: number;
+  readonly rightShoulderZ: number;
+  readonly rightElbowX: number;
+}
+
+/**
  * Standardized Boss Rig contract honored by every sovereign boss (Marina, Miku, Mermaid).
  * Guarantees Liskov Substitution across FinisherSystem, DioramaSystem, and RenderSyncSystem
  * with zero boss-specific branching.
@@ -244,6 +268,7 @@ export interface BossRigAdapter {
     isTauntStunned?: boolean,
     headChoreography?: FinisherHeadChoreography,
   ): void;
+  applyBeamFinisherPose(drainProgress: number, time: number): void;
   applyVictoryCollapsePose(time: number): void;
   applyPuppetMasterPose(time: number): void;
   applyDrainBleach(drainProgress: number): void;
@@ -295,6 +320,10 @@ export abstract class BossBase implements BossRigAdapter {
     throttleMode?: DrainThrottleMode,
     isTauntStunned?: boolean,
     headChoreography?: FinisherHeadChoreography,
+  ): void;
+  public abstract applyBeamFinisherPose(
+    drainProgress: number,
+    time: number,
   ): void;
   public abstract applyVictoryCollapsePose(time: number): void;
   public abstract applyPuppetMasterPose(time: number): void;
@@ -588,6 +617,83 @@ export abstract class BossBase implements BossRigAdapter {
       compY - Math.sin(compPitch) * faceNormalOffset,
       compZ + Math.cos(compPitch) * faceNormalOffset,
     );
+  }
+
+  /**
+   * Computes shared one-knee shielding-to-slump kinematics for the ranged Umbral
+   * Siphon Beam ([R]) finisher so every sovereign rig shields her face against the
+   * blinding violet beam, trembles under the current, and slumps forward toward 100%.
+   */
+  protected computeBeamShieldPose(
+    drainProgress: number,
+    time: number,
+  ): BossBeamShieldPose {
+    const cfg = SIPHON_BEAM_CONFIG;
+    const drain = THREE.MathUtils.clamp(drainProgress, 0, 1);
+    const slump = THREE.MathUtils.smoothstep(drain, 0.52, 1.0);
+    const tremorStrength = (1 - slump * 0.72) * (0.45 + 0.55 * Math.sin(drain * Math.PI));
+    const tremor =
+      Math.sin(time * cfg.bossTremorFreqHz) * cfg.bossTremorAmpRad * tremorStrength;
+    const secondary =
+      Math.cos(time * (cfg.bossTremorFreqHz * 0.78)) *
+      cfg.bossTremorAmpRad *
+      0.6 *
+      tremorStrength;
+
+    return {
+      drain,
+      slump,
+      tremor,
+      bodyY: cfg.bossKneelBodyY - slump * 0.055 + secondary * 0.15,
+      torsoX:
+        THREE.MathUtils.lerp(
+          cfg.bossShieldTorsoStartX,
+          cfg.bossShieldTorsoSlumpX,
+          slump,
+        ) +
+        tremor * 0.45,
+      torsoZ: secondary * 0.65,
+      headX:
+        THREE.MathUtils.lerp(
+          cfg.bossShieldHeadStartX,
+          cfg.bossShieldHeadSlumpX,
+          slump,
+        ) -
+        tremor * 0.35,
+      headY: cfg.bossShieldHeadTurnY * (1 - slump * 0.55) + secondary * 0.4,
+      headZ: -0.14 * (1 - slump * 0.4) + tremor * 0.5,
+      // Left arm raised across her face to shield from the blinding violet beam -> drops limp
+      leftShoulderX:
+        THREE.MathUtils.lerp(cfg.bossShieldArmStartX, cfg.bossSlumpArmX, slump) +
+        tremor * 0.7,
+      leftShoulderZ: THREE.MathUtils.lerp(
+        cfg.bossShieldArmStartZ,
+        -cfg.bossSlumpArmZ,
+        slump,
+      ),
+      leftElbowX:
+        THREE.MathUtils.lerp(
+          cfg.bossShieldElbowStartX,
+          cfg.bossSlumpElbowX,
+          slump,
+        ) + tremor,
+      leftElbowZ: THREE.MathUtils.lerp(cfg.bossShieldElbowStartZ, 0, slump),
+      // Right arm braced downward for balance -> collapses limp
+      rightShoulderX:
+        THREE.MathUtils.lerp(cfg.bossBraceArmStartX, cfg.bossSlumpArmX, slump) -
+        tremor * 0.5,
+      rightShoulderZ: THREE.MathUtils.lerp(
+        cfg.bossBraceArmStartZ,
+        cfg.bossSlumpArmZ,
+        slump,
+      ),
+      rightElbowX:
+        THREE.MathUtils.lerp(
+          cfg.bossBraceElbowStartX,
+          cfg.bossSlumpElbowX,
+          slump,
+        ) - tremor * 0.7,
+    };
   }
 }
 

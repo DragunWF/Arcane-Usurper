@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   DRAIN_THROTTLE_MODES,
+  FINISHER_MODES,
   FINISHER_POSE_IDS,
   FINISHER_POSE_LABELS,
   GAME_STATES,
@@ -41,6 +42,7 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
   const mikuCoreCharge = useGameStore((s) => s.mikuCoreCharge);
   const lobbySiphonTarget = useGameStore((s) => s.lobbySiphonTarget);
   const finisherPose = useGameStore((s) => s.finisherPose);
+  const finisherMode = useGameStore((s) => s.finisherMode);
   const throttleMode = useGameStore((s) => s.throttleMode);
   const isEndlessSavor = useGameStore((s) => s.isEndlessSavor);
   const tauntTriggerCount = useGameStore((s) => s.tauntTriggerCount);
@@ -58,6 +60,9 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
   }, [tauntTriggerCount]);
 
   const isLobbySiphon = gameState === GAME_STATES.LOBBY_SIPHON;
+  const isBeamFinisher =
+    gameState === GAME_STATES.SIPHON_FINISHER &&
+    finisherMode === FINISHER_MODES.BEAM;
   const active =
     gameState === GAME_STATES.SIPHON_FINISHER ||
     gameState === GAME_STATES.ENDLESS_SAVOR ||
@@ -74,17 +79,24 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
       ? serenaCoreCharge
       : marinaCoreCharge;
   const drainPct = Math.round(Math.max(0, Math.min(1, siphonProgress)) * 100);
+  const beamRemainingCorePct = Math.max(0, 100 - drainPct);
   const chargePct = Math.round(
     Math.max(0, Math.min(1, activeCoreCharge)) * 100,
   );
   const isLobbyDepleted = isLobbySiphon && (isEndlessSavor || chargePct <= 0);
-  const showEndlessBanner = isEndlessSavor || isLobbyDepleted;
-  const displayPct = isLobbySiphon ? chargePct : drainPct;
-  const barWidthPct = isLobbySiphon
-    ? isLobbyDepleted
-      ? 100
-      : chargePct
-    : drainPct;
+  const showEndlessBanner = !isBeamFinisher && (isEndlessSavor || isLobbyDepleted);
+  const displayPct = isBeamFinisher
+    ? beamRemainingCorePct
+    : isLobbySiphon
+      ? chargePct
+      : drainPct;
+  const barWidthPct = isBeamFinisher
+    ? beamRemainingCorePct
+    : isLobbySiphon
+      ? isLobbyDepleted
+        ? 100
+        : chargePct
+      : drainPct;
 
   return (
     <div className="fixed inset-0 z-30 pointer-events-none">
@@ -93,40 +105,46 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
         <div className="frost-panel rounded-2xl px-4 py-3 border-purple-400/45 shadow-[0_0_32px_rgba(168,85,247,0.28)]">
           <div className="flex items-center justify-between gap-2 mb-1.5">
             <div className="font-display text-xs sm:text-sm font-bold tracking-[0.18em] text-fuchsia-100 uppercase">
-              {showEndlessBanner
-                ? 'CORE DEPLETED — ENDLESS SAVOR'
-                : isMikuLobbyTarget
-                  ? `HARMONIC CORE CHARGE • ${bossDisplayName}`
-                  : isSerenaLobbyTarget
-                    ? `TIDAL CORE CHARGE • ${bossDisplayName}`
-                    : isLobbySiphon
-                      ? `CRYO CORE CHARGE • ${bossDisplayName}`
-                      : `ARCANE SIPHON KISS • ${bossDisplayName}`}
+              {isBeamFinisher
+                ? `UMBRAL SIPHON BEAM • ${bossDisplayName} CORE: ${beamRemainingCorePct}%`
+                : showEndlessBanner
+                  ? 'CORE DEPLETED — ENDLESS SAVOR'
+                  : isMikuLobbyTarget
+                    ? `HARMONIC CORE CHARGE • ${bossDisplayName}`
+                    : isSerenaLobbyTarget
+                      ? `TIDAL CORE CHARGE • ${bossDisplayName}`
+                      : isLobbySiphon
+                        ? `CRYO CORE CHARGE • ${bossDisplayName}`
+                        : `ARCANE SIPHON KISS • ${bossDisplayName}`}
             </div>
-            <span className="text-xs font-mono font-bold text-purple-200">
-              {displayPct}%
-            </span>
+            {!isBeamFinisher && (
+              <span className="text-xs font-mono font-bold text-purple-200">
+                {displayPct}%
+              </span>
+            )}
           </div>
 
           <div className="h-3 w-full rounded-full bg-slate-950/90 border border-purple-400/35 overflow-hidden p-[1px]">
             <div
               className={
-                showEndlessBanner
-                  ? 'bar-fill h-full rounded-full bg-gradient-to-r from-slate-400 via-purple-400 to-fuchsia-300 shadow-[0_0_12px_rgba(168,85,247,0.85)]'
-                  : isMikuLobbyTarget
-                    ? 'bar-fill h-full rounded-full bg-gradient-to-r from-emerald-400 via-teal-300 to-pink-400 shadow-[0_0_14px_rgba(16,185,129,0.9)]'
-                    : isSerenaLobbyTarget
-                      ? 'bar-fill h-full rounded-full bg-gradient-to-r from-teal-500 via-cyan-400 to-purple-400 shadow-[0_0_14px_rgba(6,182,212,0.9)]'
-                      : isLobbySiphon
-                        ? 'bar-fill h-full rounded-full bg-gradient-to-r from-cyan-400 via-sky-400 to-purple-400 shadow-[0_0_14px_rgba(56,189,248,0.9)]'
-                        : 'bar-fill h-full rounded-full bg-gradient-to-r from-sky-400 via-purple-500 to-fuchsia-400 shadow-[0_0_14px_rgba(168,85,247,0.9)]'
+                isBeamFinisher
+                  ? 'bar-fill h-full rounded-full bg-gradient-to-r from-violet-600 via-purple-400 to-fuchsia-300 shadow-[0_0_16px_rgba(168,85,247,0.95)]'
+                  : showEndlessBanner
+                    ? 'bar-fill h-full rounded-full bg-gradient-to-r from-slate-400 via-purple-400 to-fuchsia-300 shadow-[0_0_12px_rgba(168,85,247,0.85)]'
+                    : isMikuLobbyTarget
+                      ? 'bar-fill h-full rounded-full bg-gradient-to-r from-emerald-400 via-teal-300 to-pink-400 shadow-[0_0_14px_rgba(16,185,129,0.9)]'
+                      : isSerenaLobbyTarget
+                        ? 'bar-fill h-full rounded-full bg-gradient-to-r from-teal-500 via-cyan-400 to-purple-400 shadow-[0_0_14px_rgba(6,182,212,0.9)]'
+                        : isLobbySiphon
+                          ? 'bar-fill h-full rounded-full bg-gradient-to-r from-cyan-400 via-sky-400 to-purple-400 shadow-[0_0_14px_rgba(56,189,248,0.9)]'
+                          : 'bar-fill h-full rounded-full bg-gradient-to-r from-sky-400 via-purple-500 to-fuchsia-400 shadow-[0_0_14px_rgba(168,85,247,0.9)]'
               }
               style={{ width: `${barWidthPct}%` }}
             />
           </div>
 
-          {/* Three-Tier Drain Throttle Pills (hidden once Core is Depleted in Endless Savor) */}
-          {!showEndlessBanner && (
+          {/* Three-Tier Drain Throttle Pills (hidden in Beam Finisher & Endless Savor) */}
+          {!showEndlessBanner && !isBeamFinisher && (
             <div className="mt-2.5 flex items-center justify-center gap-2 pointer-events-auto">
               {THROTTLE_OPTIONS.map((opt) => {
                 const selected = throttleMode === opt.id;
@@ -175,7 +193,7 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
       </button>
 
       {/* Floating *MANA DEPLETED* Tiara-Flick Taunt Pop-Up */}
-      {showTauntPop && (
+      {!isBeamFinisher && showTauntPop && (
         <div className="fixed top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none animate-bounce">
           <div className="px-4 py-1.5 rounded-full bg-fuchsia-950/85 border border-fuchsia-300/80 shadow-[0_0_24px_rgba(244,63,94,0.6)] font-display text-xs sm:text-sm font-bold tracking-[0.2em] text-fuchsia-100 uppercase">
             *MANA DEPLETED*
@@ -183,43 +201,45 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
         </div>
       )}
 
-      {/* Bottom-Left Dominance Pose Switcher [1-2] + [F] Tiara / Hair-Cube Flick Taunt */}
-      <div className="absolute bottom-5 left-4 sm:left-6 flex flex-col gap-2 max-w-[calc(100vw-2rem)] pointer-events-auto">
-        <div className="frost-panel rounded-2xl p-2.5 flex flex-wrap items-center gap-1.5">
-          {POSE_OPTIONS.map((poseId) => {
-            const activePose = finisherPose === poseId;
-            const poseLabel = FINISHER_POSE_LABELS[poseId];
-            return (
-              <button
-                key={poseId}
-                type="button"
-                onClick={() => controller?.setFinisherPose(poseId)}
-                className={`px-3 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-semibold tracking-wider uppercase border transition-all cursor-pointer ${
-                  activePose
-                    ? 'bg-purple-500/40 border-purple-300/90 text-sky-50 shadow-[0_0_14px_rgba(168,85,247,0.55)]'
-                    : 'bg-slate-950/75 border-sky-400/20 text-sky-200/80 hover:border-purple-400/60'
-                }`}
-              >
-                [{poseId}] {poseLabel}
-              </button>
-            );
-          })}
+      {/* Bottom-Left Dominance Pose Switcher [1-2] + [F] Tiara / Hair-Cube Flick Taunt (Kiss / Endless Savor only) */}
+      {!isBeamFinisher && (
+        <div className="absolute bottom-5 left-4 sm:left-6 flex flex-col gap-2 max-w-[calc(100vw-2rem)] pointer-events-auto">
+          <div className="frost-panel rounded-2xl p-2.5 flex flex-wrap items-center gap-1.5">
+            {POSE_OPTIONS.map((poseId) => {
+              const activePose = finisherPose === poseId;
+              const poseLabel = FINISHER_POSE_LABELS[poseId];
+              return (
+                <button
+                  key={poseId}
+                  type="button"
+                  onClick={() => controller?.setFinisherPose(poseId)}
+                  className={`px-3 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-semibold tracking-wider uppercase border transition-all cursor-pointer ${
+                    activePose
+                      ? 'bg-purple-500/40 border-purple-300/90 text-sky-50 shadow-[0_0_14px_rgba(168,85,247,0.55)]'
+                      : 'bg-slate-950/75 border-sky-400/20 text-sky-200/80 hover:border-purple-400/60'
+                  }`}
+                >
+                  [{poseId}] {poseLabel}
+                </button>
+              );
+            })}
 
-          <button
-            type="button"
-            onClick={() => controller?.triggerTaunt()}
-            className="px-3.5 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-bold tracking-[0.14em] uppercase border border-rose-400/60 bg-rose-950/60 text-rose-100 hover:border-rose-300 hover:bg-rose-900/70 transition-all cursor-pointer"
-          >
-            {isMikuLobbyTarget || (!isLobbySiphon && activeRealm === 3)
-              ? '[F] FLICK HAIR-CUBE'
-              : '[F] FLICK TIARA'}
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => controller?.triggerTaunt()}
+              className="px-3.5 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-bold tracking-[0.14em] uppercase border border-rose-400/60 bg-rose-950/60 text-rose-100 hover:border-rose-300 hover:bg-rose-900/70 transition-all cursor-pointer"
+            >
+              {isMikuLobbyTarget || (!isLobbySiphon && activeRealm === 3)
+                ? '[F] FLICK HAIR-CUBE'
+                : '[F] FLICK TIARA'}
+            </button>
+          </div>
 
-        <div className="px-3 py-1 rounded-full frost-panel text-[10px] tracking-[0.16em] uppercase text-sky-200/75 w-fit">
-          Drag to Orbit 360&deg; &bull; Scroll to Zoom
+          <div className="px-3 py-1 rounded-full frost-panel text-[10px] tracking-[0.16em] uppercase text-sky-200/75 w-fit">
+            Drag to Orbit 360&deg; &bull; Scroll to Zoom
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Bottom-Right Release Button in Siphon Gallery (LOBBY_SIPHON) */}
       {isLobbySiphon && (

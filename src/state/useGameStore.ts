@@ -8,6 +8,7 @@ import {
   CHAMBER_CONFIG,
   DRAIN_THROTTLE_MODES,
   FINISHER_CONFIG,
+  FINISHER_MODES,
   FINISHER_POSE_IDS,
   GAME_STATES,
   LOBBY_CONFIG,
@@ -22,6 +23,7 @@ import {
   type BossExpression,
   type BossPhase,
   type DrainThrottleMode,
+  type FinisherMode,
   type FinisherPoseId,
   type GameState,
   type LobbyPromptKind,
@@ -285,6 +287,7 @@ export interface GameStoreState {
 
   // Interactive Finisher & Diorama State
   siphonProgress: number;
+  finisherMode: FinisherMode;
   finisherPose: FinisherPoseId;
   drainThrottle: DrainThrottleMode;
   throttleMode: DrainThrottleMode;
@@ -342,6 +345,7 @@ export interface GameStoreState {
   setLobbySiphonTarget: (target: 'marina' | 'serena' | 'miku') => void;
   setLobbyPrompt: (prompt: LobbyPromptState | null) => void;
   setLobbyDummyHit: (hit: LobbyDummyHitState | null) => void;
+  setFinisherMode: (mode: FinisherMode) => void;
   setFinisherPose: (pose: FinisherPoseId) => void;
   setDrainThrottle: (mode: DrainThrottleMode) => void;
   setThrottleMode: (mode: DrainThrottleMode) => void;
@@ -425,6 +429,7 @@ const INITIAL_STATE = {
   canExecuteFinisher: false,
 
   siphonProgress: 0,
+  finisherMode: FINISHER_MODES.KISS as FinisherMode,
   finisherPose: FINISHER_POSE_IDS.UPRIGHT_EMBRACE as FinisherPoseId,
   drainThrottle: DRAIN_THROTTLE_MODES.FLOW as DrainThrottleMode,
   throttleMode: DRAIN_THROTTLE_MODES.FLOW as DrainThrottleMode,
@@ -569,6 +574,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
   setLobbyDummyHit: (lobbyDummyHit) => set({ lobbyDummyHit }),
 
   setFinisherPose: (finisherPose) => set({ finisherPose }),
+  setFinisherMode: (finisherMode) => set({ finisherMode }),
   setDrainThrottle: (drainThrottle) =>
     set({ drainThrottle, throttleMode: drainThrottle }),
   setThrottleMode: (throttleMode) =>
@@ -577,6 +583,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
   enterEndlessSavor: () =>
     set({
       gameState: GAME_STATES.ENDLESS_SAVOR,
+      finisherMode: FINISHER_MODES.KISS,
       isEndlessSavor: true,
       siphonProgress: FINISHER_CONFIG.endlessSavorLockedProgress,
       bossExpression: BOSS_EXPRESSIONS.SIPHON_KISS,
@@ -659,6 +666,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
         isBossStaggered: false,
         canExecuteFinisher: false,
         siphonProgress: 0,
+        finisherMode: FINISHER_MODES.KISS,
         finisherPose: FINISHER_POSE_IDS.UPRIGHT_EMBRACE,
         drainThrottle: DRAIN_THROTTLE_MODES.FLOW,
         throttleMode: DRAIN_THROTTLE_MODES.FLOW,

@@ -1712,6 +1712,85 @@ export class SerenaRig extends BossBase {
   }
 
   /**
+   * Ranged Umbral Siphon Beam ([R]) kneeling-coil shield-to-slump pose:
+   * Serena curls her tail tightly on the floor while shielding her face against the beam,
+   * shuddering as her iridescent scales bleach to ash-silver and slumping forward toward 1.0.
+   */
+  public applyBeamFinisherPose(drainProgress: number, time: number): void {
+    this.finisherPoseState.initialized = false;
+    this.resetResistanceState();
+    this.applyDrainBleach(drainProgress);
+
+    const pose = this.computeBeamShieldPose(drainProgress, time);
+
+    this.bodyPivot.position.set(0, pose.bodyY, 0);
+    this.bodyPivot.rotation.set(0.08 + pose.slump * 0.08, 0, pose.tremor * 0.25);
+
+    this.torsoGroup.rotation.set(pose.torsoX, 0, pose.torsoZ);
+    this.headGroup.position.set(0, 0.515, 0.008);
+    this.headGroup.rotation.set(pose.headX, pose.headY, pose.headZ);
+    this.headAccessory.rotation.set(-0.16, 0, pose.tremor * 0.45);
+
+    // 4-Segment mermaid tail thrashing defensively then relaxing limp onto the floor
+    const tailThrash = Math.sin(time * 11.0) * 0.14 * (1 - pose.slump * 0.8);
+    this.tailSeg1.rotation.set(
+      THREE.MathUtils.lerp(0.96, 1.08, pose.slump),
+      0.32 + tailThrash * 0.4,
+      0.22,
+    );
+    this.tailSeg2.rotation.set(
+      THREE.MathUtils.lerp(0.54, 0.36, pose.slump),
+      0.46 + tailThrash * 0.7,
+      0,
+    );
+    this.tailSeg3.rotation.set(
+      THREE.MathUtils.lerp(0.24, 0.12, pose.slump),
+      0.56 + tailThrash,
+      0,
+    );
+    this.tailSeg4.rotation.set(
+      THREE.MathUtils.lerp(0.14, 0.05, pose.slump),
+      0.48 + tailThrash * 1.1,
+      0,
+    );
+    this.caudalFinPivot.rotation.set(tailThrash * 1.4, 0, 0);
+
+    // Left arm shielding face from blinding beam -> falls slack; right arm bracing -> slumps
+    this.leftShoulderPivot.rotation.set(
+      pose.leftShoulderX,
+      0,
+      pose.leftShoulderZ,
+    );
+    this.leftElbowPivot.rotation.set(pose.leftElbowX, 0, pose.leftElbowZ);
+    this.rightShoulderPivot.rotation.set(
+      pose.rightShoulderX,
+      0,
+      pose.rightShoulderZ,
+    );
+    this.rightElbowPivot.rotation.set(pose.rightElbowX, 0, 0);
+
+    const blowBack = (1 - pose.slump) * 0.34;
+    for (let i = 0; i < this.hairRibbons.length; i++) {
+      const hr = this.hairRibbons[i];
+      if (!hr) continue;
+      const flutter = Math.sin(time * 14.0 + hr.phase) * 0.06 * (1 - pose.slump * 0.7);
+      hr.rootSeg.rotation.x = 0.28 + blowBack + flutter;
+      hr.midSeg.rotation.x = 0.24 + blowBack * 0.8 + flutter;
+      hr.tipSeg.rotation.x = 0.18 + blowBack * 0.6 + flutter;
+      hr.rootSeg.rotation.z = hr.spread * (0.36 + blowBack * 0.3);
+    }
+
+    const haloScale = Math.max(0.01, (1 - pose.drain) * 0.72);
+    this.sirenHalo.visible = pose.drain < 0.88;
+    this.sirenHalo.scale.setScalar(haloScale);
+    this.sirenHalo.rotation.z = time * (0.9 - pose.drain * 0.7);
+    this.phaseAuraRings.visible = false;
+
+    this.tiaraLight.intensity =
+      ARENA_CONFIG.lighting.tiaraLightStaggerBase * (1 - pose.drain * 0.92);
+  }
+
+  /**
    * Victory Diorama floor collapse: 100% ash-silver bleached Serena sprawled gracefully
    * onto the pearl mosaic with her 4-segment fish tail curled softly beside her.
    */

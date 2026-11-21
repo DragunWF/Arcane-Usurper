@@ -3,6 +3,7 @@ import {
   FINISHER_POSE_IDS,
   FIRST_PERSON_GAZE_CONFIG,
   GAME_STATES,
+  SIPHON_BEAM_CONFIG,
   type DrainThrottleMode,
   type FinisherPoseId,
   type GameState,
@@ -51,6 +52,7 @@ export class InputSystem implements ISystem {
   private queuedBlink = false;
   private queuedPulse = false;
   private queuedFinisherExecute = false;
+  private queuedBeamFinisherExecute = false;
   private queuedPortalInteract = false;
   private queuedTaunt = false;
   private queuedSurgeTap = false;
@@ -155,9 +157,16 @@ export class InputSystem implements ISystem {
         return;
       }
 
-      // Execute Arcane Siphon Kiss ([E]) in STAGGER or Portal/Trophy Interact ([E]) in LOBBY/CHAMBER_COMBAT
+      // Execute Arcane Siphon Kiss ([E]) or Umbral Siphon Beam ([R]) in STAGGER
       if (e.code === 'KeyE' && state === GAME_STATES.STAGGER) {
         this.queuedFinisherExecute = true;
+        return;
+      }
+      if (
+        e.code === SIPHON_BEAM_CONFIG.triggerKey &&
+        state === GAME_STATES.STAGGER
+      ) {
+        this.queuedBeamFinisherExecute = true;
         return;
       }
       if (
@@ -301,6 +310,10 @@ export class InputSystem implements ISystem {
     this.queuedFinisherExecute = true;
   }
 
+  public queueBeamFinisherExecute(): void {
+    this.queuedBeamFinisherExecute = true;
+  }
+
   public queuePortalInteract(): void {
     this.queuedPortalInteract = true;
   }
@@ -361,6 +374,7 @@ export class InputSystem implements ISystem {
     this.queuedBlink = false;
     this.queuedPulse = false;
     this.queuedFinisherExecute = false;
+    this.queuedBeamFinisherExecute = false;
     this.queuedPortalInteract = false;
     this.queuedTaunt = false;
     this.queuedSurgeTap = false;
@@ -410,6 +424,7 @@ export class InputSystem implements ISystem {
     intent.blinkRequested = this.queuedBlink;
     intent.pulseRequested = this.queuedPulse;
     intent.finisherExecuteRequested = this.queuedFinisherExecute;
+    intent.beamFinisherExecuteRequested = this.queuedBeamFinisherExecute;
     intent.portalInteractRequested = this.queuedPortalInteract;
     intent.tauntRequested = this.queuedTaunt;
     intent.surgeTapRequested = this.queuedSurgeTap;
@@ -421,6 +436,7 @@ export class InputSystem implements ISystem {
     this.queuedBlink = false;
     this.queuedPulse = false;
     this.queuedFinisherExecute = false;
+    this.queuedBeamFinisherExecute = false;
     this.queuedPortalInteract = false;
     this.queuedTaunt = false;
     this.queuedSurgeTap = false;

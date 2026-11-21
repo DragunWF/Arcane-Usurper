@@ -1986,6 +1986,75 @@ export class MarinaRig extends BossBase {
   }
 
   /**
+   * Ranged Umbral Siphon Beam ([R]) kneeling shield-to-slump pose:
+   * Marina drops to one knee raising an arm across her face against the blinding violet beam,
+   * trembles under the current, bleaches smoothly to ash-silver, and slumps forward toward 1.0.
+   */
+  public applyBeamFinisherPose(drainProgress: number, time: number): void {
+    this.finisherPoseState.initialized = false;
+    this.resetResistanceState();
+    this.applyDrainBleach(drainProgress);
+
+    const pose = this.computeBeamShieldPose(drainProgress, time);
+
+    this.bodyPivot.position.set(0, pose.bodyY, 0);
+    this.bodyPivot.rotation.set(0.06 + pose.slump * 0.08, 0, pose.tremor * 0.25);
+
+    this.torsoGroup.rotation.set(pose.torsoX, 0, pose.torsoZ);
+    this.headGroup.position.set(0, 0.515, 0.008);
+    this.headGroup.rotation.set(pose.headX, pose.headY, pose.headZ);
+    this.headAccessory.rotation.set(-0.16, 0, pose.tremor * 0.45);
+
+    // One-knee drop stance (left knee down, right leg propped)
+    this.leftLegPivot.rotation.set(-0.18, 0, -0.08);
+    this.rightLegPivot.rotation.set(-1.12, 0, 0.14);
+    this.leftKneePivot.rotation.x = 1.72;
+    this.rightKneePivot.rotation.x = 1.38;
+
+    // Left arm shielding face from blinding beam -> falls slack; right arm bracing -> slumps
+    this.leftShoulderPivot.rotation.set(
+      pose.leftShoulderX,
+      0,
+      pose.leftShoulderZ,
+    );
+    this.leftElbowPivot.rotation.set(pose.leftElbowX, 0, pose.leftElbowZ);
+    this.rightShoulderPivot.rotation.set(
+      pose.rightShoulderX,
+      0,
+      pose.rightShoulderZ,
+    );
+    this.rightElbowPivot.rotation.set(pose.rightElbowX, 0, 0);
+
+    // Hair & skirt shuddering backward from the beam's force then drooping slack
+    const blowBack = (1 - pose.slump) * 0.34;
+    for (let i = 0; i < this.hairRibbons.length; i++) {
+      const hr = this.hairRibbons[i];
+      if (!hr) continue;
+      const flutter = Math.sin(time * 14.0 + hr.phase) * 0.06 * (1 - pose.slump * 0.7);
+      hr.rootSeg.rotation.x = 0.28 + blowBack + flutter;
+      hr.midSeg.rotation.x = 0.24 + blowBack * 0.8 + flutter;
+      hr.tipSeg.rotation.x = 0.18 + blowBack * 0.6 + flutter;
+      hr.rootSeg.rotation.z = hr.spread * (0.36 + blowBack * 0.3);
+    }
+
+    for (let i = 0; i < this.skirtPanels.length; i++) {
+      const sp = this.skirtPanels[i];
+      if (!sp) continue;
+      sp.pivot.rotation.x =
+        -0.42 + Math.sin(time * 12.0 + sp.angle * 3) * 0.04 * (1 - pose.slump * 0.6);
+    }
+
+    const haloScale = Math.max(0.01, (1 - pose.drain) * 0.72);
+    this.frostHalo.visible = pose.drain < 0.88;
+    this.frostHalo.scale.setScalar(haloScale);
+    this.frostHalo.rotation.z = time * (0.9 - pose.drain * 0.7);
+    this.phaseAuroraRings.visible = false;
+
+    this.tiaraLight.intensity =
+      ARENA_CONFIG.lighting.tiaraLightStaggerBase * (1 - pose.drain * 0.92);
+  }
+
+  /**
    * Victory Diorama floor collapse pose (100% drained, sprawled exhausted on the ice floor
    * with cascading silver hair spread wide and tiara light dimmed).
    */

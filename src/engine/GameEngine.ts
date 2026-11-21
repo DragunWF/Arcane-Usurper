@@ -10,6 +10,7 @@ import {
   CHAMBER_CONFIG,
   DRAIN_THROTTLE_MODES,
   ENVIRONMENT_IDS,
+  FINISHER_MODES,
   FINISHER_POSE_IDS,
   GAME_STATES,
   HARMONIC_CHAMBER_CONFIG,
@@ -22,6 +23,7 @@ import {
   SUNKEN_CHAMBER_CONFIG,
   type BossPhase,
   type DrainThrottleMode,
+  type FinisherMode,
   type FinisherPoseId,
   type GameState,
 } from '../config/gameConfig';
@@ -64,7 +66,7 @@ export interface IGameController {
   setSfxVolume(volume: number): void;
   playSfxPreview(): void;
   toggleAudioMute(): void;
-  triggerFinisher(): void;
+  triggerFinisher(mode?: FinisherMode): void;
   triggerPortalAscend(): void;
   setFinisherPose(pose: FinisherPoseId): void;
   setDrainThrottle(mode: DrainThrottleMode | null): void;
@@ -134,6 +136,8 @@ export class GameEngine implements IGameController {
     position: new THREE.Vector3(),
     focusOffsetY: 0,
   };
+  private readonly scratchBeamMagePos = new THREE.Vector3();
+  private readonly scratchBeamBossPos = new THREE.Vector3();
 
   constructor(container: HTMLElement) {
     this.world = new ECSWorld();
@@ -235,7 +239,7 @@ export class GameEngine implements IGameController {
             store.setCanExecuteFinisher(inRange);
           }
         },
-        onFinisherApproachComplete: () => this.startSiphonFinisher(),
+        onFinisherApproachComplete: (mode) => this.startSiphonFinisher(mode),
       },
     );
 
@@ -528,6 +532,7 @@ export class GameEngine implements IGameController {
         blinkRequested: false,
         pulseRequested: false,
         finisherExecuteRequested: false,
+        beamFinisherExecuteRequested: false,
         portalInteractRequested: false,
         tauntRequested: false,
         surgeTapRequested: false,
@@ -599,6 +604,7 @@ export class GameEngine implements IGameController {
       siphonableBoss: {
         siphonProgress: 0,
         finisherPose: FINISHER_POSE_IDS.UPRIGHT_EMBRACE,
+        finisherMode: FINISHER_MODES.KISS,
         drainThrottle: DRAIN_THROTTLE_MODES.FLOW,
         isEndlessSavor: false,
         tauntDizzyTimer: 0,
@@ -979,9 +985,13 @@ export class GameEngine implements IGameController {
     this.cameraRig.requestLock();
   }
 
-  public triggerFinisher(): void {
+  public triggerFinisher(mode: FinisherMode = FINISHER_MODES.KISS): void {
     if (this.state === GAME_STATES.STAGGER) {
-      this.inputSystem.queueFinisherExecute();
+      if (mode === FINISHER_MODES.BEAM) {
+        this.inputSystem.queueBeamFinisherExecute();
+      } else {
+        this.inputSystem.queueFinisherExecute();
+      }
     }
   }
 
@@ -1182,6 +1192,7 @@ export class GameEngine implements IGameController {
       boss.siphonableBoss.siphonProgress = 0;
       boss.siphonableBoss.isEndlessSavor = false;
       boss.siphonableBoss.finisherPose = FINISHER_POSE_IDS.UPRIGHT_EMBRACE;
+      boss.siphonableBoss.finisherMode = FINISHER_MODES.KISS;
     }
 
     this.mageRig.resetCombatPose();
@@ -1276,44 +1287,56 @@ export class GameEngine implements IGameController {
   }
 
   /**
-   * Starts the full interactive Arcane Siphon Kiss sequence (Block 4).
+   * Starts either the interactive Arcane Siphon Kiss ([E]) or ranged Umbral Siphon Beam ([R]).
    */
-  public startSiphonFinisher(): void {
+  public startSiphonFinisher(mode: FinisherMode = FINISHER_MODES.KISS): void {
     this.state = GAME_STATES.SIPHON_FINISHER;
     this.inputSystem.resetTransientInputs();
     this.finisherSystem.resetState();
     this.cameraRig.exitLock();
 
+    const isBeam = mode === FINISHER_MODES.BEAM;
     const boss = this.world.queryFirst('siphonableBoss');
     if (boss) {
       boss.siphonableBoss.siphonProgress = 0;
       boss.siphonableBoss.isEndlessSavor = false;
       boss.siphonableBoss.finisherPose = FINISHER_POSE_IDS.UPRIGHT_EMBRACE;
+      boss.siphonableBoss.finisherMode = mode;
       boss.siphonableBoss.drainThrottle = DRAIN_THROTTLE_MODES.FLOW;
       boss.siphonableBoss.tauntDizzyTimer = 0;
     }
 
-    this.bossRig.setExpression(BOSS_EXPRESSIONS.SIPHON_KISS);
+    const expression = isBeam
+      ? BOSS_EXPRESSIONS.STAGGER
+      : BOSS_EXPRESSIONS.SIPHON_KISS;
+    this.bossRig.setExpression(expression);
     this.sound.setMode(AUDIO_MODES.SIPHON);
 
     const store = useGameStore.getState();
-    this.finisherSystem.startSiphonAudio(store.activeRealm, 0);
+    if (isBeam) {
+      this.finisherSystem.startBeamSiphonAudio(store.activeRealm);
+    } else {
+      this.finisherSystem.startSiphonAudio(store.activeRealm, 0);
+    }
     store.setGameState(GAME_STATES.SIPHON_FINISHER);
     store.setCanExecuteFinisher(false);
     store.setFinisherPose(FINISHER_POSE_IDS.UPRIGHT_EMBRACE);
+    store.setFinisherMode(mode);
     store.setDrainThrottle(DRAIN_THROTTLE_MODES.FLOW);
     store.setEndlessSavor(false);
-    store.setBossExpression(BOSS_EXPRESSIONS.SIPHON_KISS);
+    store.setBossExpression(expression);
     store.setAudioMode(AUDIO_MODES.SIPHON);
     store.syncCombatSnapshot({ siphonProgress: 0, tauntDizzyTimer: 0 });
 
-    this.bossRig.root.updateMatrixWorld(true);
-    this.bossRig.headAnchor.getWorldPosition(this.orbitCameraTarget.position);
-    this.cameraRig.resetSphericalOrbit(
-      0.55,
-      CAMERA_CONFIG.finisherDefaultElevation,
-      CAMERA_CONFIG.finisherDefaultDistance,
-    );
+    if (!isBeam) {
+      this.bossRig.root.updateMatrixWorld(true);
+      this.bossRig.headAnchor.getWorldPosition(this.orbitCameraTarget.position);
+      this.cameraRig.resetSphericalOrbit(
+        0.55,
+        CAMERA_CONFIG.finisherDefaultElevation,
+        CAMERA_CONFIG.finisherDefaultDistance,
+      );
+    }
   }
 
   /**
@@ -1367,6 +1390,7 @@ export class GameEngine implements IGameController {
         : 1.0 - initialCharge;
       boss.siphonableBoss.isEndlessSavor = startsDepleted;
       boss.siphonableBoss.finisherPose = FINISHER_POSE_IDS.UPRIGHT_EMBRACE;
+      boss.siphonableBoss.finisherMode = FINISHER_MODES.KISS;
       boss.siphonableBoss.drainThrottle = DRAIN_THROTTLE_MODES.FLOW;
       boss.siphonableBoss.tauntDizzyTimer = 0;
     }
@@ -1388,6 +1412,7 @@ export class GameEngine implements IGameController {
     store.setGameState(GAME_STATES.LOBBY_SIPHON);
     store.setLobbyPrompt(null);
     store.setFinisherPose(FINISHER_POSE_IDS.UPRIGHT_EMBRACE);
+    store.setFinisherMode(FINISHER_MODES.KISS);
     store.setDrainThrottle(DRAIN_THROTTLE_MODES.FLOW);
     store.setEndlessSavor(startsDepleted);
     if (startsDepleted) {
@@ -1594,16 +1619,40 @@ export class GameEngine implements IGameController {
         this.state === GAME_STATES.SIPHON_FINISHER ||
         this.state === GAME_STATES.ENDLESS_SAVOR
       ) {
-        this.bossRig.root.updateMatrixWorld(true);
-        this.bossRig.headAnchor.getWorldPosition(
-          this.orbitCameraTarget.position,
-        );
-        this.cameraRig.update(
-          dt,
-          this.state,
-          this.playerCameraTarget,
-          this.orbitCameraTarget,
-        );
+        const activeBoss = this.world.queryFirst('siphonableBoss', 'transform');
+        if (
+          this.state === GAME_STATES.SIPHON_FINISHER &&
+          activeBoss &&
+          activeBoss.siphonableBoss.finisherMode === FINISHER_MODES.BEAM &&
+          player
+        ) {
+          this.scratchBeamMagePos.set(
+            player.transform.position.x,
+            player.transform.position.y,
+            player.transform.position.z,
+          );
+          this.scratchBeamBossPos.set(
+            activeBoss.transform.position.x,
+            activeBoss.transform.position.y,
+            activeBoss.transform.position.z,
+          );
+          this.cameraRig.updateBeamFinisherCamera(
+            dt,
+            this.scratchBeamMagePos,
+            this.scratchBeamBossPos,
+          );
+        } else {
+          this.bossRig.root.updateMatrixWorld(true);
+          this.bossRig.headAnchor.getWorldPosition(
+            this.orbitCameraTarget.position,
+          );
+          this.cameraRig.update(
+            dt,
+            this.state,
+            this.playerCameraTarget,
+            this.orbitCameraTarget,
+          );
+        }
       } else if (
         this.state === GAME_STATES.VICTORY_DIORAMA ||
         this.state === GAME_STATES.DEFEAT_DIORAMA

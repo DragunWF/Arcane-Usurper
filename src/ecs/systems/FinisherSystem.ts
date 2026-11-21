@@ -4,12 +4,14 @@ import {
   DIORAMA_CONFIG,
   DRAIN_THROTTLE_MODES,
   FINISHER_CONFIG,
+  FINISHER_MODES,
   FINISHER_POSE_IDS,
   GAME_STATES,
   MIKU_CONFIG,
   PALETTE,
   SERENA_CONFIG,
   SIPHON_AUDIO_CONFIG,
+  SIPHON_BEAM_CONFIG,
   SIPHON_GALLERY_CONFIG,
   type DrainThrottleMode,
   type FinisherPoseId,
@@ -77,6 +79,7 @@ export class FinisherSystem implements ISystem {
   private lobbyDepleted = false;
   private lobbyChargeSyncAccum = 0;
   private siphonAudioActive = false;
+  private beamAudioActive = false;
   private siphonAudioRealm: SiphonRealmId = 1;
   private lastChimeDrainProgress = 0;
   private climaxAudioFired = false;
@@ -87,11 +90,35 @@ export class FinisherSystem implements ISystem {
     facingYaw: SIPHON_GALLERY_CONFIG.marinaFacingYaw,
   };
 
-  // Live 3D Finisher Energy Ribbons
+  // Live 3D Finisher Energy Ribbons (Kiss mode)
   private readonly fxGroup = new THREE.Group();
   private readonly voidRibbon: DynamicRibbon;
   private readonly frostRibbon: DynamicRibbon;
   private readonly staffAloftRibbon: DynamicRibbon;
+
+  // Pooled 3D Umbral Siphon Beam Tether & Elemental Essence Orbs ([R] Beam mode)
+  private readonly beamFxGroup = new THREE.Group();
+  private readonly beamCoreMesh: THREE.Mesh<
+    THREE.CylinderGeometry,
+    THREE.MeshBasicMaterial
+  >;
+  private readonly beamOuterMesh: THREE.Mesh<
+    THREE.CylinderGeometry,
+    THREE.MeshBasicMaterial
+  >;
+  private readonly beamObsidianShell: THREE.Mesh<
+    THREE.CylinderGeometry,
+    THREE.MeshBasicMaterial
+  >;
+  private readonly beamImpactFlare: THREE.Mesh<
+    THREE.SphereGeometry,
+    THREE.MeshBasicMaterial
+  >;
+  private readonly beamOrbGeo: THREE.SphereGeometry;
+  private readonly beamEssenceOrbs: THREE.Mesh<
+    THREE.SphereGeometry,
+    THREE.MeshBasicMaterial
+  >[] = [];
 
   // Reusable scratch vectors & quaternions (zero per-frame GC allocations)
   private readonly scratchBossHead = new THREE.Vector3();
@@ -101,6 +128,14 @@ export class FinisherSystem implements ISystem {
   private readonly scratchMageCrystal = new THREE.Vector3();
   private readonly scratchMageAnchor = new THREE.Vector3();
   private readonly scratchAccessoryPos = new THREE.Vector3();
+  private readonly scratchBossChest = new THREE.Vector3();
+  private readonly scratchBeamVec = new THREE.Vector3();
+  private readonly scratchBeamDir = new THREE.Vector3();
+  private readonly scratchBeamMid = new THREE.Vector3();
+  private readonly scratchBeamSide = new THREE.Vector3();
+  private readonly scratchBeamOrtho = new THREE.Vector3();
+  private readonly scratchBeamQuat = new THREE.Quaternion();
+  private readonly upAxis = new THREE.Vector3(0, 1, 0);
 
   constructor(
     world: ECSWorld,
@@ -126,6 +161,111 @@ export class FinisherSystem implements ISystem {
     this.voidRibbon = this.createRibbon(PALETTE.voidRibbon, 0.9, segs);
     this.frostRibbon = this.createRibbon(PALETTE.frostRibbon, 0.9, segs);
     this.staffAloftRibbon = this.createRibbon(PALETTE.frostRibbon, 0.85, segs);
+
+    // Build pooled Umbral Siphon Beam tether & 10 elemental essence orbs
+    this.beamFxGroup.visible = false;
+    this.scene.add(this.beamFxGroup);
+
+    this.beamCoreMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        SIPHON_BEAM_CONFIG.beamCoreRadius,
+        SIPHON_BEAM_CONFIG.beamCoreRadius,
+        1,
+        12,
+        1,
+        true,
+      ),
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.pulseLavender,
+        transparent: true,
+        opacity: 0.95,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    this.beamCoreMesh.frustumCulled = false;
+
+    this.beamOuterMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        SIPHON_BEAM_CONFIG.beamOuterRadius,
+        SIPHON_BEAM_CONFIG.beamOuterRadius,
+        1,
+        16,
+        1,
+        true,
+      ),
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.glowViolet,
+        transparent: true,
+        opacity: 0.56,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    this.beamOuterMesh.frustumCulled = false;
+
+    this.beamObsidianShell = new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        SIPHON_BEAM_CONFIG.beamOuterRadius * 1.24,
+        SIPHON_BEAM_CONFIG.beamOuterRadius * 1.24,
+        1,
+        12,
+        1,
+        true,
+      ),
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.obsidianTrim,
+        transparent: true,
+        opacity: 0.34,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    this.beamObsidianShell.frustumCulled = false;
+
+    this.beamImpactFlare = new THREE.Mesh(
+      new THREE.SphereGeometry(
+        SIPHON_BEAM_CONFIG.beamImpactFlareRadius,
+        14,
+        12,
+      ),
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.glowViolet,
+        transparent: true,
+        opacity: 0.72,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.beamImpactFlare.frustumCulled = false;
+
+    this.beamFxGroup.add(
+      this.beamObsidianShell,
+      this.beamOuterMesh,
+      this.beamCoreMesh,
+      this.beamImpactFlare,
+    );
+
+    this.beamOrbGeo = new THREE.SphereGeometry(
+      SIPHON_BEAM_CONFIG.essenceOrbRadius,
+      10,
+      8,
+    );
+    for (let i = 0; i < SIPHON_BEAM_CONFIG.essenceOrbCount; i++) {
+      const orbMat = new THREE.MeshBasicMaterial({
+        color: PALETTE.frostRunes,
+        transparent: true,
+        opacity: 0.92,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const orb = new THREE.Mesh(this.beamOrbGeo, orbMat);
+      orb.frustumCulled = false;
+      this.beamFxGroup.add(orb);
+      this.beamEssenceOrbs.push(orb);
+    }
   }
 
   private createRibbon(
@@ -221,6 +361,8 @@ export class FinisherSystem implements ISystem {
     initialDrainProgress = 0,
   ): void {
     const clampedDrain = THREE.MathUtils.clamp(initialDrainProgress, 0, 1);
+    this.beamAudioActive = false;
+    this.audio.stopBeamSiphonLoop();
     this.siphonAudioActive = true;
     this.siphonAudioRealm = realm;
     this.lastChimeDrainProgress = clampedDrain;
@@ -228,11 +370,20 @@ export class FinisherSystem implements ISystem {
     this.audio.startSiphonLoop(realm);
   }
 
-  public stopSiphonAudio(): void {
-    if (this.siphonAudioActive) {
-      this.siphonAudioActive = false;
-    }
+  public startBeamSiphonAudio(realm: SiphonRealmId): void {
+    this.siphonAudioActive = false;
     this.audio.stopSiphonLoop();
+    this.beamAudioActive = true;
+    this.siphonAudioRealm = realm;
+    this.climaxAudioFired = false;
+    this.audio.startBeamSiphonLoop(realm);
+  }
+
+  public stopSiphonAudio(): void {
+    this.siphonAudioActive = false;
+    this.beamAudioActive = false;
+    this.audio.stopSiphonLoop();
+    this.audio.stopBeamSiphonLoop();
   }
 
   private resolveActiveRealm(
@@ -266,7 +417,14 @@ export class FinisherSystem implements ISystem {
       return;
     }
     const boss = this.world.queryFirst('siphonableBoss');
-    if (!boss || boss.siphonableBoss.tauntCooldown > 0) return;
+    if (
+      !boss ||
+      boss.siphonableBoss.tauntCooldown > 0 ||
+      (state === GAME_STATES.SIPHON_FINISHER &&
+        boss.siphonableBoss.finisherMode === FINISHER_MODES.BEAM)
+    ) {
+      return;
+    }
 
     const activeRig = this.getActiveBossRig(state);
     boss.siphonableBoss.tauntCooldown = FINISHER_CONFIG.tauntCooldown;
@@ -294,6 +452,7 @@ export class FinisherSystem implements ISystem {
 
   public hideVisuals(): void {
     this.fxGroup.visible = false;
+    this.beamFxGroup.visible = false;
     this.mageRig.setStaffPlanted(false);
     this.stopSiphonAudio();
   }
@@ -307,6 +466,7 @@ export class FinisherSystem implements ISystem {
     this.lastChimeDrainProgress = 0;
     this.climaxAudioFired = false;
     this.fxGroup.visible = false;
+    this.beamFxGroup.visible = false;
     this.mageRig.setStaffPlanted(false);
     this.stopSiphonAudio();
     this.audio.setSiphonThrottle(DRAIN_THROTTLE_MODES.FLOW);
@@ -374,7 +534,8 @@ export class FinisherSystem implements ISystem {
     const isLobbySiphon = state === GAME_STATES.LOBBY_SIPHON;
     if (!isFinisher && !isEndlessSavor && !isLobbySiphon) {
       this.fxGroup.visible = false;
-      if (this.siphonAudioActive) {
+      this.beamFxGroup.visible = false;
+      if (this.siphonAudioActive || this.beamAudioActive) {
         this.stopSiphonAudio();
       }
       return;
@@ -388,6 +549,22 @@ export class FinisherSystem implements ISystem {
     const activeRealm = this.resolveActiveRealm(state, activeRig);
     const sb = boss.siphonableBoss;
     const intent = player.playerIntent;
+
+    // Ranged Umbral Siphon Beam ([R]) branch — arena bosses only (never Endless Savor or Lobby Siphon)
+    if (isFinisher && sb.finisherMode === FINISHER_MODES.BEAM) {
+      this.updateBeamFinisher(
+        dt,
+        elapsed,
+        player.transform,
+        boss.transform,
+        sb,
+        activeRig,
+        activeRealm,
+      );
+      return;
+    }
+
+    this.beamFxGroup.visible = false;
 
     if (!this.siphonAudioActive || this.siphonAudioRealm !== activeRealm) {
       const startDrain = isEndlessSavor
@@ -744,6 +921,183 @@ export class FinisherSystem implements ISystem {
     }
   }
 
+  /**
+   * Executes the ranged Umbral Siphon Beam ([R]) finisher on a staggered arena boss:
+   * - Dark Mage stands off at `standoffDistance` channeling a pulsing royal-violet/obsidian tether
+   * - Sovereign kneels shielding her face while trembling & bleaching 0% -> 100%
+   * - 10 pooled realm-colored essence orbs stream back along the beam into the staff crystal
+   * - High-voltage pitch-climbing audio climaxes at 1.0 and transitions directly to Victory Diorama
+   */
+  private updateBeamFinisher(
+    dt: number,
+    elapsed: number,
+    playerTransform: { position: { x: number; y: number; z: number }; rotationY: number },
+    bossTransform: { position: { x: number; y: number; z: number }; rotationY: number },
+    sb: { siphonProgress: number; isEndlessSavor: boolean },
+    activeRig: BossRigAdapter,
+    activeRealm: SiphonRealmId,
+  ): void {
+    this.fxGroup.visible = false;
+    sb.isEndlessSavor = false;
+
+    if (!this.beamAudioActive || this.siphonAudioRealm !== activeRealm) {
+      this.startBeamSiphonAudio(activeRealm);
+    }
+
+    // Advance beam drain smoothly over 3.5s
+    sb.siphonProgress = Math.min(
+      1.0,
+      sb.siphonProgress + dt / SIPHON_BEAM_CONFIG.drainDurationSec,
+    );
+
+    const bx = bossTransform.position.x;
+    const bz = bossTransform.position.z;
+    const bossYaw = bossTransform.rotationY;
+    const dirX = Math.sin(bossYaw);
+    const dirZ = Math.cos(bossYaw);
+
+    // Hold Boss grounded at center facing Dark Mage
+    activeRig.root.position.set(bx, 0, bz);
+    activeRig.root.rotation.set(0, bossYaw, 0);
+    activeRig.applyBeamFinisherPose(sb.siphonProgress, elapsed);
+    activeRig.root.updateMatrixWorld(true);
+
+    // Position Dark Mage at exact standoffDistance facing the Boss
+    const mageX = bx + dirX * SIPHON_BEAM_CONFIG.standoffDistance;
+    const mageZ = bz + dirZ * SIPHON_BEAM_CONFIG.standoffDistance;
+    const mageYaw = Math.atan2(bx - mageX, bz - mageZ);
+    playerTransform.position.x = mageX;
+    playerTransform.position.y = 0;
+    playerTransform.position.z = mageZ;
+    playerTransform.rotationY = mageYaw;
+
+    this.mageRig.root.position.set(mageX, 0, mageZ);
+    this.mageRig.root.rotation.set(0, mageYaw, 0);
+    this.mageRig.applyBeamFinisherPose(elapsed);
+    this.mageRig.root.updateMatrixWorld(true);
+
+    // Resolve world endpoints: Dark Mage's staff tip crystal -> Boss's chest center
+    this.mageRig.getStaffCrystalWorldPosition(this.scratchMageCrystal);
+    this.scratchBossChest.set(
+      bx,
+      SIPHON_BEAM_CONFIG.bossChestTargetOffsetY *
+        (1 - sb.siphonProgress * 0.14),
+      bz,
+    );
+
+    this.scratchBeamVec.subVectors(
+      this.scratchBossChest,
+      this.scratchMageCrystal,
+    );
+    const beamLen = Math.max(0.25, this.scratchBeamVec.length());
+    this.scratchBeamDir.copy(this.scratchBeamVec).divideScalar(beamLen);
+    this.scratchBeamMid
+      .addVectors(this.scratchMageCrystal, this.scratchBossChest)
+      .multiplyScalar(0.5);
+    this.scratchBeamQuat.setFromUnitVectors(this.upAxis, this.scratchBeamDir);
+
+    const pulseWave = Math.sin(
+      elapsed * Math.PI * 2 * SIPHON_BEAM_CONFIG.beamPulseFreqHz,
+    );
+    const coreScale =
+      1 +
+      (pulseWave * SIPHON_BEAM_CONFIG.beamPulseAmp) /
+        SIPHON_BEAM_CONFIG.beamCoreRadius;
+    const outerScale =
+      1 +
+      (Math.cos(elapsed * Math.PI * 2 * SIPHON_BEAM_CONFIG.beamPulseFreqHz) *
+        SIPHON_BEAM_CONFIG.beamPulseAmp) /
+        SIPHON_BEAM_CONFIG.beamOuterRadius;
+
+    this.beamFxGroup.visible = true;
+
+    this.beamCoreMesh.position.copy(this.scratchBeamMid);
+    this.beamCoreMesh.quaternion.copy(this.scratchBeamQuat);
+    this.beamCoreMesh.scale.set(coreScale, beamLen, coreScale);
+
+    this.beamOuterMesh.position.copy(this.scratchBeamMid);
+    this.beamOuterMesh.quaternion.copy(this.scratchBeamQuat);
+    this.beamOuterMesh.scale.set(outerScale, beamLen, outerScale);
+
+    this.beamObsidianShell.position.copy(this.scratchBeamMid);
+    this.beamObsidianShell.quaternion.copy(this.scratchBeamQuat);
+    this.beamObsidianShell.scale.set(outerScale * 1.05, beamLen, outerScale * 1.05);
+
+    this.beamImpactFlare.position.copy(this.scratchBossChest);
+    const flareScale = 0.85 + Math.abs(pulseWave) * 0.45 + sb.siphonProgress * 0.35;
+    this.beamImpactFlare.scale.setScalar(flareScale);
+
+    // Compute orthonormal basis perpendicular to the beam for helical essence orb streaming
+    this.scratchBeamSide
+      .crossVectors(this.scratchBeamDir, this.upAxis)
+      .normalize();
+    if (this.scratchBeamSide.lengthSq() < 0.01) {
+      this.scratchBeamSide.set(1, 0, 0);
+    }
+    this.scratchBeamOrtho
+      .crossVectors(this.scratchBeamSide, this.scratchBeamDir)
+      .normalize();
+
+    const orbCount = this.beamEssenceOrbs.length;
+    const cycleRate = SIPHON_BEAM_CONFIG.essenceOrbSpeed / beamLen;
+    const isRealm3 = activeRealm === 3;
+    const isRealm2 = activeRealm === 2;
+
+    for (let i = 0; i < orbCount; i++) {
+      const orb = this.beamEssenceOrbs[i];
+      if (!orb) continue;
+
+      const orbHex = isRealm3
+        ? i % 2 === 0
+          ? PALETTE.harmonicEmerald
+          : PALETTE.harmonicMagenta
+        : isRealm2
+          ? i % 2 === 0
+            ? PALETTE.biolumCyan
+            : PALETTE.serenaHairTips
+          : i % 2 === 0
+            ? PALETTE.frostRunes
+            : PALETTE.iceHighlights;
+      orb.material.color.setHex(orbHex);
+
+      // Stream from Boss chest (u = 0) BACK into the Dark Mage's staff crystal (u = 1)
+      const u = (elapsed * cycleRate + i / orbCount) % 1;
+      const env = Math.sin(u * Math.PI);
+      const swirlAngle = u * Math.PI * 5.0 + elapsed * 7.0 + i * 1.3;
+      const swirlR = SIPHON_BEAM_CONFIG.essenceOrbSpiralRadius * env;
+
+      orb.position
+        .lerpVectors(this.scratchBossChest, this.scratchMageCrystal, u)
+        .addScaledVector(this.scratchBeamSide, Math.cos(swirlAngle) * swirlR)
+        .addScaledVector(this.scratchBeamOrtho, Math.sin(swirlAngle) * swirlR);
+      orb.scale.setScalar(0.65 + env * 0.55);
+    }
+
+    // Update high-voltage beam audio hum + crackles
+    this.audio.updateBeamSiphonLoop(sb.siphonProgress, dt);
+
+    // Emit crackling surge particles at boss chest contact
+    this.particleAccum += dt;
+    if (this.particleAccum >= SIPHON_BEAM_CONFIG.beamParticleIntervalSec) {
+      this.particleAccum = 0;
+      this.vfx.spawnFinisherParticle(
+        this.scratchBossChest,
+        DRAIN_THROTTLE_MODES.SURGE,
+      );
+    }
+
+    // Complete at 1.0 -> stop audio/VFX, fire climax, transition directly to Victory Diorama
+    if (sb.siphonProgress >= 1.0) {
+      if (!this.climaxAudioFired) {
+        this.climaxAudioFired = true;
+        this.audio.playSiphonClimax(activeRealm);
+      }
+      this.beamFxGroup.visible = false;
+      this.stopSiphonAudio();
+      this.callbacks.onSiphonClimax();
+    }
+  }
+
   public dispose(): void {
     this.stopSiphonAudio();
     this.mageRig.setStaffPlanted(false);
@@ -752,5 +1106,20 @@ export class FinisherSystem implements ISystem {
       r.line.geometry.dispose();
       r.line.material.dispose();
     });
+
+    this.scene.remove(this.beamFxGroup);
+    this.beamCoreMesh.geometry.dispose();
+    this.beamCoreMesh.material.dispose();
+    this.beamOuterMesh.geometry.dispose();
+    this.beamOuterMesh.material.dispose();
+    this.beamObsidianShell.geometry.dispose();
+    this.beamObsidianShell.material.dispose();
+    this.beamImpactFlare.geometry.dispose();
+    this.beamImpactFlare.material.dispose();
+    this.beamOrbGeo.dispose();
+    for (let i = 0; i < this.beamEssenceOrbs.length; i++) {
+      const orb = this.beamEssenceOrbs[i];
+      if (orb) orb.material.dispose();
+    }
   }
 }

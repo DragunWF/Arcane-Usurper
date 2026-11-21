@@ -4,10 +4,13 @@ import {
   BOSS_CONFIG,
   BOSS_PHASES,
   FINISHER_CONFIG,
+  FINISHER_MODES,
   FIRST_PERSON_GAZE_CONFIG,
   GAME_STATES,
   NG_PLUS_CONFIG,
   PLAYER_CONFIG,
+  SIPHON_BEAM_CONFIG,
+  type FinisherMode,
   type GameState,
 } from '../../config/gameConfig';
 import {
@@ -25,7 +28,7 @@ export interface IMovementCallbacks {
   addCameraShake: (amount: number) => void;
   exitPointerLock: () => void;
   onStaggerProximityChange: (inRange: boolean) => void;
-  onFinisherApproachComplete: () => void;
+  onFinisherApproachComplete: (mode: FinisherMode) => void;
 }
 
 interface FinisherApproachState {
@@ -36,6 +39,7 @@ interface FinisherApproachState {
   elapsed: number;
   duration: number;
   afterimageTimer: number;
+  mode: FinisherMode;
 }
 
 /**
@@ -397,11 +401,23 @@ export class MovementSystem implements ISystem {
       this.callbacks.exitPointerLock();
     }
 
-    if (inRange && player.playerIntent.finisherExecuteRequested) {
+    const wantsBeam = player.playerIntent.beamFinisherExecuteRequested;
+    const wantsKiss = player.playerIntent.finisherExecuteRequested;
+    if (inRange && (wantsKiss || wantsBeam)) {
+      const mode: FinisherMode = wantsBeam
+        ? FINISHER_MODES.BEAM
+        : FINISHER_MODES.KISS;
+      const arrivalDist =
+        mode === FINISHER_MODES.BEAM
+          ? SIPHON_BEAM_CONFIG.standoffDistance
+          : FINISHER_CONFIG.approachArrivalDistance;
       const dirX = dist > 0.05 ? (pPos.x - bPos.x) / dist : 0;
       const dirZ = dist > 0.05 ? (pPos.z - bPos.z) / dist : 1;
-      const destX = bPos.x + dirX * FINISHER_CONFIG.approachArrivalDistance;
-      const destZ = bPos.z + dirZ * FINISHER_CONFIG.approachArrivalDistance;
+      const destPos = {
+        x: bPos.x + dirX * arrivalDist,
+        z: bPos.z + dirZ * arrivalDist,
+      };
+      this.clampPositionToArenaBounds(destPos);
 
       this.callbacks.onStaggerProximityChange(false);
       this.mageRig.triggerInvulnFlash(FINISHER_CONFIG.approachInvulnDuration);
@@ -410,11 +426,12 @@ export class MovementSystem implements ISystem {
       this.finisherApproach = {
         startX: pPos.x,
         startZ: pPos.z,
-        endX: destX,
-        endZ: destZ,
+        endX: destPos.x,
+        endZ: destPos.z,
         elapsed: 0,
         duration: FINISHER_CONFIG.approachDashDuration,
         afterimageTimer: 0.05,
+        mode,
       };
     }
   }
@@ -464,7 +481,7 @@ export class MovementSystem implements ISystem {
         player.transform.position.x - boss.transform.position.x,
         player.transform.position.z - boss.transform.position.z,
       );
-      this.callbacks.onFinisherApproachComplete();
+      this.callbacks.onFinisherApproachComplete(fd.mode);
     }
   }
 

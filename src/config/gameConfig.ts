@@ -52,6 +52,14 @@ export const FINISHER_POSE_LABELS: Readonly<Record<FinisherPoseId, string>> =
     2: 'Ballroom Dip',
   } as const);
 
+export const FINISHER_MODES = Object.freeze({
+  KISS: 'KISS',
+  BEAM: 'BEAM',
+} as const);
+
+export type FinisherMode =
+  (typeof FINISHER_MODES)[keyof typeof FINISHER_MODES];
+
 export const DRAIN_THROTTLE_MODES = Object.freeze({
   SAVOR: 'SAVOR',
   FLOW: 'FLOW',
@@ -2857,4 +2865,81 @@ export const FIRST_PERSON_GAZE_CONFIG = Object.freeze({
     'KeyE',
   ] as const),
   breakoutMouseButtons: Object.freeze([0, 2] as const),
+} as const);
+
+// ============================================================================
+// UMBRAL SIPHON BEAM ([R]) ALTERNATIVE BOSS FINISHER CONFIGURATION
+// ============================================================================
+
+export const SIPHON_BEAM_CONFIG = Object.freeze({
+  // Input & Timing
+  triggerKey: 'KeyR',
+  drainDurationSec: 3.5,
+
+  // Standoff & Dramatic 3/4 Side Framing
+  standoffDistance: 4.2,
+  cameraSideOffset: 3.6,
+  cameraHeightOffset: 2.1,
+  cameraLerpSpeed: 8.0,
+  cameraMidpointFocusY: 1.02,
+  cameraBossBias: 0.45,
+  bossChestTargetOffsetY: 0.88,
+
+  // Procedural Dual-Layer Beam & Pooled Elemental Essence Orbs
+  beamCoreRadius: 0.055,
+  beamOuterRadius: 0.14,
+  beamPulseFreqHz: 18.0,
+  beamPulseAmp: 0.04,
+  essenceOrbCount: 10,
+  essenceOrbRadius: 0.07,
+  essenceOrbSpeed: 7.5,
+  essenceOrbSpiralRadius: 0.24,
+  beamImpactFlareRadius: 0.26,
+  beamParticleIntervalSec: 0.06,
+
+  // High-Voltage Arcane Beam Audio
+  audioBaseHz: 145,
+  audioPeakHz: 420,
+  audioGain: 0.14,
+  crackleRateHz: 24,
+  audioOvertoneRatio: 1.5,
+  audioSubRatio: 0.5,
+  audioOvertoneGainScale: 0.45,
+  audioSubGainScale: 0.6,
+  audioNoiseRoarGainScale: 0.22,
+  audioFilterStartHz: 680,
+  audioFilterPeakHz: 2600,
+  audioFilterQ: 3.2,
+  audioCrackleGain: 0.075,
+  audioCrackleDurationSec: 0.028,
+  audioCrackleCenterHz: 3400,
+  audioCrackleQ: 2.4,
+  audioRampTimeConstantSec: 0.05,
+  audioStopFadeOutSec: 0.1,
+  audioStopCleanupDelaySec: 0.14,
+
+  // Dark Mage Standoff Channeling Pose & Boss Shielding-to-Slump Pose
+  mageBodyY: 0.92,
+  mageTorsoPitch: 0.14,
+  mageStanceHipSpread: 0.16,
+  mageRecoilFreqHz: 16.0,
+  mageRecoilAmpRad: 0.032,
+  bossKneelBodyY: 0.47,
+  bossShieldTorsoStartX: 0.12,
+  bossShieldTorsoSlumpX: 0.42,
+  bossShieldHeadStartX: -0.14,
+  bossShieldHeadSlumpX: 0.34,
+  bossShieldHeadTurnY: 0.36,
+  bossTremorFreqHz: 22.0,
+  bossTremorAmpRad: 0.042,
+  bossShieldArmStartX: -1.68,
+  bossShieldArmStartZ: -0.58,
+  bossShieldElbowStartX: -1.42,
+  bossShieldElbowStartZ: 0.72,
+  bossBraceArmStartX: -0.45,
+  bossBraceArmStartZ: 0.28,
+  bossBraceElbowStartX: -0.62,
+  bossSlumpArmX: 0.14,
+  bossSlumpArmZ: 0.12,
+  bossSlumpElbowX: -0.16,
 } as const);
