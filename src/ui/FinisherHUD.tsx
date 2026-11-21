@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   DRAIN_THROTTLE_MODES,
+  FINISHER_CONFIG,
   FINISHER_MODES,
   FINISHER_POSE_IDS,
   FINISHER_POSE_LABELS,
@@ -258,7 +259,7 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
               [RELEASE &amp; STEP BACK]
             </div>
             <div className="mt-0.5 text-[10px] font-semibold tracking-[0.16em] text-purple-200/80 uppercase">
-              ESC &bull; RETURN TO SIPHON GALLERY
+              {FINISHER_CONFIG.releaseKeyLabel} &bull; RETURN TO SIPHON GALLERY
             </div>
           </button>
         </div>

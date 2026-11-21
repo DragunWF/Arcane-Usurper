@@ -43,6 +43,8 @@ export interface IFinisherCallbacks {
   getGameState: () => GameState;
   onSiphonClimax: () => void;
   onLobbyBeamComplete?: () => void;
+  onLobbyRelease?: () => void;
+  onEndlessSavorRelease?: () => void;
   onLobbySiphonTick?: (
     charge: number,
     elapsed: number,
@@ -561,6 +563,20 @@ export class FinisherSystem implements ISystem {
     const activeRealm = this.resolveActiveRealm(state, activeRig);
     const sb = boss.siphonableBoss;
     const intent = player.playerIntent;
+
+    // 0. Handle Finisher Release ([X]) for Siphon Gallery (LOBBY_SIPHON) & Arena (ENDLESS_SAVOR / completed SIPHON_FINISHER)
+    if (intent.releaseRequested) {
+      if (isLobbySiphon) {
+        this.hideVisuals();
+        this.callbacks.onLobbyRelease?.();
+        return;
+      }
+      if (isEndlessSavor || (isFinisher && sb.siphonProgress >= 1.0)) {
+        this.hideVisuals();
+        this.callbacks.onEndlessSavorRelease?.();
+        return;
+      }
+    }
 
     // Ranged Umbral Siphon Beam ([R]) branch — staggered arena bosses & Siphon Gallery alcoves
     if ((isFinisher || isLobbySiphon) && sb.finisherMode === FINISHER_MODES.BEAM) {

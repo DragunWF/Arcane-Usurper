@@ -896,6 +896,8 @@ export const FINISHER_CONFIG = Object.freeze({
   savorParticleMultiplier: 2.0,
   endlessSavorLockedProgress: 1.0,
   spaceTapSurgeBoost: 0.06,
+  releaseKey: 'KeyX',
+  releaseKeyLabel: 'X',
 
   // Dominance Pose Alignment & Smooth Reactive Animation (Zero Air Gap across [1-2])
   poseCount: 2,

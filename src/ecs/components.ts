@@ -94,6 +94,7 @@ export interface PlayerIntentComponent {
   portalInteractRequested: boolean;
   tauntRequested: boolean;
   surgeTapRequested: boolean;
+  releaseRequested: boolean;
   requestedPose: FinisherPoseId | null;
   drainThrottle: DrainThrottleMode;
   /** True while the player holds [V] in a planted first-person gaze. */

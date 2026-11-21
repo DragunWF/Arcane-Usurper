@@ -1,4 +1,4 @@
-import { GAME_STATES } from '../config/gameConfig';
+import { FINISHER_CONFIG, GAME_STATES } from '../config/gameConfig';
 import type { IGameController } from '../engine/GameEngine';
 import { useGameStore } from '../state/useGameStore';
 
@@ -111,9 +111,12 @@ export function DioramaHUD({ controller }: DioramaHUDProps) {
           <button
             type="button"
             onClick={() => controller?.layDownFromEndlessSavor()}
-            className="px-4 py-2.5 rounded-xl frost-panel border-purple-300/55 hover:border-purple-200 font-display text-[10px] sm:text-xs font-bold tracking-[0.16em] text-purple-100 uppercase cursor-pointer transition-all hover:scale-[1.02]"
+            className="px-4 py-2.5 rounded-xl frost-panel border-purple-300/55 hover:border-purple-200 font-display text-[10px] sm:text-xs font-bold tracking-[0.16em] text-purple-100 uppercase cursor-pointer transition-all hover:scale-[1.02] text-left"
           >
-            [STOP &amp; LAY HER BACK DOWN]
+            <div>[RELEASE &amp; FINISH]</div>
+            <div className="mt-0.5 text-[9px] font-sans font-semibold tracking-[0.16em] text-purple-200/80">
+              {FINISHER_CONFIG.releaseKeyLabel} &bull; COMPLETE VICTORY
+            </div>
           </button>
           <button
             type="button"

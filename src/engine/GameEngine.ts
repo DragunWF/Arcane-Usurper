@@ -219,7 +219,6 @@ export class GameEngine implements IGameController {
         onTogglePause: () => this.togglePause(),
         onToggleAudioMute: () => this.toggleAudioMute(),
         onQuickRetry: () => this.retryStage(),
-        onReleaseLobbySiphon: () => this.releaseLobbySiphon(),
       },
     );
 
@@ -370,6 +369,8 @@ export class GameEngine implements IGameController {
         getGameState: () => this.state,
         onSiphonClimax: () => this.dioramaSystem.enterVictoryDiorama(true),
         onLobbyBeamComplete: () => this.releaseLobbySiphon(),
+        onLobbyRelease: () => this.releaseLobbySiphon(),
+        onEndlessSavorRelease: () => this.layDownFromEndlessSavor(),
         onLobbySiphonTick: (charge, elapsed, targetId) => {
           if (targetId === 'serena') {
             this.sceneManager.mageTowerLevel.updateSerenaLobbySiphonBackdrop(
@@ -538,6 +539,7 @@ export class GameEngine implements IGameController {
         portalInteractRequested: false,
         tauntRequested: false,
         surgeTapRequested: false,
+        releaseRequested: false,
         requestedPose: null,
         drainThrottle: DRAIN_THROTTLE_MODES.FLOW,
         isFirstPersonGaze: false,
@@ -1027,7 +1029,10 @@ export class GameEngine implements IGameController {
 
   public layDownFromEndlessSavor(): void {
     this.sound.unlock();
-    if (this.state === GAME_STATES.ENDLESS_SAVOR) {
+    if (
+      this.state === GAME_STATES.ENDLESS_SAVOR ||
+      this.state === GAME_STATES.SIPHON_FINISHER
+    ) {
       this.finisherSystem.hideVisuals();
       this.dioramaSystem.exitEndlessSavor();
     }

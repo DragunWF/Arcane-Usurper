@@ -1,5 +1,6 @@
 import {
   DRAIN_THROTTLE_MODES,
+  FINISHER_CONFIG,
   FINISHER_POSE_IDS,
   FIRST_PERSON_GAZE_CONFIG,
   GAME_STATES,
@@ -20,7 +21,6 @@ export interface IInputCallbacks {
   onTogglePause: () => void;
   onToggleAudioMute: () => void;
   onQuickRetry: () => void;
-  onReleaseLobbySiphon: () => void;
 }
 
 /**
@@ -56,6 +56,7 @@ export class InputSystem implements ISystem {
   private queuedPortalInteract = false;
   private queuedTaunt = false;
   private queuedSurgeTap = false;
+  private queuedRelease = false;
   private queuedPose: FinisherPoseId | null = null;
 
   // Hold-[V] First-Person Gaze state & anti-flicker breakout latch
@@ -95,15 +96,6 @@ export class InputSystem implements ISystem {
         if (e.code === 'Enter' && !e.repeat) {
           this.callbacks.onStartGame();
         }
-        return;
-      }
-
-      if (
-        e.code === 'Escape' &&
-        state === GAME_STATES.LOBBY_SIPHON &&
-        !e.repeat
-      ) {
-        this.callbacks.onReleaseLobbySiphon();
         return;
       }
 
@@ -188,7 +180,9 @@ export class InputSystem implements ISystem {
         else if (e.code === 'Digit2')
           this.queuedPose = FINISHER_POSE_IDS.BALLROOM_DIP;
         else if (e.code === 'KeyF') this.queuedTaunt = true;
-        else if (e.code === 'Space') {
+        else if (e.code === FINISHER_CONFIG.releaseKey && !e.repeat) {
+          this.queuedRelease = true;
+        } else if (e.code === 'Space') {
           e.preventDefault();
           if (!e.repeat) this.queuedSurgeTap = true;
         }
@@ -378,6 +372,7 @@ export class InputSystem implements ISystem {
     this.queuedPortalInteract = false;
     this.queuedTaunt = false;
     this.queuedSurgeTap = false;
+    this.queuedRelease = false;
     this.queuedPose = null;
   }
 
@@ -428,6 +423,7 @@ export class InputSystem implements ISystem {
     intent.portalInteractRequested = this.queuedPortalInteract;
     intent.tauntRequested = this.queuedTaunt;
     intent.surgeTapRequested = this.queuedSurgeTap;
+    intent.releaseRequested = this.queuedRelease;
     intent.requestedPose = this.queuedPose;
     intent.drainThrottle = this.resolveDrainThrottle();
 
@@ -440,6 +436,7 @@ export class InputSystem implements ISystem {
     this.queuedPortalInteract = false;
     this.queuedTaunt = false;
     this.queuedSurgeTap = false;
+    this.queuedRelease = false;
     this.queuedPose = null;
   }
 
