@@ -26,7 +26,10 @@ import {
 } from '../../config/gameConfig';
 import type { IArenaGeometry } from '../../engine/SceneManager';
 import type { IAudioTrigger } from '../../engine/SoundEngine';
-import type { IVfxSpawner } from '../../engine/VfxFactory';
+import type {
+  FrostRingMeshHandles,
+  IVfxSpawner,
+} from '../../engine/VfxFactory';
 import type {
   FrostUrnSpawnRecord,
   IcePalaceLevel,
@@ -335,9 +338,13 @@ export class ChamberSystem implements ISystem {
     const runtime = this.servantRuntimes.get(entityId);
     if (!entity?.servantAI || !runtime) return;
 
-    entity.servantAI.guardBrokenTimer = CHAMBER_CONFIG.wardenGuardBrokenDuration;
+    const guardBrokenDuration =
+      entity.servantAI.archetype === SERVANT_ARCHETYPES.AEGIS_MONOLITH
+        ? HARMONIC_SERVANT_CONFIG.AEGIS_MONOLITH.guardBreakDuration
+        : CHAMBER_CONFIG.wardenGuardBrokenDuration;
+    entity.servantAI.guardBrokenTimer = guardBrokenDuration;
     entity.servantAI.state = SERVANT_AI_STATES.GUARD_BROKEN;
-    entity.servantAI.stateTimer = CHAMBER_CONFIG.wardenGuardBrokenDuration;
+    entity.servantAI.stateTimer = guardBrokenDuration;
     entity.servantAI.telegraphTimer = 0;
 
     if (entity.velocity) {
@@ -440,6 +447,11 @@ export class ChamberSystem implements ISystem {
           SIPHON_GALLERY_CONFIG.chamberWaveRechargeBonus,
         );
       }
+      if (store.mikuDefeated) {
+        store.addMikuCoreCharge(
+          SIPHON_GALLERY_CONFIG.chamberWaveRechargeBonus,
+        );
+      }
     };
 
     if (nextWave < totalWaves) {
@@ -451,18 +463,23 @@ export class ChamberSystem implements ISystem {
       this.pendingWaveIndex = nextWave;
       this.waveEscalationTimer = this.getActiveWaveEscalationDelay();
       this.audio.playSummonGlyphChime();
-      if (this.activeRealm === 2) {
+      if (this.activeRealm === 3) {
+        this.audio.playChordBurst();
+      } else if (this.activeRealm === 2) {
         this.audio.playBubblePop();
       }
       this.spawnWaveSummonGlyphs(nextWave);
       applyRealmRechargeBonus();
     } else if (this.portalState !== PORTAL_STATES.IGNITED) {
-      // Wave 2 cleared -> ignite Astral / Tidal Portal at 100% charge & shatter seal!
+      // Wave 2 cleared -> ignite Astral / Tidal / Harmonic Portal at 100% charge & shatter seal!
       this.portalTargetCharge = 1.0;
       this.portalCharge = 1.0;
       this.portalState = PORTAL_STATES.IGNITED;
       this.audio.playPortalIgnite();
-      if (this.activeRealm === 2) {
+      if (this.activeRealm === 3) {
+        this.audio.playBassDrop();
+        this.audio.playChordBurst();
+      } else if (this.activeRealm === 2) {
         this.audio.playTidalWave();
       }
       this.callbacks.addCameraShake(0.24);
@@ -502,10 +519,29 @@ export class ChamberSystem implements ISystem {
     const group = new THREE.Group();
     group.position.set(x, 0.05, z);
 
+    const outerColor =
+      this.activeRealm === 3
+        ? PALETTE.harmonicEmerald
+        : this.activeRealm === 2
+          ? PALETTE.biolumCyan
+          : PALETTE.frostRunes;
+    const innerColor =
+      this.activeRealm === 3
+        ? PALETTE.harmonicMagenta
+        : this.activeRealm === 2
+          ? PALETTE.atlanteanGold
+          : PALETTE.iceHighlights;
+    const colColor =
+      this.activeRealm === 3
+        ? PALETTE.mikuCyan
+        : this.activeRealm === 2
+          ? PALETTE.biolumCyan
+          : PALETTE.coldFlame;
+
     const r = SERVANT_CONFIG.summonGlyphRadius;
     const outerGeo = new THREE.RingGeometry(r - 0.14, r, 6);
     const outerMat = new THREE.MeshBasicMaterial({
-      color: PALETTE.frostRunes,
+      color: outerColor,
       transparent: true,
       opacity: 0.9,
       side: THREE.DoubleSide,
@@ -518,7 +554,7 @@ export class ChamberSystem implements ISystem {
 
     const innerGeo = new THREE.RingGeometry(r * 0.45, r * 0.56, 6);
     const innerMat = new THREE.MeshBasicMaterial({
-      color: PALETTE.iceHighlights,
+      color: innerColor,
       transparent: true,
       opacity: 0.85,
       side: THREE.DoubleSide,
@@ -531,7 +567,7 @@ export class ChamberSystem implements ISystem {
 
     const colGeo = new THREE.CylinderGeometry(r * 0.4, r * 0.65, 3.2, 6, 1, true);
     const colMat = new THREE.MeshBasicMaterial({
-      color: PALETTE.coldFlame,
+      color: colColor,
       transparent: true,
       opacity: 0.28,
       side: THREE.DoubleSide,
@@ -588,7 +624,9 @@ export class ChamberSystem implements ISystem {
     }
 
     this.audio.playSummonGlyphChime();
-    if (this.activeRealm === 2) {
+    if (this.activeRealm === 3) {
+      this.audio.playChordBurst();
+    } else if (this.activeRealm === 2) {
       this.audio.playBubblePop();
     }
     useGameStore
@@ -918,7 +956,8 @@ export class ChamberSystem implements ISystem {
 
       if (
         ai.archetype === SERVANT_ARCHETYPES.GLACIAL_VANGUARD ||
-        ai.archetype === SERVANT_ARCHETYPES.TIDEGUARD_HOPLITE
+        ai.archetype === SERVANT_ARCHETYPES.TIDEGUARD_HOPLITE ||
+        ai.archetype === SERVANT_ARCHETYPES.PULSE_STRIKER
       ) {
         animState = this.stepGlacialVanguard(
           entity,
@@ -935,7 +974,8 @@ export class ChamberSystem implements ISystem {
         );
       } else if (
         ai.archetype === SERVANT_ARCHETYPES.CRYO_ACOLYTE ||
-        ai.archetype === SERVANT_ARCHETYPES.ABYSSAL_SIREN_WEAVER
+        ai.archetype === SERVANT_ARCHETYPES.ABYSSAL_SIREN_WEAVER ||
+        ai.archetype === SERVANT_ARCHETYPES.SYNTH_CANTOR
       ) {
         animState = this.stepCryoAcolyte(
           entity,
@@ -949,7 +989,8 @@ export class ChamberSystem implements ISystem {
         );
       } else if (
         ai.archetype === SERVANT_ARCHETYPES.RIME_HOUND ||
-        ai.archetype === SERVANT_ARCHETYPES.RAZORFIN_MANTA
+        ai.archetype === SERVANT_ARCHETYPES.RAZORFIN_MANTA ||
+        ai.archetype === SERVANT_ARCHETYPES.FREQUENCY_DRONE
       ) {
         animState = this.stepRimeHound(
           entity,
@@ -964,7 +1005,8 @@ export class ChamberSystem implements ISystem {
         );
       } else if (
         ai.archetype === SERVANT_ARCHETYPES.FROSTBITE_WARDEN ||
-        ai.archetype === SERVANT_ARCHETYPES.CORAL_BASTION
+        ai.archetype === SERVANT_ARCHETYPES.CORAL_BASTION ||
+        ai.archetype === SERVANT_ARCHETYPES.AEGIS_MONOLITH
       ) {
         animState = this.stepFrostbiteWarden(
           entity,
@@ -1042,11 +1084,21 @@ export class ChamberSystem implements ISystem {
     dt: number,
     elapsed: number,
   ): ServantAnimState {
+    const isPulseStriker =
+      runtime.archetype === SERVANT_ARCHETYPES.PULSE_STRIKER;
     const isHoplite =
       runtime.archetype === SERVANT_ARCHETYPES.TIDEGUARD_HOPLITE;
-    const stats = isHoplite
-      ? SUNKEN_SERVANT_CONFIG.TIDEGUARD_HOPLITE
-      : SERVANT_CONFIG.GLACIAL_VANGUARD;
+    const stats = isPulseStriker
+      ? HARMONIC_SERVANT_CONFIG.PULSE_STRIKER
+      : isHoplite
+        ? SUNKEN_SERVANT_CONFIG.TIDEGUARD_HOPLITE
+        : SERVANT_CONFIG.GLACIAL_VANGUARD;
+    const lungeSpeed = isPulseStriker
+      ? HARMONIC_SERVANT_CONFIG.strikerLungeSpeed
+      : CHAMBER_CONFIG.vanguardLungeSpeed;
+    const lungeDuration = isPulseStriker
+      ? HARMONIC_SERVANT_CONFIG.strikerLungeDuration
+      : CHAMBER_CONFIG.vanguardLungeDuration;
     const { servantAI: ai, transform, velocity } = entity;
 
     if (ai.state === SERVANT_AI_STATES.TELEGRAPH) {
@@ -1063,9 +1115,11 @@ export class ChamberSystem implements ISystem {
       if (ai.telegraphTimer <= 0) {
         this.clearServantTelegraph(runtime);
         ai.state = SERVANT_AI_STATES.ATTACK;
-        ai.stateTimer = CHAMBER_CONFIG.vanguardLungeDuration;
+        ai.stateTimer = lungeDuration;
         runtime.hasDealtAttackDamage = false;
-        if (isHoplite) {
+        if (isPulseStriker) {
+          this.audio.playLaserSlash();
+        } else if (isHoplite) {
           this.audio.playTidalWave();
         } else {
           this.audio.playIceLance();
@@ -1076,8 +1130,8 @@ export class ChamberSystem implements ISystem {
 
     if (ai.state === SERVANT_AI_STATES.ATTACK) {
       ai.stateTimer -= dt;
-      velocity.vx = runtime.lungeDirX * CHAMBER_CONFIG.vanguardLungeSpeed;
-      velocity.vz = runtime.lungeDirZ * CHAMBER_CONFIG.vanguardLungeSpeed;
+      velocity.vx = runtime.lungeDirX * lungeSpeed;
+      velocity.vz = runtime.lungeDirZ * lungeSpeed;
 
       if (
         !runtime.hasDealtAttackDamage &&
@@ -1151,11 +1205,13 @@ export class ChamberSystem implements ISystem {
     group.position.set(x, 0.06, z);
     group.rotation.y = yaw;
 
+    const isStriker =
+      runtime.archetype === SERVANT_ARCHETYPES.PULSE_STRIKER;
     const fillGeo = new THREE.PlaneGeometry(width, len);
     fillGeo.rotateX(-Math.PI / 2);
     fillGeo.translate(0, 0, len * 0.5);
     const lineMat = new THREE.MeshBasicMaterial({
-      color: PALETTE.blushCrimson,
+      color: isStriker ? PALETTE.harmonicMagenta : PALETTE.blushCrimson,
       transparent: true,
       opacity: 0.62,
       side: THREE.DoubleSide,
@@ -1168,7 +1224,7 @@ export class ChamberSystem implements ISystem {
     borderGeo.rotateX(-Math.PI / 2);
     borderGeo.translate(0, -0.01, len * 0.5);
     const borderMat = new THREE.MeshBasicMaterial({
-      color: PALETTE.frostRunes,
+      color: isStriker ? PALETTE.harmonicEmerald : PALETTE.frostRunes,
       transparent: true,
       opacity: 0.45,
       side: THREE.DoubleSide,
@@ -1213,9 +1269,11 @@ export class ChamberSystem implements ISystem {
     dt: number,
   ): ServantAnimState {
     const stats =
-      runtime.archetype === SERVANT_ARCHETYPES.ABYSSAL_SIREN_WEAVER
-        ? SUNKEN_SERVANT_CONFIG.ABYSSAL_SIREN_WEAVER
-        : SERVANT_CONFIG.CRYO_ACOLYTE;
+      runtime.archetype === SERVANT_ARCHETYPES.SYNTH_CANTOR
+        ? HARMONIC_SERVANT_CONFIG.SYNTH_CANTOR
+        : runtime.archetype === SERVANT_ARCHETYPES.ABYSSAL_SIREN_WEAVER
+          ? SUNKEN_SERVANT_CONFIG.ABYSSAL_SIREN_WEAVER
+          : SERVANT_CONFIG.CRYO_ACOLYTE;
     const { servantAI: ai, transform, velocity } = entity;
     this.faceTarget(transform, px, pz, dt, stats.turnSpeed);
 
@@ -1281,30 +1339,50 @@ export class ChamberSystem implements ISystem {
     pz: number,
   ): void {
     const runtime = this.servantRuntimes.get(ownerId);
+    const isSynthCantor =
+      runtime?.archetype === SERVANT_ARCHETYPES.SYNTH_CANTOR;
     const isSirenWeaver =
       runtime?.archetype === SERVANT_ARCHETYPES.ABYSSAL_SIREN_WEAVER;
-    const stats = isSirenWeaver
-      ? SUNKEN_SERVANT_CONFIG.ABYSSAL_SIREN_WEAVER
-      : SERVANT_CONFIG.CRYO_ACOLYTE;
-    const count =
-      this.currentEncoreTier > 0
+    const stats = isSynthCantor
+      ? HARMONIC_SERVANT_CONFIG.SYNTH_CANTOR
+      : isSirenWeaver
+        ? SUNKEN_SERVANT_CONFIG.ABYSSAL_SIREN_WEAVER
+        : SERVANT_CONFIG.CRYO_ACOLYTE;
+    const count = isSynthCantor
+      ? HARMONIC_SERVANT_CONFIG.cantorVolleyCount +
+        (this.currentEncoreTier > 0 ? 2 : 0)
+      : this.currentEncoreTier > 0
         ? CHAMBER_CONFIG.acolyteMaxBolts + (isSirenWeaver ? 1 : 0)
         : isSirenWeaver
           ? 5
           : CHAMBER_CONFIG.acolyteMinBolts + (Math.random() > 0.5 ? 2 : 0);
     const baseYaw = Math.atan2(px - ox, pz - oz);
     const halfSpread =
-      (isSirenWeaver ? CHAMBER_CONFIG.acolyteFanSpread * 1.45 : CHAMBER_CONFIG.acolyteFanSpread) *
-      0.5;
+      (isSynthCantor
+        ? HARMONIC_SERVANT_CONFIG.cantorFanSpread
+        : isSirenWeaver
+          ? CHAMBER_CONFIG.acolyteFanSpread * 1.45
+          : CHAMBER_CONFIG.acolyteFanSpread) * 0.5;
     const spiralTwist =
-      isSirenWeaver && runtime ? Math.sin(runtime.animTime * 2.2) * 0.28 : 0;
+      isSynthCantor && runtime
+        ? Math.sin(
+            runtime.animTime * HARMONIC_SERVANT_CONFIG.cantorRhythmPhaseSpeed,
+          ) * 0.16
+        : isSirenWeaver && runtime
+          ? Math.sin(runtime.animTime * 2.2) * 0.28
+          : 0;
 
     for (let i = 0; i < count; i++) {
       const frac = count > 1 ? i / (count - 1) - 0.5 : 0;
       const angle = baseYaw + frac * halfSpread * 2 + spiralTwist;
-      const speed = isSirenWeaver
-        ? stats.boltSpeed * (0.86 + Math.abs(frac) * 0.34)
-        : stats.boltSpeed;
+      const speed = isSynthCantor
+        ? stats.boltSpeed *
+          (1.0 +
+            (i % 2 === 0 ? 1 : -1) *
+              HARMONIC_SERVANT_CONFIG.cantorSpeedHarmonicAmp)
+        : isSirenWeaver
+          ? stats.boltSpeed * (0.86 + Math.abs(frac) * 0.34)
+          : stats.boltSpeed;
       const vx = Math.sin(angle) * speed;
       const vz = Math.cos(angle) * speed;
 
@@ -1318,6 +1396,20 @@ export class ChamberSystem implements ISystem {
         this.scratchOrigin,
         this.scratchDir,
       );
+
+      if (isSynthCantor) {
+        const ownedMats = boltMesh.userData.ownedMaterials as
+          | THREE.MeshBasicMaterial[]
+          | undefined;
+        if (ownedMats && ownedMats.length > 0) {
+          const primaryColor =
+            i % 2 === 0 ? PALETTE.harmonicEmerald : PALETTE.harmonicMagenta;
+          const secondaryColor =
+            i % 2 === 0 ? PALETTE.mikuCyan : PALETTE.harmonicEmerald;
+          ownedMats[0]?.color.setHex(primaryColor);
+          if (ownedMats[1]) ownedMats[1].color.setHex(secondaryColor);
+        }
+      }
 
       this.world.createEntity({
         transform: {
@@ -1356,7 +1448,9 @@ export class ChamberSystem implements ISystem {
       });
     }
 
-    if (isSirenWeaver) {
+    if (isSynthCantor) {
+      this.audio.playChordBurst();
+    } else if (isSirenWeaver) {
       this.audio.playBubblePop();
     } else {
       this.audio.playIceLance();
@@ -1385,8 +1479,11 @@ export class ChamberSystem implements ISystem {
     playerSpeed: number,
     dt: number,
   ): ServantAnimState {
-    const stats =
-      runtime.archetype === SERVANT_ARCHETYPES.RAZORFIN_MANTA
+    const isFrequencyDrone =
+      runtime.archetype === SERVANT_ARCHETYPES.FREQUENCY_DRONE;
+    const stats = isFrequencyDrone
+      ? HARMONIC_SERVANT_CONFIG.FREQUENCY_DRONE
+      : runtime.archetype === SERVANT_ARCHETYPES.RAZORFIN_MANTA
         ? SUNKEN_SERVANT_CONFIG.RAZORFIN_MANTA
         : SERVANT_CONFIG.RIME_HOUND;
     const { servantAI: ai, transform, velocity } = entity;
@@ -1402,7 +1499,11 @@ export class ChamberSystem implements ISystem {
         runtime.lungeDirX = dirX;
         runtime.lungeDirZ = dirZ;
         runtime.hasDealtAttackDamage = false;
-        this.audio.playShadowBlink();
+        if (isFrequencyDrone) {
+          this.audio.playLaserSlash();
+        } else {
+          this.audio.playShadowBlink();
+        }
       }
       return SERVANT_ANIM_STATES.TELEGRAPH;
     }
@@ -1497,14 +1598,20 @@ export class ChamberSystem implements ISystem {
     pz: number,
     dt: number,
   ): ServantAnimState {
+    const isAegisMonolith =
+      runtime.archetype === SERVANT_ARCHETYPES.AEGIS_MONOLITH;
     const isCoralBastion =
       runtime.archetype === SERVANT_ARCHETYPES.CORAL_BASTION;
-    const stats = isCoralBastion
-      ? SUNKEN_SERVANT_CONFIG.CORAL_BASTION
-      : SERVANT_CONFIG.FROSTBITE_WARDEN;
-    const slamRadius = isCoralBastion
-      ? SUNKEN_SERVANT_CONFIG.CORAL_BASTION.geyserRadius
-      : SERVANT_CONFIG.FROSTBITE_WARDEN.slamRadius;
+    const stats = isAegisMonolith
+      ? HARMONIC_SERVANT_CONFIG.AEGIS_MONOLITH
+      : isCoralBastion
+        ? SUNKEN_SERVANT_CONFIG.CORAL_BASTION
+        : SERVANT_CONFIG.FROSTBITE_WARDEN;
+    const slamRadius = isAegisMonolith
+      ? HARMONIC_SERVANT_CONFIG.AEGIS_MONOLITH.bassDropRadius
+      : isCoralBastion
+        ? SUNKEN_SERVANT_CONFIG.CORAL_BASTION.geyserRadius
+        : SERVANT_CONFIG.FROSTBITE_WARDEN.slamRadius;
     const { servantAI: ai, transform, velocity } = entity;
     this.faceTarget(transform, px, pz, dt, stats.turnSpeed);
 
@@ -1513,14 +1620,22 @@ export class ChamberSystem implements ISystem {
       velocity.vz = 0;
       ai.telegraphTimer -= dt;
       if (ai.telegraphTimer <= 0) {
-        // Heavy slam -> shake + spawn delayed circular floor ice-pillar / boiling geyser under player
+        // Heavy slam -> shake + circular bass-drop shockwave (Realm III) or delayed floor eruption
         this.callbacks.addCameraShake(stats.slamCameraShake);
-        if (isCoralBastion) {
+        if (isAegisMonolith) {
+          this.audio.playBassDrop();
+          this.spawnMonolithBassDropShockwave(
+            transform.position.x,
+            transform.position.z,
+            stats.damage,
+          );
+        } else if (isCoralBastion) {
           this.audio.playGeyserErupt();
+          this.spawnWardenFloorPillar(px, pz, stats.damage);
         } else {
           this.audio.playUmbralPulse();
+          this.spawnWardenFloorPillar(px, pz, stats.damage);
         }
-        this.spawnWardenFloorPillar(px, pz, stats.damage);
         if (dist <= slamRadius) {
           this.callbacks.onPlayerDamaged(stats.damage);
         }
@@ -1601,6 +1716,54 @@ export class ChamberSystem implements ISystem {
     });
   }
 
+  /**
+   * Spawns an expanding circular emerald-and-magenta bass-drop shockwave across the stage deck
+   * when an Aegis Monolith slams its heavy tuning-hammer.
+   */
+  private spawnMonolithBassDropShockwave(
+    ox: number,
+    oz: number,
+    damage: number,
+  ): void {
+    const origin = new THREE.Vector3(ox, 0.12, oz);
+    const waveGroup = this.vfx.createFrostRingNovaGroup(origin);
+    const handles = waveGroup.userData.frostRingHandles as
+      | FrostRingMeshHandles
+      | undefined;
+    if (handles) {
+      handles.ringMat.color.setHex(PALETTE.harmonicEmerald);
+      handles.wallMat.color.setHex(PALETTE.harmonicMagenta);
+    }
+
+    const cfg = HARMONIC_SERVANT_CONFIG.AEGIS_MONOLITH;
+    this.world.createEntity({
+      transform: {
+        position: { x: ox, y: 0.12, z: oz },
+        rotationY: 0,
+        scale: 1,
+      },
+      hazardZone: {
+        kind: 'FROST_RING_NOVA',
+        faction: 'SERVANT',
+        damage,
+        elapsed: 0,
+        telegraphDuration: 0,
+        activeDuration: cfg.bassDropWaveDuration,
+        currentRadius: 0.85,
+        maxRadius: cfg.bassDropWaveMaxRadius,
+        hitThickness: cfg.bassDropWaveHitThickness,
+        angle: 0,
+        startAngle: 0,
+        endAngle: 0,
+        beamLength: 0,
+        hitCooldown: 0,
+        hasHitPlayer: false,
+        hasTriggered: true,
+      },
+      meshRef: { object3D: waveGroup },
+    });
+  }
+
   // =========================================================================
   // ASTRAL PORTAL PROXIMITY & WARP TRANSITION
   // =========================================================================
@@ -1652,7 +1815,9 @@ export class ChamberSystem implements ISystem {
     this.portalWarpElapsed = 0;
     this.portalSparkTimer = 0;
     this.audio.playPortalWarp();
-    if (this.activeRealm === 2) {
+    if (this.activeRealm === 3) {
+      this.audio.playBassDrop();
+    } else if (this.activeRealm === 2) {
       this.audio.playTidalWave();
     }
     this.callbacks.addCameraShake(0.2);
@@ -1706,7 +1871,7 @@ export class ChamberSystem implements ISystem {
       }
     }
 
-    if (this.portalWarpElapsed >= CHAMBER_CONFIG.portalWarpDuration) {
+    if (this.portalWarpElapsed >= this.getActivePortalWarpDuration()) {
       useGameStore.getState().setPortalWarpProgress(0);
       this.callbacks.onPortalWarpComplete();
     }

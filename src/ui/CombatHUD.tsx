@@ -231,9 +231,11 @@ export function CombatHUD({ controller }: CombatHUDProps) {
               <div className="frost-panel rounded-2xl px-4 py-3 sm:px-5 sm:py-3.5 border-purple-400/45 shadow-[0_12px_36px_rgba(139,92,246,0.28)]">
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <div className="font-display text-xs sm:text-sm md:text-base font-bold tracking-[0.18em] text-sky-50 leading-tight drop-shadow-[0_0_10px_rgba(56,189,248,0.6)]">
-                    {activeRealm === 2
-                      ? 'THE SUNKEN AQUEDUCT'
-                      : 'ROYAL ICE CHAMBERS'}
+                    {activeRealm === 3
+                      ? 'THE CYBER BACKSTAGE'
+                      : activeRealm === 2
+                        ? 'THE SUNKEN AQUEDUCT'
+                        : 'ROYAL ICE CHAMBERS'}
                   </div>
                   <span
                     className={
@@ -249,9 +251,11 @@ export function CombatHUD({ controller }: CombatHUDProps) {
                 </div>
                 <div className="text-[10px] sm:text-[11px] tracking-[0.2em] uppercase font-semibold text-sky-200/90">
                   {portalState === PORTAL_STATES.IGNITED
-                    ? activeRealm === 2
-                      ? "TIDAL PORTAL OPEN — DESCEND TO SERENA'S AMPHITHEATER"
-                      : 'ASTRAL PORTAL OPEN — ASCEND TO MARINA’S SUMMIT'
+                    ? activeRealm === 3
+                      ? "HARMONIC PORTAL OPEN — ASCEND TO MIKU'S CONCERT STAGE"
+                      : activeRealm === 2
+                        ? "TIDAL PORTAL OPEN — DESCEND TO SERENA'S AMPHITHEATER"
+                        : 'ASTRAL PORTAL OPEN — ASCEND TO MARINA’S SUMMIT'
                     : `CHAMBER WAVE ${Math.max(1, chamberWave)} / ${totalChamberWaves} — SERVANTS REMAINING: ${servantsRemaining}`}
                 </div>
               </div>
@@ -436,7 +440,11 @@ export function CombatHUD({ controller }: CombatHUDProps) {
                     isNearPortal ? 'scale-105' : 'opacity-90'
                   }`}
                 >
-                  [E] ASCEND THROUGH ASTRAL PORTAL
+                  {activeRealm === 3
+                    ? '[E] ASCEND THROUGH HARMONIC PORTAL'
+                    : activeRealm === 2
+                      ? '[E] DESCEND THROUGH TIDAL PORTAL'
+                      : '[E] ASCEND THROUGH ASTRAL PORTAL'}
                 </button>
               </div>
             )}
@@ -464,9 +472,11 @@ export function CombatHUD({ controller }: CombatHUDProps) {
               }}
             >
               <div className="font-display text-sm sm:text-lg font-extrabold tracking-[0.28em] uppercase text-slate-950 drop-shadow-[0_0_16px_rgba(255,255,255,0.9)]">
-                {activeRealm === 2
-                  ? 'DESCENDING TO THE PEARL AMPHITHEATER'
-                  : 'ASCENDING TO THE GLACIAL SUMMIT'}
+                {activeRealm === 3
+                  ? 'WARPING TO THE ASTRAL CONCERT STAGE'
+                  : activeRealm === 2
+                    ? 'DESCENDING TO THE PEARL AMPHITHEATER'
+                    : 'ASCENDING TO THE GLACIAL SUMMIT'}
               </div>
             </div>
           )}

@@ -3,13 +3,17 @@ import {
   type ServantArchetype,
 } from '../../config/gameConfig';
 import { AbyssalSirenWeaverRig } from './AbyssalSirenWeaverRig';
+import { AegisMonolithRig } from './AegisMonolithRig';
 import { CoralBastionRig } from './CoralBastionRig';
 import { CryoAcolyteRig } from './CryoAcolyteRig';
+import { FrequencyDroneRig } from './FrequencyDroneRig';
 import { FrostbiteWardenRig } from './FrostbiteWardenRig';
 import { GlacialVanguardRig } from './GlacialVanguardRig';
+import { PulseStrikerRig } from './PulseStrikerRig';
 import { RazorfinMantaRig } from './RazorfinMantaRig';
 import { RimeHoundRig } from './RimeHoundRig';
 import type { ServantRigAdapter } from './ServantBase';
+import { SynthCantorRig } from './SynthCantorRig';
 import { TideguardHopliteRig } from './TideguardHopliteRig';
 
 export type ServantRigConstructor = () => ServantRigAdapter;
@@ -27,17 +31,16 @@ const servantRegistry = new Map<ServantArchetype, ServantRigConstructor>([
   [SERVANT_ARCHETYPES.RAZORFIN_MANTA, () => new RazorfinMantaRig()],
   [SERVANT_ARCHETYPES.CORAL_BASTION, () => new CoralBastionRig()],
 
-  // Realm III — The Harmonic Citadel (default adapters until dedicated cyber rigs register in Step 2)
-  [SERVANT_ARCHETYPES.PULSE_STRIKER, () => new TideguardHopliteRig()],
-  [SERVANT_ARCHETYPES.SYNTH_CANTOR, () => new AbyssalSirenWeaverRig()],
-  [SERVANT_ARCHETYPES.FREQUENCY_DRONE, () => new RazorfinMantaRig()],
-  [SERVANT_ARCHETYPES.AEGIS_MONOLITH, () => new CoralBastionRig()],
+  // Realm III — The Harmonic Citadel
+  [SERVANT_ARCHETYPES.PULSE_STRIKER, () => new PulseStrikerRig()],
+  [SERVANT_ARCHETYPES.SYNTH_CANTOR, () => new SynthCantorRig()],
+  [SERVANT_ARCHETYPES.FREQUENCY_DRONE, () => new FrequencyDroneRig()],
+  [SERVANT_ARCHETYPES.AEGIS_MONOLITH, () => new AegisMonolithRig()],
 ]);
 
 /**
  * Registers or overrides a servant rig builder for a given archetype (Open/Closed Principle).
- * Future realms (Cyber-Cathedral drones, Abyssal Palace sentinels) plug in here without
- * modifying ChamberSystem or combat code.
+ * Future realms plug in here without modifying ChamberSystem or combat code.
  */
 export function registerServantRig(
   archetype: ServantArchetype,

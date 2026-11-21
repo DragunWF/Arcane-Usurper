@@ -6,6 +6,7 @@ import {
   CHAMBER_CONFIG,
   DESTRUCTIBLE_PROP_TYPES,
   GAME_STATES,
+  HARMONIC_SERVANT_CONFIG,
   LOBBY_CONFIG,
   NG_PLUS_CONFIG,
   PLAYER_CONFIG,
@@ -998,9 +999,14 @@ export class CombatSystem implements ISystem {
 
           if (frontDot > CHAMBER_CONFIG.wardenShieldDotThreshold) {
             if (projectile.kind === 'USURPED_BEAM') {
-              // Piercing NG+ Spear-Beam shatters Warden / Coral Bastion frontal tower-shield
+              // Piercing NG+ Spear-Beam shatters Warden / Coral Bastion / Aegis Monolith frontal tower-shield
               if (s.servantAI.archetype === SERVANT_ARCHETYPES.CORAL_BASTION) {
                 this.audio.playCoralShatter();
+              } else if (
+                s.servantAI.archetype === SERVANT_ARCHETYPES.AEGIS_MONOLITH
+              ) {
+                this.audio.playCapacitorShatter();
+                this.audio.playGuardBreak();
               } else {
                 this.audio.playGuardBreak();
               }
@@ -1019,9 +1025,11 @@ export class CombatSystem implements ISystem {
           }
         } else {
           const guardMult =
-            s.servantAI.archetype === SERVANT_ARCHETYPES.CORAL_BASTION
-              ? SUNKEN_SERVANT_CONFIG.CORAL_BASTION.guardBrokenDamageMultiplier
-              : SERVANT_CONFIG.FROSTBITE_WARDEN.guardBrokenDamageMultiplier;
+            s.servantAI.archetype === SERVANT_ARCHETYPES.AEGIS_MONOLITH
+              ? HARMONIC_SERVANT_CONFIG.AEGIS_MONOLITH.guardBrokenDamageMultiplier
+              : s.servantAI.archetype === SERVANT_ARCHETYPES.CORAL_BASTION
+                ? SUNKEN_SERVANT_CONFIG.CORAL_BASTION.guardBrokenDamageMultiplier
+                : SERVANT_CONFIG.FROSTBITE_WARDEN.guardBrokenDamageMultiplier;
           const mult = s.servantAI.guardBrokenTimer > 0 ? guardMult : 1.0;
           this.damageServant(s, Math.round(projectile.damage * mult), this.vBurstPos);
         }
@@ -1098,6 +1106,11 @@ export class CombatSystem implements ISystem {
         ) {
           if (s.servantAI.archetype === SERVANT_ARCHETYPES.CORAL_BASTION) {
             this.audio.playCoralShatter();
+          } else if (
+            s.servantAI.archetype === SERVANT_ARCHETYPES.AEGIS_MONOLITH
+          ) {
+            this.audio.playCapacitorShatter();
+            this.audio.playGuardBreak();
           } else {
             this.audio.playGuardBreak();
           }
@@ -1153,7 +1166,8 @@ export class CombatSystem implements ISystem {
   private isTowerShieldServant(archetype: ServantArchetype): boolean {
     return (
       archetype === SERVANT_ARCHETYPES.FROSTBITE_WARDEN ||
-      archetype === SERVANT_ARCHETYPES.CORAL_BASTION
+      archetype === SERVANT_ARCHETYPES.CORAL_BASTION ||
+      archetype === SERVANT_ARCHETYPES.AEGIS_MONOLITH
     );
   }
 
