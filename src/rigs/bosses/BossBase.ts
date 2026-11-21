@@ -171,6 +171,8 @@ export interface BossRigAdapter {
   readonly headAnchor: THREE.Object3D;
   /** Crown, tiara, hair-clips, or shell ornament target for the [F] flick taunt. */
   readonly headAccessory: THREE.Object3D;
+  /** Optional waist wrap radius so DarkMageRig hugs each sovereign's silhouette cleanly. */
+  readonly waistWrapRadius?: number;
   /** Materials that smoothly bleach to PALETTE.drainedAshSilver (#94A3B8) as drain progresses 0 -> 1. */
   readonly drainableMaterials: THREE.MeshToonMaterial[];
   /** Cached initial material diffuse colors aligned 1:1 with drainableMaterials. */

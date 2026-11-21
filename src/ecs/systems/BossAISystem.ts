@@ -5,13 +5,18 @@ import {
   BOSS_EXPRESSIONS,
   BOSS_PHASES,
   GAME_STATES,
+  MIKU_CONFIG,
   NG_PLUS_CONFIG,
+  PALETTE,
   SERENA_CONFIG,
   type BossPhase,
   type GameState,
 } from '../../config/gameConfig';
 import type { IAudioTrigger } from '../../engine/SoundEngine';
-import type { IVfxSpawner } from '../../engine/VfxFactory';
+import type {
+  FrostRingMeshHandles,
+  IVfxSpawner,
+} from '../../engine/VfxFactory';
 import type { BossRigAdapter } from '../../rigs/bosses/BossBase';
 import type { MarinaRig } from '../../rigs/bosses/MarinaRig';
 import type { BossPhaseStateComponent, EntityId, EntityWith } from '../components';
@@ -98,6 +103,7 @@ export class BossAISystem implements ISystem {
 
     this.registerMarinaPatterns();
     this.registerSerenaPatterns();
+    this.registerMikuPatterns();
   }
 
   public setBossRig(rig: BossRigAdapter): void {
@@ -147,6 +153,12 @@ export class BossAISystem implements ISystem {
     for (let i = 0; i < clones.length; i++) {
       const c = clones[i];
       if (c) toDestroy.push(c.id);
+    }
+
+    const ampNodes = this.world.query('harmonicAmpNode');
+    for (let i = 0; i < ampNodes.length; i++) {
+      const n = ampNodes[i];
+      if (n) toDestroy.push(n.id);
     }
 
     for (let i = 0; i < toDestroy.length; i++) {
@@ -293,6 +305,7 @@ export class BossAISystem implements ISystem {
     if (!boss || !player) return;
 
     this.updateClonesAI(dt);
+    this.updateHarmonicAmpNodes(dt, player.transform.position);
 
     if (state !== GAME_STATES.BOSS_COMBAT || boss.bossPhase.isStaggered) {
       return;
@@ -1582,6 +1595,499 @@ export class BossAISystem implements ISystem {
           return SERENA_CONFIG.sirensChorale.attackCooldown;
         }
         return SERENA_CONFIG.tidalSweep.attackCooldown;
+      },
+    });
+  }
+
+  /**
+   * Steps floating destructible Harmonic Amp Nodes summoned by Miku in Phase II+:
+   * each active node fires cross-stage frequency bolts toward the Dark Mage until shattered.
+   */
+  private updateHarmonicAmpNodes(
+    dt: number,
+    playerPos: { x: number; y: number; z: number },
+  ): void {
+    const nodes = this.world.query('harmonicAmpNode', 'transform');
+    const expiredIds: EntityId[] = [];
+
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
+      if (!node) continue;
+      const amp = node.harmonicAmpNode;
+      amp.life -= dt;
+      amp.fireTimer -= dt;
+
+      if (amp.life <= 0) {
+        this.vfx.spawnFrostShatterBurst(
+          new THREE.Vector3(
+            node.transform.position.x,
+            node.transform.position.y,
+            node.transform.position.z,
+          ),
+          10,
+          5.5,
+        );
+        expiredIds.push(node.id);
+        continue;
+      }
+
+      if (amp.fireTimer <= 0) {
+        amp.fireTimer = amp.fireInterval;
+        const nx = node.transform.position.x;
+        const ny = node.transform.position.y;
+        const nz = node.transform.position.z;
+        const dx = playerPos.x - nx;
+        const dz = playerPos.z - nz;
+        const dist = Math.hypot(dx, dz) || 1;
+        const dirX = dx / dist;
+        const dirZ = dz / dist;
+        const yaw = Math.atan2(dirX, dirZ);
+
+        // Fire a tight 3-bolt cross-stage chord burst toward the Dark Mage
+        const spreadOffsets = [-0.14, 0, 0.14];
+        for (let k = 0; k < spreadOffsets.length; k++) {
+          const ang = yaw + (spreadOffsets[k] ?? 0);
+          const vx = Math.sin(ang) * MIKU_CONFIG.ampNodeBeamSpeed;
+          const vz = Math.cos(ang) * MIKU_CONFIG.ampNodeBeamSpeed;
+          const sx = nx + Math.sin(ang) * 0.65;
+          const sz = nz + Math.cos(ang) * 0.65;
+          const orbGroup = this.vfx.createSpiralOrbGroup(
+            new THREE.Vector3(sx, 1.15, sz),
+            false,
+            true,
+          );
+          this.world.createEntity({
+            transform: {
+              position: { x: sx, y: 1.15, z: sz },
+              rotationY: ang,
+              scale: 1,
+            },
+            velocity: {
+              vx,
+              vy: 0,
+              vz,
+              maxSpeed: MIKU_CONFIG.ampNodeBeamSpeed,
+            },
+            projectile: {
+              faction: 'BOSS',
+              kind: 'SPIRAL_ORB',
+              damage: MIKU_CONFIG.ampNodeBeamDamage,
+              radius: MIKU_CONFIG.ampNodeBeamRadius,
+              life: MIKU_CONFIG.ampNodeBeamLife,
+              maxLife: MIKU_CONFIG.ampNodeBeamLife,
+              trailTimer: 0,
+              spinSpeed: 8,
+              pierceRemaining: 0,
+              hitEntityIds: [],
+              state: 'FLY',
+              fireDelay: 0,
+              fanAngle: 0,
+              baseHeight: ny,
+              ownerEntityId: node.id,
+            },
+            meshRef: { object3D: orbGroup },
+          });
+        }
+        this.audio.playChordBurst();
+      }
+    }
+
+    for (let i = 0; i < expiredIds.length; i++) {
+      const id = expiredIds[i];
+      if (id !== undefined) this.world.destroyEntity(id);
+    }
+  }
+
+  /**
+   * Registers Miku, the Harmonic Sovereign's unique 3-phase cyber-concert strategies (OCP):
+   * - Phase I: MIKU_LASER_DASH (persistent magenta laser fence) + MIKU_BEAT_DROP_RINGS (expanding equalizer rings)
+   * - Phase II: MIKU_AMP_NODES (destructible floating perimeter amp nodes) + MIKU_LASER_LATTICE (multi-dash fences)
+   * - Phase III: MIKU_CRESCENDO_OVERDRIVE (twin rotating emerald/magenta concert spotlights + beat-drop rings)
+   */
+  private registerMikuPatterns(): void {
+    const spawnMikuBeatRing = (
+      ctx: BossPatternContext,
+      ox: number,
+      oz: number,
+    ): void => {
+      const origin = new THREE.Vector3(ox, 0.12, oz);
+      const ringGroup = ctx.vfx.createFrostRingNovaGroup(origin);
+      const handles = ringGroup.userData.frostRingHandles as
+        | FrostRingMeshHandles
+        | undefined;
+      if (handles) {
+        handles.ringMat.color.setHex(PALETTE.harmonicEmerald);
+        handles.wallMat.color.setHex(PALETTE.harmonicMagenta);
+      }
+
+      ctx.world.createEntity({
+        transform: {
+          position: { x: ox, y: 0.12, z: oz },
+          rotationY: 0,
+          scale: 1,
+        },
+        hazardZone: {
+          kind: 'FROST_RING_NOVA',
+          faction: 'BOSS',
+          damage: MIKU_CONFIG.beatRingDamage,
+          elapsed: 0,
+          telegraphDuration: 0,
+          activeDuration: MIKU_CONFIG.beatRingDuration,
+          currentRadius: 0.85,
+          maxRadius: MIKU_CONFIG.beatRingMaxRadius,
+          hitThickness: MIKU_CONFIG.beatRingHitThickness,
+          angle: 0,
+          startAngle: 0,
+          endAngle: 0,
+          beamLength: 0,
+          hitCooldown: 0,
+          hasHitPlayer: false,
+          hasTriggered: true,
+        },
+        meshRef: { object3D: ringGroup },
+      });
+      ctx.audio.playBassDrop();
+    };
+
+    const launchMikuLaserDash = (
+      ctx: BossPatternContext,
+      dashSpeed: number,
+      dashDuration: number,
+      angleBiasRad: number,
+    ): void => {
+      const bp = ctx.bossEntity.bossPhase;
+      const bPos = ctx.bossEntity.transform.position;
+      const toPlayerYaw = Math.atan2(
+        ctx.playerPos.x - bPos.x,
+        ctx.playerPos.z - bPos.z,
+      );
+      const dashYaw = toPlayerYaw + angleBiasRad * bp.orbitDir;
+      const dirX = Math.sin(dashYaw);
+      const dirZ = Math.cos(dashYaw);
+
+      const intendedDist = dashSpeed * dashDuration;
+      let endX = bPos.x + dirX * intendedDist;
+      let endZ = bPos.z + dirZ * intendedDist;
+      const endRadial = Math.hypot(endX, endZ);
+      if (endRadial > BOSS_CONFIG.innerTerraceLimit && endRadial > 0.001) {
+        endX = (endX / endRadial) * BOSS_CONFIG.innerTerraceLimit;
+        endZ = (endZ / endRadial) * BOSS_CONFIG.innerTerraceLimit;
+      }
+
+      const segDx = endX - bPos.x;
+      const segDz = endZ - bPos.z;
+      const segLen = Math.max(2.2, Math.hypot(segDx, segDz));
+      const segAngle = Math.atan2(segDx, segDz);
+
+      bp.dashVelX = (segDx / Math.max(0.05, dashDuration));
+      bp.dashVelZ = (segDz / Math.max(0.05, dashDuration));
+      bp.dashTimer = dashDuration;
+
+      const wallGroup = ctx.vfx.createLaserWallGroup(
+        new THREE.Vector3(bPos.x, 0.04, bPos.z),
+        segAngle,
+        segLen,
+        MIKU_CONFIG.laserWallHeight,
+      );
+      ctx.world.createEntity({
+        transform: {
+          position: { x: bPos.x, y: 0.04, z: bPos.z },
+          rotationY: segAngle,
+          scale: 1,
+        },
+        hazardZone: {
+          kind: 'LASER_WALL',
+          faction: 'BOSS',
+          damage: MIKU_CONFIG.laserWallDamage,
+          elapsed: 0,
+          telegraphDuration: 0.16,
+          activeDuration: MIKU_CONFIG.laserWallDuration,
+          currentRadius: 0,
+          maxRadius: 0,
+          hitThickness: MIKU_CONFIG.laserWallHalfWidth,
+          angle: segAngle,
+          startAngle: segAngle,
+          endAngle: segAngle,
+          beamLength: segLen,
+          hitCooldown: 0,
+          hasHitPlayer: false,
+          hasTriggered: true,
+        },
+        meshRef: { object3D: wallGroup },
+      });
+
+      ctx.audio.playLaserSlash();
+      ctx.bossRig.triggerCastFlourish();
+      bp.orbitDir = bp.orbitDir === 1 ? -1 : 1;
+    };
+
+    // Phase I Pattern 1: Laser-Trail Dash (zips across stage leaving persistent magenta hard-light fence)
+    this.registerPattern({
+      id: 'MIKU_LASER_DASH',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        launchMikuLaserDash(
+          ctx,
+          MIKU_CONFIG.dashSpeed,
+          MIKU_CONFIG.dashDuration,
+          0.42,
+        );
+        bp.activePatternFireTimer = MIKU_CONFIG.dashDuration + 0.12;
+        bp.activePatternDuration = MIKU_CONFIG.dashDuration + 0.65;
+      },
+      tick(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        if (
+          !bp.activePatternLaunched &&
+          bp.activePatternElapsed >= bp.activePatternFireTimer
+        ) {
+          bp.activePatternLaunched = true;
+          const bPos = ctx.bossEntity.transform.position;
+          spawnMikuBeatRing(ctx, bPos.x, bPos.z);
+        }
+      },
+    });
+
+    // Phase I Pattern 2: Beat-Drop Equalizer Rings (staggered ground-level concentric rings)
+    this.registerPattern({
+      id: 'MIKU_BEAT_DROP_RINGS',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        ctx.bossRig.triggerCastFlourish();
+        const bPos = ctx.bossEntity.transform.position;
+        spawnMikuBeatRing(ctx, bPos.x, bPos.z);
+        bp.activePatternFireTimer = MIKU_CONFIG.reverberationArc.beatRingInterval;
+        bp.activePatternDuration =
+          MIKU_CONFIG.reverberationArc.beatRingInterval * 2 + 0.45;
+      },
+      tick(ctx, dt) {
+        const bp = ctx.bossEntity.bossPhase;
+        bp.activePatternFireTimer -= dt;
+        if (
+          bp.activePatternFireTimer <= 0 &&
+          bp.activePatternElapsed < bp.activePatternDuration - 0.35
+        ) {
+          bp.activePatternFireTimer =
+            MIKU_CONFIG.reverberationArc.beatRingInterval;
+          const bPos = ctx.bossEntity.transform.position;
+          spawnMikuBeatRing(ctx, bPos.x, bPos.z);
+        }
+      },
+    });
+
+    // Phase II Signature: Harmonic Amp Nodes (summons destructible perimeter amp nodes firing cross-stage beams)
+    this.registerPattern({
+      id: 'MIKU_AMP_NODES',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        ctx.bossRig.triggerCastFlourish();
+        ctx.audio.playChordBurst();
+
+        const existingNodes = ctx.world.query('harmonicAmpNode');
+        const missingCount = Math.max(
+          0,
+          MIKU_CONFIG.ampNodeCount - existingNodes.length,
+        );
+        const baseAngle = Math.random() * Math.PI * 2;
+        for (let i = 0; i < missingCount; i++) {
+          const ang = baseAngle + (i / MIKU_CONFIG.ampNodeCount) * Math.PI * 2;
+          const nx = Math.cos(ang) * MIKU_CONFIG.ampNodeRingRadius;
+          const nz = Math.sin(ang) * MIKU_CONFIG.ampNodeRingRadius;
+          const ny = MIKU_CONFIG.ampNodeHeight;
+          const nodeGroup = ctx.vfx.createHarmonicAmpNodeGroup(
+            new THREE.Vector3(nx, ny, nz),
+          );
+          ctx.world.createEntity({
+            transform: {
+              position: { x: nx, y: ny, z: nz },
+              rotationY: 0,
+              scale: 1,
+            },
+            hurtbox: {
+              radius: MIKU_CONFIG.ampNodeHitRadius,
+              minY: ny - 0.95,
+              maxY: ny + 0.95,
+              faction: 'BOSS',
+            },
+            harmonicAmpNode: {
+              hp: MIKU_CONFIG.ampNodeHp,
+              maxHp: MIKU_CONFIG.ampNodeHp,
+              fireTimer: 0.75 + i * 0.38,
+              fireInterval: MIKU_CONFIG.ampNodeFireInterval,
+              life: MIKU_CONFIG.ampNodeDuration,
+              maxLife: MIKU_CONFIG.ampNodeDuration,
+              orbitIndex: i,
+            },
+            meshRef: { object3D: nodeGroup },
+          });
+        }
+
+        // Pair node summon with a beat-drop ring pulse
+        const bPos = ctx.bossEntity.transform.position;
+        spawnMikuBeatRing(ctx, bPos.x, bPos.z);
+        bp.activePatternDuration = 1.25;
+      },
+    });
+
+    // Phase II Pattern 2: Multi-Dash Laser Lattice (2 consecutive crossing laser fences)
+    this.registerPattern({
+      id: 'MIKU_LASER_LATTICE',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        launchMikuLaserDash(
+          ctx,
+          MIKU_CONFIG.twinTailDash.dashSpeed,
+          MIKU_CONFIG.twinTailDash.dashDuration,
+          0.35,
+        );
+        bp.activePatternFireTimer = MIKU_CONFIG.twinTailDash.latticeDashInterval;
+        bp.activePatternDuration =
+          MIKU_CONFIG.twinTailDash.latticeDashInterval +
+          MIKU_CONFIG.twinTailDash.dashDuration +
+          0.45;
+      },
+      tick(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        if (
+          !bp.activePatternLaunched &&
+          bp.activePatternElapsed >= bp.activePatternFireTimer
+        ) {
+          bp.activePatternLaunched = true;
+          launchMikuLaserDash(
+            ctx,
+            MIKU_CONFIG.twinTailDash.dashSpeed,
+            MIKU_CONFIG.twinTailDash.dashDuration,
+            0.35,
+          );
+        }
+      },
+    });
+
+    // Phase III Signature: Crescendo Overdrive (twin rotating emerald/magenta concert spotlight lasers + beat rings)
+    this.registerPattern({
+      id: 'MIKU_CRESCENDO_OVERDRIVE',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        ctx.bossRig.triggerCastFlourish();
+        ctx.bossRig.setAscendHeight(MIKU_CONFIG.crescendoOverdrive.ascendHeight);
+        bp.ascendHeight = MIKU_CONFIG.crescendoOverdrive.ascendHeight;
+        ctx.audio.playChordBurst();
+
+        const bPos = ctx.bossEntity.transform.position;
+        const baseAngle = Math.atan2(
+          ctx.playerPos.x - bPos.x,
+          ctx.playerPos.z - bPos.z,
+        );
+        const sweepRad =
+          MIKU_CONFIG.spotlightRotateSpeed * MIKU_CONFIG.spotlightDurationSec;
+        const dir = bp.orbitDir;
+
+        ([-1, 1] as const).forEach((side) => {
+          const startAngle = baseAngle + (side < 0 ? 0.55 : Math.PI + 0.55);
+          const endAngle = startAngle + sweepRad * dir;
+          const beamOrigin = new THREE.Vector3(
+            bPos.x,
+            BOSS_CONFIG.phase2.laserHeight + bp.ascendHeight,
+            bPos.z,
+          );
+          const laserGroup = ctx.vfx.createLaserBeamGroup(
+            beamOrigin,
+            side,
+            startAngle,
+            MIKU_CONFIG.spotlightLength,
+            true,
+          );
+          ctx.world.createEntity({
+            transform: {
+              position: {
+                x: beamOrigin.x,
+                y: beamOrigin.y,
+                z: beamOrigin.z,
+              },
+              rotationY: startAngle,
+              scale: 1,
+            },
+            hazardZone: {
+              kind: 'GLACIAL_LASER',
+              faction: 'BOSS',
+              damage: MIKU_CONFIG.spotlightDamage,
+              elapsed: 0,
+              telegraphDuration: MIKU_CONFIG.spotlightTelegraphSec,
+              activeDuration: MIKU_CONFIG.spotlightDurationSec,
+              currentRadius: 0,
+              maxRadius: 0,
+              hitThickness: MIKU_CONFIG.spotlightHitWidth,
+              angle: startAngle,
+              startAngle,
+              endAngle,
+              beamLength: MIKU_CONFIG.spotlightLength,
+              hitCooldown: 0,
+              hasHitPlayer: false,
+              hasTriggered: false,
+            },
+            meshRef: { object3D: laserGroup },
+          });
+        });
+
+        bp.activePatternFireTimer = MIKU_CONFIG.spotlightTelegraphSec + 0.25;
+        bp.activePatternDuration =
+          MIKU_CONFIG.spotlightTelegraphSec +
+          MIKU_CONFIG.spotlightDurationSec +
+          0.2;
+      },
+      tick(ctx, dt) {
+        const bp = ctx.bossEntity.bossPhase;
+        bp.activePatternFireTimer -= dt;
+        if (
+          bp.activePatternFireTimer <= 0 &&
+          bp.activePatternElapsed < bp.activePatternDuration - 0.5
+        ) {
+          bp.activePatternFireTimer =
+            MIKU_CONFIG.crescendoOverdrive.bassDropInterval;
+          const bPos = ctx.bossEntity.transform.position;
+          spawnMikuBeatRing(ctx, bPos.x, bPos.z);
+        }
+      },
+      finish(ctx) {
+        ctx.bossRig.setAscendHeight(0);
+        ctx.bossEntity.bossPhase.ascendHeight = 0;
+        ctx.bossEntity.bossPhase.orbitDir =
+          ctx.bossEntity.bossPhase.orbitDir === 1 ? -1 : 1;
+      },
+    });
+
+    this.registerProfile({
+      bossId: MIKU_CONFIG.id,
+      phase2Threshold: MIKU_CONFIG.phase2HpThreshold,
+      phase3Threshold: MIKU_CONFIG.phase3HpThreshold,
+      staggerThreshold: MIKU_CONFIG.staggerHpThreshold,
+      phase2Opener: 'MIKU_AMP_NODES',
+      phase3Opener: 'MIKU_CRESCENDO_OVERDRIVE',
+      closeRangePattern: 'MIKU_BEAT_DROP_RINGS',
+      phase1Cycle: [
+        'MIKU_LASER_DASH',
+        'MIKU_BEAT_DROP_RINGS',
+        'MIKU_LASER_DASH',
+      ],
+      phase2Cycle: [
+        'MIKU_LASER_LATTICE',
+        'MIKU_AMP_NODES',
+        'MIKU_BEAT_DROP_RINGS',
+      ],
+      phase3Cycle: [
+        'MIKU_CRESCENDO_OVERDRIVE',
+        'MIKU_LASER_LATTICE',
+        'MIKU_AMP_NODES',
+        'MIKU_BEAT_DROP_RINGS',
+      ],
+      getCooldown(phase: BossPhase): number {
+        if (phase === BOSS_PHASES.PHASE_3) {
+          return MIKU_CONFIG.crescendoOverdrive.attackCooldown;
+        }
+        if (phase === BOSS_PHASES.PHASE_2) {
+          return MIKU_CONFIG.twinTailDash.attackCooldown;
+        }
+        return MIKU_CONFIG.reverberationArc.attackCooldown;
       },
     });
   }

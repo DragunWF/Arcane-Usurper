@@ -464,8 +464,10 @@ export class MovementSystem implements ISystem {
     const bossPos = transform.position;
     const playerPos = player.transform.position;
 
-    // Smoothly face Dark Mage unless locked in Twin Glacial Laser sweep
-    const lockRotation = bossPhase.activePatternId === 'TWIN_GLACIAL_LASER';
+    // Smoothly face Dark Mage unless locked in Twin Glacial Laser or Miku Crescendo Spotlights
+    const lockRotation =
+      bossPhase.activePatternId === 'TWIN_GLACIAL_LASER' ||
+      bossPhase.activePatternId === 'MIKU_CRESCENDO_OVERDRIVE';
     if (!lockRotation) {
       const dx = playerPos.x - bossPos.x;
       const dz = playerPos.z - bossPos.z;
@@ -503,10 +505,11 @@ export class MovementSystem implements ISystem {
       return;
     }
 
-    // Hold steady gracefully during Twin Glacial Laser or Snowflake Curtain
+    // Hold steady gracefully during sweeping beam or curtain patterns
     if (
       bossPhase.activePatternId === 'TWIN_GLACIAL_LASER' ||
-      bossPhase.activePatternId === 'SNOWFLAKE_CURTAIN'
+      bossPhase.activePatternId === 'SNOWFLAKE_CURTAIN' ||
+      bossPhase.activePatternId === 'MIKU_CRESCENDO_OVERDRIVE'
     ) {
       return;
     }

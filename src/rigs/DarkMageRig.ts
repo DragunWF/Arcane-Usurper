@@ -1175,6 +1175,7 @@ export class DarkMageRig {
     bossLipWorldPos: THREE.Vector3 | null = null,
     headChoreography?: FinisherHeadChoreography,
     bossFaceNormalWorld: THREE.Vector3 | null = null,
+    bossWaistWrapRadius?: number,
   ): void {
     // Guarantee cloak, hood, mantle & robes stay true dark obsidian (never washed purple)
     this.restoreObsidianMaterials();
@@ -1240,12 +1241,16 @@ export class DarkMageRig {
       targetRightKneeX = 0.48;
       targetTorsoX = 0.48 + FINISHER_CONFIG.dipMageExtraPitch; // ~0.94 rad deep forward dip follow
       targetHeadX = 0.24;
-      // Left arm wraps forward & inward around Marina's dipped waist/mid-back
+      // Left arm wraps forward & inward around the sovereign's dipped waist/mid-back (scaled by waistWrapRadius)
+      const wrapOffset =
+        bossWaistWrapRadius !== undefined
+          ? (bossWaistWrapRadius - FINISHER_CONFIG.mikuWaistWrapRadius) * 0.45
+          : 0;
       targetLeftShoulderX = -1.42;
       targetLeftShoulderY = 0.26;
-      targetLeftShoulderZ = 0.46;
+      targetLeftShoulderZ = 0.46 + wrapOffset;
       targetLeftElbowX = -0.92;
-      targetLeftElbowZ = 0.56;
+      targetLeftElbowZ = 0.56 - wrapOffset * 0.6;
       // Right arm raises hand upward & outward holding Obsidian Siphon Staff upright / diagonally
       // skyward (~18° off vertical) with crystal high overhead as a channeling beacon (zero clipping)
       targetRightShoulderX = FINISHER_CONFIG.dipRightShoulderX;

@@ -8,6 +8,7 @@ import {
   GAME_STATES,
   HARMONIC_SERVANT_CONFIG,
   LOBBY_CONFIG,
+  MIKU_CONFIG,
   NG_PLUS_CONFIG,
   PLAYER_CONFIG,
   SERVANT_AI_STATES,
@@ -291,6 +292,37 @@ export class CombatSystem implements ISystem {
             this.damageBoss(BOSS_CONFIG.pulseDamage, null);
           }
         }
+
+        // Umbral Pulse also damages/shatters Miku's floating Harmonic Amp Nodes
+        const ampNodes = this.world.query(
+          'harmonicAmpNode',
+          'transform',
+          'hurtbox',
+        );
+        const shatteredNodeIds: EntityId[] = [];
+        for (let i = 0; i < ampNodes.length; i++) {
+          const node = ampNodes[i];
+          if (!node) continue;
+          const d = Math.hypot(
+            transform.position.x - node.transform.position.x,
+            transform.position.z - node.transform.position.z,
+          );
+          if (d <= PLAYER_CONFIG.umbralPulseRadius + node.hurtbox.radius) {
+            node.harmonicAmpNode.hp -= PLAYER_CONFIG.pulseDamage;
+            this.vBurstPos.set(
+              node.transform.position.x,
+              node.transform.position.y,
+              node.transform.position.z,
+            );
+            this.vfx.spawnImpactBurst(this.vBurstPos, 14);
+            this.audio.playCapacitorShatter();
+            if (node.harmonicAmpNode.hp <= 0) {
+              this.vfx.spawnFrostShatterBurst(this.vBurstPos, 16, 7.5);
+              shatteredNodeIds.push(node.id);
+            }
+          }
+        }
+        shatteredNodeIds.forEach((id) => this.world.destroyEntity(id));
       } else if (state === GAME_STATES.CHAMBER_COMBAT) {
         this.applyUmbralPulseToChamberTargets(
           transform.position.x,
@@ -363,6 +395,48 @@ export class CombatSystem implements ISystem {
               projectile.pierceRemaining--;
             } else {
               hit = true;
+            }
+          }
+        }
+
+        // Hit Floating Harmonic Amp Nodes (Miku Phase II+ destructible targets)
+        if (!hit && state === GAME_STATES.BOSS_COMBAT) {
+          const ampNodes = this.world.query(
+            'harmonicAmpNode',
+            'transform',
+            'hurtbox',
+          );
+          for (let j = 0; j < ampNodes.length; j++) {
+            const node = ampNodes[j];
+            if (!node || projectile.hitEntityIds.includes(node.id)) continue;
+            const nPos = node.transform.position;
+            const r = node.hurtbox.radius + projectile.radius;
+            const dx = p.x - nPos.x;
+            const dz = p.z - nPos.z;
+            if (
+              p.y >= node.hurtbox.minY &&
+              p.y <= node.hurtbox.maxY &&
+              dx * dx + dz * dz <= r * r
+            ) {
+              projectile.hitEntityIds.push(node.id);
+              node.harmonicAmpNode.hp -= projectile.damage;
+              this.vBurstPos.set(p.x, p.y, p.z);
+              this.vfx.spawnImpactBurst(this.vBurstPos, 10);
+              this.audio.playCapacitorShatter();
+              if (node.harmonicAmpNode.hp <= 0) {
+                this.vfx.spawnFrostShatterBurst(
+                  new THREE.Vector3(nPos.x, nPos.y, nPos.z),
+                  16,
+                  7.4,
+                );
+                toDestroy.push(node.id);
+              }
+              if (projectile.pierceRemaining > 0) {
+                projectile.pierceRemaining--;
+              } else {
+                hit = true;
+                break;
+              }
             }
           }
         }
@@ -800,6 +874,40 @@ export class CombatSystem implements ISystem {
             const nz = toCenterZ / dist;
             player.transform.position.x += nx * pullStep;
             player.transform.position.z += nz * pullStep;
+          }
+        }
+      } else if (hz.kind === 'LASER_WALL') {
+        hz.hitCooldown = Math.max(0, hz.hitCooldown - dt);
+        if (hz.elapsed >= hz.activeDuration) {
+          toDestroy.push(entity.id);
+          continue;
+        }
+        // Persistent magenta hard-light laser fence left behind Miku's dashes (Blink passes safely with i-frames)
+        if (
+          hz.elapsed >= hz.telegraphDuration &&
+          player &&
+          !player.health.isInvulnerable &&
+          hz.hitCooldown <= 0
+        ) {
+          const dirX = Math.sin(hz.angle);
+          const dirZ = Math.cos(hz.angle);
+          const relX = player.transform.position.x - transform.position.x;
+          const relZ = player.transform.position.z - transform.position.z;
+          const proj = relX * dirX + relZ * dirZ;
+          if (proj >= -0.25 && proj <= hz.beamLength + 0.25) {
+            const perp = Math.abs(relX * -dirZ + relZ * dirX);
+            if (perp <= hz.hitThickness + PLAYER_CONFIG.radius * 0.5) {
+              hz.hitCooldown = MIKU_CONFIG.laserWallHitCooldown;
+              this.damagePlayer(hz.damage, state);
+              this.vfx.spawnImpactBurst(
+                new THREE.Vector3(
+                  player.transform.position.x,
+                  1.1,
+                  player.transform.position.z,
+                ),
+                10,
+              );
+            }
           }
         }
       }

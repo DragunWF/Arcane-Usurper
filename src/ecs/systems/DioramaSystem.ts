@@ -7,6 +7,7 @@ import {
   DIORAMA_CONFIG,
   FINISHER_CONFIG,
   GAME_STATES,
+  MIKU_CONFIG,
   PALETTE,
   SERENA_CONFIG,
   SIPHON_GALLERY_CONFIG,
@@ -63,6 +64,8 @@ export class DioramaSystem implements ISystem {
   private readonly marionetteThreads: MarionetteThread[] = [];
   private dimmedStaffGroup: THREE.Group | null = null;
   private abyssalBubbleMesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial> | null = null;
+  private readonly encoreThrallRingsGroup = new THREE.Group();
+  private readonly encoreThrallRings: THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial>[] = [];
 
   // Reusable scratch vectors (zero per-frame allocations)
   private readonly scratchBossL = new THREE.Vector3();
@@ -162,6 +165,26 @@ export class DioramaSystem implements ISystem {
     bubbleMesh.visible = false;
     this.abyssalBubbleMesh = bubbleMesh;
     this.marionetteGroup.add(bubbleMesh);
+
+    // Glowing Magenta Frequency Rings binding the kneeling Dark Mage in Realm III Defeat ("Captive Encore Thrall")
+    this.encoreThrallRingsGroup.visible = false;
+    for (let i = 0; i < MIKU_CONFIG.defeatRingCount; i++) {
+      const r = MIKU_CONFIG.defeatRingBaseRadius - i * 0.08;
+      const ringGeo = new THREE.TorusGeometry(r, 0.028, 8, 36);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: i % 2 === 0 ? PALETTE.harmonicMagenta : PALETTE.harmonicEmerald,
+        transparent: true,
+        opacity: 0.86,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+      ringMesh.rotation.x = Math.PI / 2;
+      ringMesh.position.y = 0.28 + i * 0.34;
+      this.encoreThrallRingsGroup.add(ringMesh);
+      this.encoreThrallRings.push(ringMesh);
+    }
+    this.marionetteGroup.add(this.encoreThrallRingsGroup);
   }
 
   /**
@@ -243,7 +266,10 @@ export class DioramaSystem implements ISystem {
     this.callbacks.setAtmosphereStagger();
 
     const store = useGameStore.getState();
-    if (store.activeRealm === 2) {
+    if (store.activeRealm === 3) {
+      store.setMikuDefeated(true);
+      store.setMikuCoreCharge(MIKU_CONFIG.defaultCoreCharge);
+    } else if (store.activeRealm === 2) {
       store.setSerenaDefeated(true);
       store.setSerenaCoreCharge(SERENA_CONFIG.defaultCoreCharge);
     } else {
@@ -338,22 +364,30 @@ export class DioramaSystem implements ISystem {
       this.dimmedStaffGroup.position.set(0.68, 0.05, halfDist + 0.18);
     }
 
-    const isRealm2 = useGameStore.getState().activeRealm === 2;
+    const activeRealm = useGameStore.getState().activeRealm;
+    const isRealm2 = activeRealm === 2;
+    const isRealm3 = activeRealm === 3;
     if (this.abyssalBubbleMesh) {
       this.abyssalBubbleMesh.visible = isRealm2;
       this.abyssalBubbleMesh.position.set(0, 0.78, halfDist);
     }
+    this.encoreThrallRingsGroup.visible = isRealm3;
+    this.encoreThrallRingsGroup.position.set(0, 0, halfDist);
     for (let i = 0; i < this.marionetteThreads.length; i++) {
       const t = this.marionetteThreads[i];
       if (!t) continue;
       t.line.material.color.setHex(
-        isRealm2
+        isRealm3
           ? i % 2 === 0
-            ? PALETTE.biolumCyan
-            : PALETTE.serenaHairTips
-          : i % 2 === 0
-            ? PALETTE.frostRunes
-            : PALETTE.iceHighlights,
+            ? PALETTE.harmonicMagenta
+            : PALETTE.harmonicEmerald
+          : isRealm2
+            ? i % 2 === 0
+              ? PALETTE.biolumCyan
+              : PALETTE.serenaHairTips
+            : i % 2 === 0
+              ? PALETTE.frostRunes
+              : PALETTE.iceHighlights,
       );
     }
 
@@ -504,6 +538,18 @@ export class DioramaSystem implements ISystem {
       this.abyssalBubbleMesh.material.opacity =
         0.2 + 0.07 * Math.sin(elapsed * 3.4);
     }
+
+    if (this.encoreThrallRingsGroup.visible) {
+      for (let i = 0; i < this.encoreThrallRings.length; i++) {
+        const ring = this.encoreThrallRings[i];
+        if (!ring) continue;
+        const dir = i % 2 === 0 ? 1 : -1;
+        ring.rotation.z = elapsed * (1.15 + i * 0.45) * dir;
+        ring.rotation.y = Math.sin(elapsed * 1.8 + i) * 0.14;
+        const pulse = 1.0 + Math.sin(elapsed * 4.2 + i * 1.1) * 0.045;
+        ring.scale.setScalar(pulse);
+      }
+    }
   }
 
   public dispose(): void {
@@ -517,6 +563,12 @@ export class DioramaSystem implements ISystem {
     if (this.abyssalBubbleMesh) {
       this.abyssalBubbleMesh.geometry.dispose();
       this.abyssalBubbleMesh.material.dispose();
+    }
+    for (let i = 0; i < this.encoreThrallRings.length; i++) {
+      const ring = this.encoreThrallRings[i];
+      if (!ring) continue;
+      ring.geometry.dispose();
+      ring.material.dispose();
     }
   }
 }

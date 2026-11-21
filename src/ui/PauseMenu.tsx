@@ -82,20 +82,28 @@ export function PauseMenu({ controller }: PauseMenuProps) {
                   ? `Obsidian Spire Sanctum • Encore NG+${encoreTier}`
                   : 'Obsidian Spire Sanctum • Temporal Stasis'
                 : gameState === GAME_STATES.CHAMBER_COMBAT
-                  ? activeRealm === 2
+                  ? activeRealm === 3
                     ? encoreTier > 0
-                      ? `Sunken Aqueduct • Encore NG+${encoreTier}`
-                      : 'Sunken Aqueduct • Temporal Stasis'
-                    : encoreTier > 0
-                      ? `Royal Ice Chambers • Encore NG+${encoreTier}`
-                      : 'Royal Ice Chambers • Temporal Stasis'
-                  : activeRealm === 2
+                      ? `Cyber Backstage • Encore NG+${encoreTier}`
+                      : 'Cyber Backstage • Temporal Stasis'
+                    : activeRealm === 2
+                      ? encoreTier > 0
+                        ? `Sunken Aqueduct • Encore NG+${encoreTier}`
+                        : 'Sunken Aqueduct • Temporal Stasis'
+                      : encoreTier > 0
+                        ? `Royal Ice Chambers • Encore NG+${encoreTier}`
+                        : 'Royal Ice Chambers • Temporal Stasis'
+                  : activeRealm === 3
                     ? encoreTier > 0
-                      ? `Pearl Amphitheater • Encore NG+${encoreTier}`
-                      : 'Pearl Amphitheater • Temporal Stasis'
-                    : encoreTier > 0
-                      ? `Glacial Spire Summit • Encore NG+${encoreTier}`
-                      : 'Glacial Spire Summit • Temporal Stasis'}
+                      ? `Astral Concert Stage • Encore NG+${encoreTier}`
+                      : 'Astral Concert Stage • Temporal Stasis'
+                    : activeRealm === 2
+                      ? encoreTier > 0
+                        ? `Pearl Amphitheater • Encore NG+${encoreTier}`
+                        : 'Pearl Amphitheater • Temporal Stasis'
+                      : encoreTier > 0
+                        ? `Glacial Spire Summit • Encore NG+${encoreTier}`
+                        : 'Glacial Spire Summit • Temporal Stasis'}
             </span>
           </div>
 
@@ -212,13 +220,17 @@ export function PauseMenu({ controller }: PauseMenuProps) {
               }}
             >
               {gameState === GAME_STATES.CHAMBER_COMBAT
-                ? activeRealm === 2
-                  ? 'RESTART AQUEDUCT'
-                  : 'RESTART CHAMBERS'
+                ? activeRealm === 3
+                  ? 'RESTART BACKSTAGE'
+                  : activeRealm === 2
+                    ? 'RESTART AQUEDUCT'
+                    : 'RESTART CHAMBERS'
                 : hasReachedSummit
-                  ? activeRealm === 2
-                    ? 'RESTART AMPHITHEATER DUEL'
-                    : 'RESTART SUMMIT DUEL'
+                  ? activeRealm === 3
+                    ? 'RESTART CONCERT DUEL'
+                    : activeRealm === 2
+                      ? 'RESTART AMPHITHEATER DUEL'
+                      : 'RESTART SUMMIT DUEL'
                   : 'RESTART STAGE'}
             </button>
           )}

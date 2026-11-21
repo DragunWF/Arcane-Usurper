@@ -11,9 +11,11 @@ import type { SceneManager } from '../../engine/SceneManager';
 import type {
   AbyssalWhirlpoolMeshHandles,
   FrostRingMeshHandles,
+  HarmonicAmpNodeHandles,
   IcePillarMeshHandles,
   IVfxSpawner,
   LaserMeshHandles,
+  LaserWallMeshHandles,
   PhaseWaveMeshHandles,
   PulseMeshHandles,
 } from '../../engine/VfxFactory';
@@ -322,6 +324,45 @@ export class RenderSyncSystem implements ISystem {
           handles.innerMat.opacity = 0.72 * env * pulse;
           handles.vortexLight.intensity = 10.5 * env * pulse;
         }
+      } else if (hz.kind === 'LASER_WALL') {
+        const handles = obj.userData.laserWallHandles as
+          | LaserWallMeshHandles
+          | undefined;
+        if (handles) {
+          const t = THREE.MathUtils.clamp(
+            hz.elapsed / Math.max(0.001, hz.activeDuration),
+            0,
+            1,
+          );
+          const fadeOut = t > 0.8 ? (1 - t) / 0.2 : 1;
+          const shimmer = 0.85 + 0.15 * Math.sin(elapsed * 22);
+          handles.curtainMat.opacity = 0.34 * fadeOut * shimmer;
+          handles.beamMat.opacity = 0.92 * fadeOut;
+          handles.pylonMat.opacity = 0.85 * fadeOut;
+        }
+      }
+    }
+
+    // 6b. Animate Floating Destructible Harmonic Amp Nodes
+    const ampNodes = this.world.query('harmonicAmpNode', 'transform', 'meshRef');
+    for (let i = 0; i < ampNodes.length; i++) {
+      const node = ampNodes[i];
+      if (!node) continue;
+      const obj = node.meshRef.object3D;
+      const bob = Math.sin(elapsed * 3.2 + node.harmonicAmpNode.orbitIndex * 1.4) * 0.16;
+      obj.position.set(
+        node.transform.position.x,
+        node.transform.position.y + bob,
+        node.transform.position.z,
+      );
+      const handles = obj.userData.ampNodeHandles as
+        | HarmonicAmpNodeHandles
+        | undefined;
+      if (handles) {
+        handles.ringOuter.rotation.z = elapsed * 2.4;
+        handles.ringOuter.rotation.y = elapsed * 1.1;
+        handles.ringInner.rotation.z = -elapsed * 3.1;
+        handles.coreMesh.rotation.y = elapsed * 2.8;
       }
     }
 

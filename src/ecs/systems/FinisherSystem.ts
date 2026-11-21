@@ -6,7 +6,9 @@ import {
   FINISHER_CONFIG,
   FINISHER_POSE_IDS,
   GAME_STATES,
+  MIKU_CONFIG,
   PALETTE,
+  SERENA_CONFIG,
   SIPHON_GALLERY_CONFIG,
   type DrainThrottleMode,
   type FinisherPoseId,
@@ -228,7 +230,15 @@ export class FinisherSystem implements ISystem {
     activeRig.setExpression(BOSS_EXPRESSIONS.DRAINED_FAINT, this.spiralPhase);
     activeRig.root.updateMatrixWorld(true);
     activeRig.headAccessory.getWorldPosition(this.scratchAccessoryPos);
-    this.vfx.spawnTiaraFlickSparks(this.scratchAccessoryPos);
+    if (activeRig.id === MIKU_CONFIG.id) {
+      this.vfx.spawnTiaraFlickSparks(
+        this.scratchAccessoryPos,
+        PALETTE.harmonicEmerald,
+        PALETTE.harmonicMagenta,
+      );
+    } else {
+      this.vfx.spawnTiaraFlickSparks(this.scratchAccessoryPos);
+    }
     this.audio.playTiaraPing();
 
     const store = useGameStore.getState();
@@ -538,9 +548,34 @@ export class FinisherSystem implements ISystem {
       this.scratchBossHead,
       headChoreography,
       this.scratchBossFaceNormal,
+      activeRig.waistWrapRadius,
     );
 
-    // 7. Update Lip-to-Lip Energy Ribbons, Pose [2] Aloft Staff Frost Ribbon, & Pose [3] Hair Strand
+    // 7. Update Lip-to-Lip Energy Ribbons, Pose [2] Aloft Staff Ribbon, & Pose [3] Hair/Twin-Tail Reins Strand
+    const isMikuRig = activeRig.id === MIKU_CONFIG.id;
+    const isSerenaRig = activeRig.id === SERENA_CONFIG.id;
+    this.frostRibbon.line.material.color.setHex(
+      isMikuRig
+        ? PALETTE.harmonicEmerald
+        : isSerenaRig
+          ? PALETTE.biolumCyan
+          : PALETTE.frostRibbon,
+    );
+    this.staffAloftRibbon.line.material.color.setHex(
+      isMikuRig
+        ? PALETTE.harmonicMagenta
+        : isSerenaRig
+          ? PALETTE.serenaHairTips
+          : PALETTE.frostRibbon,
+    );
+    this.hairReinStrand.line.material.color.setHex(
+      isMikuRig
+        ? PALETTE.mikuHairCyan
+        : isSerenaRig
+          ? PALETTE.serenaHairBase
+          : PALETTE.marinaHair,
+    );
+
     this.fxGroup.visible = true;
     this.mageRig.getMouthWorldPosition(this.scratchMageMouth);
     this.mageRig.getStaffCrystalWorldPosition(this.scratchMageCrystal);

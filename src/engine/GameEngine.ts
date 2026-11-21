@@ -38,6 +38,7 @@ import { ECSWorld } from '../ecs/World';
 import { DarkMageRig } from '../rigs/DarkMageRig';
 import type { BossRigAdapter } from '../rigs/bosses/BossBase';
 import { MarinaRig } from '../rigs/bosses/MarinaRig';
+import { MikuRig } from '../rigs/bosses/MikuRig';
 import { SerenaRig } from '../rigs/bosses/SerenaRig';
 import { useGameStore } from '../state/useGameStore';
 import { CameraRig, type ICameraTarget } from './CameraRig';
@@ -92,6 +93,7 @@ export class GameEngine implements IGameController {
   private readonly mageRig: DarkMageRig;
   private readonly marinaRig: MarinaRig;
   private readonly serenaRig: SerenaRig;
+  private readonly mikuRig: MikuRig;
   private bossRig: BossRigAdapter;
 
   private readonly inputSystem: InputSystem;
@@ -144,6 +146,8 @@ export class GameEngine implements IGameController {
     this.marinaRig = new MarinaRig(this.sceneManager.scene);
     this.serenaRig = new SerenaRig(this.sceneManager.scene);
     this.serenaRig.root.visible = false;
+    this.mikuRig = new MikuRig(this.sceneManager.scene);
+    this.mikuRig.root.visible = false;
     this.bossRig = this.marinaRig;
 
     // Automatic Three.js mesh disposal whenever an ECS projectile/hazard/clone/wisp is destroyed
@@ -153,6 +157,7 @@ export class GameEngine implements IGameController {
         entity.meshRef.object3D !== this.mageRig.root &&
         entity.meshRef.object3D !== this.marinaRig.root &&
         entity.meshRef.object3D !== this.serenaRig.root &&
+        entity.meshRef.object3D !== this.mikuRig.root &&
         !entity.meshRef.object3D.userData.managedByLevel &&
         !entity.meshRef.object3D.userData.managedByRig
       ) {
@@ -676,8 +681,8 @@ export class GameEngine implements IGameController {
   }
 
   /**
-   * Swaps the active sovereign BossRigAdapter cleanly for Realm I (Marina) or Realm II (Serena),
-   * updating all decoupled ECS systems, ECS boss identity traits, and Zustand Boss HUD metadata.
+   * Swaps the active sovereign BossRigAdapter cleanly for Realm I (Marina), Realm II (Serena),
+   * or Realm III (Miku), updating all decoupled ECS systems, ECS boss traits, and Zustand HUD metadata.
    */
   private activateBossForRealm(
     realm: 1 | 2 | 3,
@@ -685,12 +690,23 @@ export class GameEngine implements IGameController {
   ): BossRigAdapter {
     const isRealm2 = realm === 2;
     const isRealm3 = realm === 3;
-    const nextRig: BossRigAdapter = isRealm2 ? this.serenaRig : this.marinaRig;
-    const inactiveRig: BossRigAdapter = isRealm2
-      ? this.marinaRig
-      : this.serenaRig;
+    const nextRig: BossRigAdapter = isRealm3
+      ? this.mikuRig
+      : isRealm2
+        ? this.serenaRig
+        : this.marinaRig;
 
-    inactiveRig.root.visible = false;
+    const allRigs: readonly BossRigAdapter[] = [
+      this.marinaRig,
+      this.serenaRig,
+      this.mikuRig,
+    ];
+    for (let i = 0; i < allRigs.length; i++) {
+      const r = allRigs[i];
+      if (r && r !== nextRig) {
+        r.root.visible = false;
+      }
+    }
     this.bossRig = nextRig;
 
     this.bossAISystem.setBossRig(nextRig);
@@ -773,6 +789,7 @@ export class GameEngine implements IGameController {
     );
     this.marinaRig.root.visible = false;
     this.serenaRig.root.visible = false;
+    this.mikuRig.root.visible = false;
 
     const spawnX = isRealm3
       ? HARMONIC_CHAMBER_CONFIG.playerSpawnX
@@ -1588,6 +1605,7 @@ export class GameEngine implements IGameController {
     this.mageRig.dispose();
     this.marinaRig.dispose();
     this.serenaRig.dispose();
+    this.mikuRig.dispose();
     this.sceneManager.dispose();
   }
 }

@@ -36,7 +36,8 @@ export type HazardKind =
   | 'GLACIAL_LASER'
   | 'ICE_PILLAR'
   | 'PHASE_SHOCKWAVE'
-  | 'ABYSSAL_WHIRLPOOL';
+  | 'ABYSSAL_WHIRLPOOL'
+  | 'LASER_WALL';
 
 export interface Vec3Data {
   x: number;
@@ -225,6 +226,16 @@ export interface CloneIllusionComponent {
   volleyCount: number;
 }
 
+export interface HarmonicAmpNodeComponent {
+  hp: number;
+  maxHp: number;
+  fireTimer: number;
+  fireInterval: number;
+  life: number;
+  maxLife: number;
+  orbitIndex: number;
+}
+
 export interface LifetimeComponent {
   remaining: number;
   max: number;
@@ -251,6 +262,7 @@ export interface ComponentMap {
   destructibleProp: DestructiblePropComponent;
   soulWisp: SoulWispComponent;
   cloneIllusion: CloneIllusionComponent;
+  harmonicAmpNode: HarmonicAmpNodeComponent;
   lifetime: LifetimeComponent;
 }
 

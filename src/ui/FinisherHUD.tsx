@@ -46,6 +46,7 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
   const isEndlessSavor = useGameStore((s) => s.isEndlessSavor);
   const tauntTriggerCount = useGameStore((s) => s.tauntTriggerCount);
   const bossDisplayName = useGameStore((s) => s.bossDisplayName);
+  const activeRealm = useGameStore((s) => s.activeRealm);
   const audioMuted = useGameStore((s) => s.audioMuted);
 
   const [showTauntPop, setShowTauntPop] = useState(false);
@@ -180,6 +181,13 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
         <div className="frost-panel rounded-2xl p-2.5 flex flex-wrap items-center gap-1.5">
           {POSE_OPTIONS.map((poseId) => {
             const activePose = finisherPose === poseId;
+            const isMikuSession = !isLobbySiphon && activeRealm === 3;
+            const poseLabel =
+              isMikuSession && poseId === FINISHER_POSE_IDS.BALLROOM_DIP
+                ? 'Stage Ballroom Dip'
+                : isMikuSession && poseId === FINISHER_POSE_IDS.HAIR_REINS
+                  ? 'Twin-Tail Reins'
+                  : FINISHER_POSE_LABELS[poseId];
             return (
               <button
                 key={poseId}
@@ -191,7 +199,7 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
                     : 'bg-slate-950/75 border-sky-400/20 text-sky-200/80 hover:border-purple-400/60'
                 }`}
               >
-                [{poseId}] {FINISHER_POSE_LABELS[poseId]}
+                [{poseId}] {poseLabel}
               </button>
             );
           })}
@@ -201,7 +209,9 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
             onClick={() => controller?.triggerTaunt()}
             className="px-3.5 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-bold tracking-[0.14em] uppercase border border-rose-400/60 bg-rose-950/60 text-rose-100 hover:border-rose-300 hover:bg-rose-900/70 transition-all cursor-pointer"
           >
-            [F] FLICK TIARA
+            {!isLobbySiphon && activeRealm === 3
+              ? '[F] FLICK HAIR-TIES'
+              : '[F] FLICK TIARA'}
           </button>
         </div>
 

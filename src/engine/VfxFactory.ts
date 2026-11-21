@@ -63,6 +63,19 @@ export interface AbyssalWhirlpoolMeshHandles {
   vortexLight: THREE.PointLight;
 }
 
+export interface LaserWallMeshHandles {
+  curtainMat: THREE.MeshBasicMaterial;
+  beamMat: THREE.MeshBasicMaterial;
+  pylonMat: THREE.MeshBasicMaterial;
+}
+
+export interface HarmonicAmpNodeHandles {
+  ringOuter: THREE.Mesh;
+  ringInner: THREE.Mesh;
+  coreMesh: THREE.Mesh;
+  coreMat: THREE.MeshBasicMaterial;
+}
+
 /**
  * Narrow VFX & mesh creation interface injected into ECS systems (ISP & DIP).
  */
@@ -83,7 +96,11 @@ export interface IVfxSpawner {
     yaw: number,
     aquatic?: boolean,
   ): THREE.Group;
-  createSpiralOrbGroup(origin: THREE.Vector3, aquatic?: boolean): THREE.Group;
+  createSpiralOrbGroup(
+    origin: THREE.Vector3,
+    aquatic?: boolean,
+    harmonic?: boolean,
+  ): THREE.Group;
   createUmbralPulseGroup(origin: THREE.Vector3): THREE.Group;
   createFrostRingNovaGroup(origin: THREE.Vector3): THREE.Group;
   createPhaseShockwaveGroup(origin: THREE.Vector3, phase: BossPhase): THREE.Group;
@@ -92,7 +109,15 @@ export interface IVfxSpawner {
     side: -1 | 1,
     startAngle: number,
     beamLength: number,
+    harmonic?: boolean,
   ): THREE.Group;
+  createLaserWallGroup(
+    startPos: THREE.Vector3,
+    angle: number,
+    length: number,
+    height: number,
+  ): THREE.Group;
+  createHarmonicAmpNodeGroup(origin: THREE.Vector3): THREE.Group;
   createIcePillarGroup(
     origin: THREE.Vector3,
     radius: number,
@@ -106,7 +131,11 @@ export interface IVfxSpawner {
   spawnAfterimage(mageRig: DarkMageRig): void;
   spawnVaporWisp(origin: THREE.Vector3): void;
   spawnFinisherParticle(origin: THREE.Vector3, throttle: DrainThrottleMode): void;
-  spawnTiaraFlickSparks(origin: THREE.Vector3): void;
+  spawnTiaraFlickSparks(
+    origin: THREE.Vector3,
+    colorA?: number,
+    colorB?: number,
+  ): void;
   attachToScene(obj: THREE.Object3D): void;
   detachAndDispose(obj: THREE.Object3D): void;
   updateTransientVfx(dt: number): void;
@@ -429,10 +458,25 @@ export class VfxFactory implements IVfxSpawner {
   public createSpiralOrbGroup(
     origin: THREE.Vector3,
     aquatic = false,
+    harmonic = false,
   ): THREE.Group {
     const group = new THREE.Group();
     group.position.copy(origin);
-    if (aquatic) {
+    if (harmonic) {
+      const coreMat = new THREE.MeshBasicMaterial({
+        color: PALETTE.mikuCyan,
+      });
+      const haloMat = new THREE.MeshBasicMaterial({
+        color: PALETTE.harmonicMagenta,
+        transparent: true,
+        opacity: 0.62,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      group.add(new THREE.Mesh(this.orbCoreGeo, coreMat));
+      group.add(new THREE.Mesh(this.orbHaloGeo, haloMat));
+      group.userData.ownedMaterials = [coreMat, haloMat];
+    } else if (aquatic) {
       const coreMat = new THREE.MeshBasicMaterial({
         color: PALETTE.serenaPearl,
       });
@@ -616,16 +660,30 @@ export class VfxFactory implements IVfxSpawner {
     side: -1 | 1,
     startAngle: number,
     beamLength: number,
+    harmonic = false,
   ): THREE.Group {
     const group = new THREE.Group();
     group.position.copy(origin);
     group.rotation.y = startAngle;
 
+    const beamPrimary = harmonic
+      ? side < 0
+        ? PALETTE.harmonicEmerald
+        : PALETTE.harmonicMagenta
+      : side < 0
+        ? PALETTE.warningRune
+        : PALETTE.sovereignIndigo;
+    const beamCore = harmonic
+      ? side < 0
+        ? PALETTE.mikuHairHighlight
+        : PALETTE.voidCoreFuchsia
+      : PALETTE.blindingFrost;
+
     const telegraphGeo = new THREE.CylinderGeometry(0.04, 0.04, beamLength, 6);
     telegraphGeo.rotateX(Math.PI / 2);
     telegraphGeo.translate(0, 0, beamLength * 0.5);
     const telegraphMat = new THREE.MeshBasicMaterial({
-      color: PALETTE.warningRune,
+      color: beamPrimary,
       transparent: true,
       opacity: 0.85,
       blending: THREE.AdditiveBlending,
@@ -638,7 +696,7 @@ export class VfxFactory implements IVfxSpawner {
     coreGeo.rotateX(Math.PI / 2);
     coreGeo.translate(0, 0, beamLength * 0.5);
     const coreMat = new THREE.MeshBasicMaterial({
-      color: PALETTE.blindingFrost,
+      color: beamCore,
       transparent: true,
       opacity: 0.96,
     });
@@ -650,7 +708,7 @@ export class VfxFactory implements IVfxSpawner {
     outerGeo.rotateX(Math.PI / 2);
     outerGeo.translate(0, 0, beamLength * 0.5);
     const outerMat = new THREE.MeshBasicMaterial({
-      color: side < 0 ? PALETTE.warningRune : PALETTE.sovereignIndigo,
+      color: beamPrimary,
       transparent: true,
       opacity: 0.55,
       blending: THREE.AdditiveBlending,
@@ -662,7 +720,7 @@ export class VfxFactory implements IVfxSpawner {
 
     const muzzleGeo = new THREE.SphereGeometry(0.38, 12, 12);
     const muzzleMat = new THREE.MeshBasicMaterial({
-      color: PALETTE.blindingFrost,
+      color: beamCore,
       transparent: true,
       opacity: 0.9,
       blending: THREE.AdditiveBlending,
@@ -684,6 +742,150 @@ export class VfxFactory implements IVfxSpawner {
     group.userData.laserHandles = handles;
     group.userData.ownedMaterials = [telegraphMat, coreMat, outerMat, muzzleMat];
     group.userData.ownedGeometries = [telegraphGeo, coreGeo, outerGeo, muzzleGeo];
+
+    this.scene.add(group);
+    return group;
+  }
+
+  /**
+   * Builds a persistent glowing magenta hard-light laser fence left behind Miku's stage dashes.
+   */
+  public createLaserWallGroup(
+    startPos: THREE.Vector3,
+    angle: number,
+    length: number,
+    height: number,
+  ): THREE.Group {
+    const safeLen = Math.max(0.8, length);
+    const group = new THREE.Group();
+    group.position.set(startPos.x, 0.04, startPos.z);
+    group.rotation.y = angle;
+
+    const curtainGeo = new THREE.PlaneGeometry(safeLen, height);
+    curtainGeo.rotateY(Math.PI / 2);
+    curtainGeo.translate(0, height * 0.5, safeLen * 0.5);
+    const curtainMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.harmonicMagenta,
+      transparent: true,
+      opacity: 0.34,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    group.add(new THREE.Mesh(curtainGeo, curtainMat));
+
+    const railGeo = new THREE.CylinderGeometry(0.055, 0.055, safeLen, 6);
+    railGeo.rotateX(Math.PI / 2);
+    railGeo.translate(0, 0, safeLen * 0.5);
+    const beamMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.voidCoreFuchsia,
+      transparent: true,
+      opacity: 0.92,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+
+    const railHeights = [0.22, height * 0.52, height * 0.92];
+    for (let i = 0; i < railHeights.length; i++) {
+      const rail = new THREE.Mesh(railGeo, beamMat);
+      rail.position.y = railHeights[i] ?? 0.5;
+      group.add(rail);
+    }
+
+    const pylonGeo = new THREE.CylinderGeometry(0.11, 0.16, height * 1.05, 6);
+    const pylonMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.harmonicEmerald,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    for (const zOff of [0, safeLen] as const) {
+      const pylon = new THREE.Mesh(pylonGeo, pylonMat);
+      pylon.position.set(0, height * 0.525, zOff);
+      group.add(pylon);
+    }
+
+    const handles: LaserWallMeshHandles = { curtainMat, beamMat, pylonMat };
+    group.userData.laserWallHandles = handles;
+    group.userData.ownedMaterials = [curtainMat, beamMat, pylonMat];
+    group.userData.ownedGeometries = [curtainGeo, railGeo, pylonGeo];
+
+    this.scene.add(group);
+    return group;
+  }
+
+  /**
+   * Builds a destructible floating Harmonic Amp Node summoned by Miku in Phase II+.
+   */
+  public createHarmonicAmpNodeGroup(origin: THREE.Vector3): THREE.Group {
+    const group = new THREE.Group();
+    group.position.copy(origin);
+
+    const shellGeo = new THREE.OctahedronGeometry(0.46, 0);
+    const shellMat = ToonAssets.createToonMaterial(PALETTE.cyberObsidian, {
+      emissive: PALETTE.cyberStageMid,
+      emissiveIntensity: 0.25,
+    });
+    const { group: shellObj } = ToonAssets.createOutlinedMesh(
+      shellGeo,
+      shellMat,
+      1.07,
+      true,
+    );
+    group.add(shellObj);
+
+    const coreGeo = new THREE.OctahedronGeometry(0.28, 0);
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.harmonicMagenta,
+      transparent: true,
+      opacity: 0.94,
+    });
+    const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+    group.add(coreMesh);
+
+    const outerRingGeo = new THREE.TorusGeometry(0.76, 0.036, 8, 24);
+    const outerRingMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.harmonicEmerald,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const ringOuter = new THREE.Mesh(outerRingGeo, outerRingMat);
+    group.add(ringOuter);
+
+    const innerRingGeo = new THREE.TorusGeometry(0.58, 0.028, 8, 20);
+    const innerRingMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.harmonicMagenta,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const ringInner = new THREE.Mesh(innerRingGeo, innerRingMat);
+    ringInner.rotation.x = Math.PI / 2;
+    group.add(ringInner);
+
+    const handles: HarmonicAmpNodeHandles = {
+      ringOuter,
+      ringInner,
+      coreMesh,
+      coreMat,
+    };
+    group.userData.ampNodeHandles = handles;
+    group.userData.ownedMaterials = [
+      shellMat,
+      coreMat,
+      outerRingMat,
+      innerRingMat,
+    ];
+    group.userData.ownedGeometries = [
+      shellGeo,
+      coreGeo,
+      outerRingGeo,
+      innerRingGeo,
+    ];
 
     this.scene.add(group);
     return group;
@@ -1113,10 +1315,44 @@ export class VfxFactory implements IVfxSpawner {
   }
 
   /**
-   * Spawns crisp crystalline frost star sparks when flicking the boss's tiara ([F] taunt).
+   * Spawns crisp star sparks when flicking the boss's head accessory ([F] taunt).
    */
-  public spawnTiaraFlickSparks(origin: THREE.Vector3): void {
-    this.spawnFrostShatterBurst(origin, 14, 4.2);
+  public spawnTiaraFlickSparks(
+    origin: THREE.Vector3,
+    colorA: number = PALETTE.iceHighlights,
+    colorB: number = PALETTE.frostRunes,
+  ): void {
+    for (let i = 0; i < 16; i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: i % 2 === 0 ? colorA : colorB,
+        transparent: true,
+        opacity: 0.94,
+        blending: THREE.AdditiveBlending,
+      });
+      const mesh = new THREE.Mesh(this.shardGeo, mat);
+      mesh.position.copy(origin);
+      const scale = 0.65 + Math.random() * 1.1;
+      mesh.scale.set(scale * 0.6, scale * 1.45, scale * 0.6);
+      this.scene.add(mesh);
+
+      const dir = new THREE.Vector3(
+        (Math.random() - 0.5) * 2,
+        0.25 + Math.random() * 1.25,
+        (Math.random() - 0.5) * 2,
+      ).normalize();
+
+      this.particles.push({
+        mesh,
+        mat,
+        velocity: dir.multiplyScalar(4.4 * (0.35 + Math.random() * 0.65)),
+        gravity: 9.2,
+        spinX: 7,
+        spinY: 9,
+        life: 0.45 + Math.random() * 0.35,
+        maxLife: 0.8,
+        baseScale: scale,
+      });
+    }
   }
 
   public attachToScene(obj: THREE.Object3D): void {
