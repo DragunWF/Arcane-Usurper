@@ -371,21 +371,24 @@ export class GameEngine implements IGameController {
         onLobbyBeamComplete: () => this.releaseLobbySiphon(),
         onLobbyRelease: () => this.releaseLobbySiphon(),
         onEndlessSavorRelease: () => this.layDownFromEndlessSavor(),
-        onLobbySiphonTick: (charge, elapsed, targetId) => {
+        onLobbySiphonTick: (charge, elapsed, targetId, tetherTension = 0) => {
           if (targetId === 'serena') {
             this.sceneManager.mageTowerLevel.updateSerenaLobbySiphonBackdrop(
               charge,
               elapsed,
+              tetherTension,
             );
           } else if (targetId === 'miku') {
             this.sceneManager.mageTowerLevel.updateMikuLobbySiphonBackdrop(
               charge,
               elapsed,
+              tetherTension,
             );
           } else {
             this.sceneManager.mageTowerLevel.updateLobbySiphonBackdrop(
               charge,
               elapsed,
+              tetherTension,
             );
           }
         },

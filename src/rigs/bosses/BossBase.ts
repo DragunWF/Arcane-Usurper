@@ -186,6 +186,14 @@ export interface FinisherResistanceState {
   readonly spineResistanceOffset: number;
   /** Smoothed taunt-stun slack factor in [0, 1]. */
   readonly tauntSlack: number;
+  /** Full-body backward torso/hip pull-back factor (1.0 -> 0.0 across Stage 1 into Stage 2, 0 when taunt-stunned). */
+  readonly torsoPullBack: number;
+  /** Decaying periodic shove impulse [0, 1] firing every 1.1-1.5s in Stage 1 + SURGE rising-edge spike. */
+  readonly shoveImpulse: number;
+  /** True on the exact frame a periodic shove or SURGE-edge resistance spike fires. */
+  readonly shoveTriggered: boolean;
+  /** Damped strained forward-axis head roll oscillation (±maxHeadStruggleRollRad in Stage 1 -> 0 in Stage 3 / stunned). */
+  readonly headRollOffset: number;
 }
 
 /**
@@ -270,6 +278,7 @@ export interface BossRigAdapter {
     headChoreography?: FinisherHeadChoreography,
   ): void;
   applyBeamFinisherPose(drainProgress: number, time: number): void;
+  getLastResistanceState(): FinisherResistanceState | null;
   applyVictoryCollapsePose(time: number): void;
   applyVictoryDioramaPose(time: number): void;
   applyPuppetMasterPose(time: number): void;
@@ -294,6 +303,10 @@ export abstract class BossBase implements BossRigAdapter {
   public abstract readonly originalColors: THREE.Color[];
 
   private tauntSlackBlend = 0;
+  private shoveCooldownTimer = 0.65;
+  private shoveImpulseValue = 0;
+  private wasSurgeActive = false;
+  private lastResistanceState: FinisherResistanceState | null = null;
 
   public abstract setExpression(
     expression: BossExpression,
@@ -336,11 +349,19 @@ export abstract class BossBase implements BossRigAdapter {
   public abstract resetForEncounter(encoreTier: number): void;
   public abstract dispose(): void;
 
+  public getLastResistanceState(): FinisherResistanceState | null {
+    return this.lastResistanceState;
+  }
+
   /**
    * Resets transient finisher resistance smoothing when leaving finisher states.
    */
   protected resetResistanceState(): void {
     this.tauntSlackBlend = 0;
+    this.shoveCooldownTimer = 0.65;
+    this.shoveImpulseValue = 0;
+    this.wasSurgeActive = false;
+    this.lastResistanceState = null;
   }
 
   /**
@@ -473,7 +494,65 @@ export abstract class BossBase implements BossRigAdapter {
       limpFactor,
     );
 
-    return {
+    // Full-body early-stage torso/hip pull-back (1.0 -> 0.0 across Stage 1 into Stage 2; drops immediately on [F] taunt stun)
+    const rawTorsoPullBack =
+      1 - THREE.MathUtils.smoothstep(d, cfg.stage1End * 0.55, cfg.stage2End * 0.85);
+    const torsoPullBack = rawTorsoPullBack * (1 - slack);
+
+    // Periodic shove impulses (1.1-1.5s in Stage 1 / early Stage 2) + immediate SURGE rising-edge spike
+    this.shoveImpulseValue *= Math.exp(-safeDt * cfg.shovePulseDecayRate);
+    if (this.shoveImpulseValue < 0.002) {
+      this.shoveImpulseValue = 0;
+    }
+    const surgeRisingEdge = isSurge && !this.wasSurgeActive;
+    this.wasSurgeActive = isSurge;
+
+    let shoveTriggered = false;
+    if (isTauntStunned) {
+      this.shoveImpulseValue *= Math.exp(-safeDt * cfg.tauntStunSlackBlendRate);
+    } else if (d < cfg.sparkCutoffDrain) {
+      const rateScale = isSurge ? 1.35 : isSavor ? 0.65 : 1.0;
+      this.shoveCooldownTimer -= safeDt * rateScale;
+      if (this.shoveCooldownTimer <= 0) {
+        const span = cfg.shoveIntervalMaxSec - cfg.shoveIntervalMinSec;
+        this.shoveCooldownTimer = cfg.shoveIntervalMinSec + Math.random() * span;
+        const peak = THREE.MathUtils.clamp(
+          0.45 + 0.55 * (1 - d / Math.max(0.01, cfg.sparkCutoffDrain)),
+          0.35,
+          1.0,
+        );
+        this.shoveImpulseValue = Math.min(
+          1.0,
+          Math.max(this.shoveImpulseValue, peak),
+        );
+        shoveTriggered = true;
+      }
+      if (surgeRisingEdge) {
+        this.shoveImpulseValue = Math.min(
+          1.0,
+          this.shoveImpulseValue + cfg.surgeSpikeBoost,
+        );
+        shoveTriggered = true;
+      }
+    }
+    const shoveImpulse = this.shoveImpulseValue * (1 - slack);
+
+    // Strained forward-axis head roll oscillation (±maxHeadStruggleRollRad in Stage 1, slowing in Stage 2, 0 in Stage 3 / stunned)
+    const rollFreq = THREE.MathUtils.lerp(
+      cfg.headRollFreqHz,
+      cfg.headRollFreqHz * 0.52,
+      THREE.MathUtils.smoothstep(d, cfg.stage1End, cfg.stage2End),
+    );
+    const rollEnv =
+      (1 - THREE.MathUtils.smoothstep(d, cfg.stage1End * 0.85, cfg.stage2End)) *
+      (1 - slack);
+    const headRollOffset =
+      Math.sin(time * rollFreq * Math.PI * 2) *
+      cfg.maxHeadStruggleRollRad *
+      rollEnv *
+      (1 + shoveImpulse * 0.35);
+
+    const state: FinisherResistanceState = {
       pushStrength,
       slideFactor,
       limpFactor,
@@ -484,7 +563,13 @@ export abstract class BossBase implements BossRigAdapter {
       limpCrossSwayOffset,
       spineResistanceOffset,
       tauntSlack: slack,
+      torsoPullBack,
+      shoveImpulse,
+      shoveTriggered,
+      headRollOffset,
     };
+    this.lastResistanceState = state;
+    return state;
   }
 
   /**
@@ -510,30 +595,40 @@ export abstract class BossBase implements BossRigAdapter {
     const blend3 = (s1: number, s2: number, s3: number): number =>
       THREE.MathUtils.lerp(THREE.MathUtils.lerp(s1, s2, t12), s3, t3);
 
+    const shoveFlare = resistance.shoveImpulse * cfg.shoveElbowFlareRad;
+
     if (poseId === FINISHER_POSE_IDS.BALLROOM_DIP) {
       // Pose [2]: Inner (Right) hand braces against Dark Mage's shoulder;
       // Outer (Left) arm reaches back for balance; both droop limp toward the floor at 100%.
       return {
-        leftShoulderX: blend3(
-          cfg.dipOuterStage1ShoulderX,
-          cfg.dipOuterStage2ShoulderX,
-          cfg.dipOuterStage3ShoulderX,
-        ),
-        leftShoulderZ: blend3(
-          cfg.dipOuterStage1ShoulderZ,
-          cfg.dipOuterStage2ShoulderZ,
-          cfg.dipOuterStage3ShoulderZ,
-        ),
-        rightShoulderX: blend3(
-          cfg.dipInnerStage1ShoulderX + clearanceBias,
-          cfg.dipInnerStage2ShoulderX,
-          cfg.dipInnerStage3ShoulderX,
-        ),
-        rightShoulderZ: blend3(
-          cfg.dipInnerStage1ShoulderZ,
-          cfg.dipInnerStage2ShoulderZ,
-          cfg.dipInnerStage3ShoulderZ,
-        ),
+        leftShoulderX:
+          blend3(
+            cfg.dipOuterStage1ShoulderX,
+            cfg.dipOuterStage2ShoulderX,
+            cfg.dipOuterStage3ShoulderX,
+          ) -
+          shoveFlare * 0.35,
+        leftShoulderZ:
+          blend3(
+            cfg.dipOuterStage1ShoulderZ,
+            cfg.dipOuterStage2ShoulderZ,
+            cfg.dipOuterStage3ShoulderZ,
+          ) -
+          shoveFlare * 0.4,
+        rightShoulderX:
+          blend3(
+            cfg.dipInnerStage1ShoulderX + clearanceBias,
+            cfg.dipInnerStage2ShoulderX,
+            cfg.dipInnerStage3ShoulderX,
+          ) -
+          shoveFlare * 0.45,
+        rightShoulderZ:
+          blend3(
+            cfg.dipInnerStage1ShoulderZ,
+            cfg.dipInnerStage2ShoulderZ,
+            cfg.dipInnerStage3ShoulderZ,
+          ) +
+          shoveFlare * 0.55,
         leftElbowX: blend3(
           cfg.dipOuterStage1ElbowX,
           cfg.dipOuterStage2ElbowX,
@@ -544,42 +639,54 @@ export abstract class BossBase implements BossRigAdapter {
           cfg.dipOuterStage2ElbowZ,
           cfg.dipOuterStage3ElbowZ,
         ),
-        rightElbowX: blend3(
-          cfg.dipInnerStage1ElbowX,
-          cfg.dipInnerStage2ElbowX,
-          cfg.dipInnerStage3ElbowX,
-        ),
-        rightElbowZ: blend3(
-          cfg.dipInnerStage1ElbowZ,
-          cfg.dipInnerStage2ElbowZ,
-          cfg.dipInnerStage3ElbowZ,
-        ),
+        rightElbowX:
+          blend3(
+            cfg.dipInnerStage1ElbowX,
+            cfg.dipInnerStage2ElbowX,
+            cfg.dipInnerStage3ElbowX,
+          ) +
+          shoveFlare * 0.72,
+        rightElbowZ:
+          blend3(
+            cfg.dipInnerStage1ElbowZ,
+            cfg.dipInnerStage2ElbowZ,
+            cfg.dipInnerStage3ElbowZ,
+          ) -
+          shoveFlare * 0.35,
       };
     }
 
     // Pose [1] Upright Embrace:
     // Both elbows flare outward while palms brace against Dark Mage's upper chest/shoulders,
-    // then elbows drop inward as hands slide down his ribs/cloak to hang limp at her sides.
-    const shX = blend3(
-      cfg.uprightStage1ShoulderX + clearanceBias,
-      cfg.uprightStage2ShoulderX,
-      cfg.uprightStage3ShoulderX,
-    );
-    const shZ = blend3(
-      cfg.uprightStage1ShoulderZ,
-      cfg.uprightStage2ShoulderZ,
-      cfg.uprightStage3ShoulderZ,
-    );
-    const elX = blend3(
-      cfg.uprightStage1ElbowX,
-      cfg.uprightStage2ElbowX,
-      cfg.uprightStage3ElbowX,
-    );
-    const elZ = blend3(
-      cfg.uprightStage1ElbowZ,
-      cfg.uprightStage2ElbowZ,
-      cfg.uprightStage3ElbowZ,
-    );
+    // pulsing wider on each shoveImpulse before dropping inward as hands slide down to hang limp.
+    const shX =
+      blend3(
+        cfg.uprightStage1ShoulderX + clearanceBias,
+        cfg.uprightStage2ShoulderX,
+        cfg.uprightStage3ShoulderX,
+      ) -
+      shoveFlare * 0.32;
+    const shZ =
+      blend3(
+        cfg.uprightStage1ShoulderZ,
+        cfg.uprightStage2ShoulderZ,
+        cfg.uprightStage3ShoulderZ,
+      ) +
+      shoveFlare * 0.72;
+    const elX =
+      blend3(
+        cfg.uprightStage1ElbowX,
+        cfg.uprightStage2ElbowX,
+        cfg.uprightStage3ElbowX,
+      ) +
+      shoveFlare * 0.85;
+    const elZ =
+      blend3(
+        cfg.uprightStage1ElbowZ,
+        cfg.uprightStage2ElbowZ,
+        cfg.uprightStage3ElbowZ,
+      ) +
+      shoveFlare * 0.52;
 
     return {
       leftShoulderX: shX,

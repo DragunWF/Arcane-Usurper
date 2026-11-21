@@ -1579,22 +1579,34 @@ export class SerenaRig extends BossBase {
     const pendulumSecondary = resistance.limpElbowSwayOffset;
     const pendulumCross = resistance.limpCrossSwayOffset;
 
-    // 3. Apply Pose + Coupled -> <- Lip-Pivot Head Choreography (headAnchor decoupled from spine resistance)
+    // 3. Apply Pose + Coupled -> <- Lip-Pivot Head Choreography with Full-Body Early Pull-Back
+    const hipPullBack =
+      resistance.torsoPullBack * rCfg.maxHipPullBackOffset +
+      resistance.shoveImpulse * rCfg.shoveChestRecoilOffset;
+    const torsoArchDelta =
+      -resistance.torsoPullBack * rCfg.maxTorsoPullBackRad -
+      resistance.shoveImpulse * (rCfg.maxTorsoPullBackRad * 0.28);
+
     this.sirenHalo.visible = false;
     this.phaseAuraRings.visible = false;
 
-    this.bodyPivot.position.y = st.bodyY + chestBreathLift;
+    this.bodyPivot.position.set(0, st.bodyY + chestBreathLift, -hipPullBack);
     this.bodyPivot.rotation.set(0, 0, savorDreamySway * 0.35);
 
     const spineResistDelta = resistance.spineResistanceOffset;
     this.torsoGroup.rotation.set(
-      st.torsoX + spineResistDelta + chestBreathPitch + surgeShudder * 0.5,
+      st.torsoX +
+        spineResistDelta +
+        torsoArchDelta +
+        chestBreathPitch +
+        surgeShudder * 0.5,
       0,
       st.torsoZ + savorDreamySway + surgeShudder,
     );
 
     const bossHeadPitch =
       st.headX -
+      torsoArchDelta * 0.72 -
       chestBreathPitch * 0.85 +
       headAnim.bossPitchResponse -
       limpness * FINISHER_CONFIG.passiveNeckDroopPitch;
@@ -1604,7 +1616,8 @@ export class SerenaRig extends BossBase {
       st.headZ -
       savorDreamySway * 0.65 +
       headAnim.roll * headAnim.bossYieldScale +
-      headAnim.bossTremor;
+      headAnim.bossTremor +
+      resistance.headRollOffset;
     this.applyDecoupledHeadTransform(
       this.headGroup,
       bossHeadPitch,
@@ -1614,19 +1627,58 @@ export class SerenaRig extends BossBase {
       headAnim.bossFaceNormalOffset,
     );
 
-    // Tail reactivity: active resisting tail flicks (Stage 1-2) -> uncurled drifting tip (Stage 3)
-    const tailResistFlick =
-      Math.sin(time * (isSurge ? 7.8 : 4.6)) * 0.14 * resistance.pushStrength;
-    const tailLimpDrift = Math.sin(time * 1.45) * 0.045 * limpness;
-    const tailFlex = tailResistFlick + tailLimpDrift;
+    // Serena Tail Struggle: Stage 1 tight upward curl & 3.4Hz side-to-side lashing ->
+    // Stage 2 heavy uncurled sway -> Stage 3 dead-weight hang
+    const tailCurl = rCfg.serenaTailCurlRad * resistance.torsoPullBack;
+    const thrashWeight =
+      Math.min(1.35, resistance.torsoPullBack + resistance.shoveImpulse * 0.65) *
+      (1 - resistance.tauntSlack);
+    const thrashPhase = time * rCfg.serenaTailThrashFreqHz * Math.PI * 2;
+    const thrashAmp = rCfg.serenaTailThrashAmpRad * thrashWeight;
+    const stage2Sway =
+      Math.sin(time * 1.75) *
+      0.12 *
+      (1 - limpness) *
+      (1 - resistance.torsoPullBack);
+    const tailLimpDrift = Math.sin(time * 1.35) * 0.04 * limpness;
 
-    this.tailSeg1.rotation.set(st.tail1X, st.tail1Y + tailFlex * 0.3, st.tail1Z);
-    this.tailSeg2.rotation.set(st.tail2X, st.tail2Y + tailFlex * 0.65, 0);
-    this.tailSeg3.rotation.set(st.tail3X, st.tail3Y + tailFlex * 1.0, 0);
-    this.tailSeg4.rotation.set(st.tail4X, st.tail4Y + tailFlex * 1.25, 0);
+    const whip1 = Math.sin(thrashPhase) * thrashAmp + stage2Sway + tailLimpDrift;
+    const whip2 =
+      Math.sin(thrashPhase - 0.72) * thrashAmp * 1.15 +
+      stage2Sway * 1.2 +
+      tailLimpDrift;
+    const whip3 =
+      Math.sin(thrashPhase - 1.44) * thrashAmp * 1.3 +
+      stage2Sway * 1.35 +
+      tailLimpDrift;
+    const whip4 =
+      Math.sin(thrashPhase - 2.16) * thrashAmp * 1.45 +
+      stage2Sway * 1.45 +
+      tailLimpDrift;
+
+    this.tailSeg1.rotation.set(
+      st.tail1X - tailCurl * 0.42,
+      st.tail1Y + whip1 * 0.35,
+      st.tail1Z + Math.cos(thrashPhase) * thrashAmp * 0.25,
+    );
+    this.tailSeg2.rotation.set(
+      st.tail2X + tailCurl * 0.55,
+      st.tail2Y + whip2 * 0.65,
+      0,
+    );
+    this.tailSeg3.rotation.set(
+      st.tail3X + tailCurl * 0.45,
+      st.tail3Y + whip3 * 0.95,
+      0,
+    );
+    this.tailSeg4.rotation.set(
+      st.tail4X + tailCurl * 0.35,
+      st.tail4Y + whip4 * 1.15,
+      0,
+    );
     this.caudalFinPivot.rotation.set(
-      Math.sin(time * (isSurge ? 8.2 : 2.6)) *
-        (0.24 * resistance.pushStrength + 0.05),
+      Math.sin(thrashPhase - 2.6) * (0.34 * thrashWeight + 0.05) +
+        tailLimpDrift * 0.8,
       0,
       0,
     );
@@ -1805,7 +1857,7 @@ export class SerenaRig extends BossBase {
     this.headAccessory.rotation.set(-0.16, 0, 0.08);
 
     const sigh = Math.sin(time * 2.1) * 0.012;
-    this.bodyPivot.position.y = DIORAMA_CONFIG.collapseBodyY + sigh;
+    this.bodyPivot.position.set(0, DIORAMA_CONFIG.collapseBodyY + sigh, 0);
     this.bodyPivot.rotation.set(-Math.PI * 0.46, 0, 0.18);
     this.torsoGroup.rotation.set(0.08 + sigh * 0.8, 0, 0.04);
     this.headGroup.position.set(0, 0.515, 0.008);
@@ -1855,7 +1907,7 @@ export class SerenaRig extends BossBase {
     const wave = Math.sin(time * DIORAMA_CONFIG.puppetWaveCadence);
     const waveCos = Math.cos(time * DIORAMA_CONFIG.puppetWaveCadence);
 
-    this.bodyPivot.position.y = 1.18 + wave * 0.04;
+    this.bodyPivot.position.set(0, 1.18 + wave * 0.04, 0);
     this.bodyPivot.rotation.set(0.08, wave * 0.08, waveCos * 0.04);
     this.torsoGroup.rotation.set(-0.06, 0, 0);
     this.headGroup.position.set(0, 0.515, 0.008);

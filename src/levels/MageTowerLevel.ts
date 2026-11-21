@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   ARENA_CONFIG,
+  FINISHER_RESISTANCE_CONFIG,
   LOBBY_CONFIG,
   PALETTE,
   SIPHON_GALLERY_CONFIG,
@@ -161,6 +162,12 @@ export class MageTowerLevel {
   private leftTetherMesh: THREE.Mesh | null = null;
   private rightTetherMesh: THREE.Mesh | null = null;
   private tetherMat: THREE.MeshBasicMaterial | null = null;
+  private serenaTetherMat: THREE.MeshBasicMaterial | null = null;
+  private mikuTetherMat: THREE.MeshBasicMaterial | null = null;
+  private readonly scratchTetherBaseColor = new THREE.Color(PALETTE.glowViolet);
+  private readonly scratchTetherPulseColor = new THREE.Color(
+    PALETTE.pulseLavender,
+  );
   private cuffMat: THREE.MeshBasicMaterial | null = null;
   private reservoirCoreMesh: THREE.Mesh | null = null;
   private reservoirCoreMat: THREE.MeshToonMaterial | null = null;
@@ -3137,24 +3144,28 @@ export class MageTowerLevel {
     });
 
     // Pulsing Royal-Violet Energy Tether Strands connecting each wrist cuff to its crystal conduit
-    this.tetherMat = this.trackMat(
-      new THREE.MeshBasicMaterial({
-        color: PALETTE.glowViolet,
-        transparent: true,
-        opacity: 0.72,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
-    );
+    const makeTetherMat = (): THREE.MeshBasicMaterial =>
+      this.trackMat(
+        new THREE.MeshBasicMaterial({
+          color: PALETTE.glowViolet,
+          transparent: true,
+          opacity: 0.72,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      );
+    this.tetherMat = makeTetherMat();
+    this.serenaTetherMat = makeTetherMat();
+    this.mikuTetherMat = makeTetherMat();
     const tetherGeo = this.trackGeo(
       new THREE.CylinderGeometry(cfg.tetherRadius, cfg.tetherRadius, 1.0, 6, 1, true),
     );
     this.leftTetherMesh = new THREE.Mesh(tetherGeo, this.tetherMat);
     this.rightTetherMesh = new THREE.Mesh(tetherGeo, this.tetherMat);
-    this.serenaLeftTetherMesh = new THREE.Mesh(tetherGeo, this.tetherMat);
-    this.serenaRightTetherMesh = new THREE.Mesh(tetherGeo, this.tetherMat);
-    this.mikuLeftTetherMesh = new THREE.Mesh(tetherGeo, this.tetherMat);
-    this.mikuRightTetherMesh = new THREE.Mesh(tetherGeo, this.tetherMat);
+    this.serenaLeftTetherMesh = new THREE.Mesh(tetherGeo, this.serenaTetherMat);
+    this.serenaRightTetherMesh = new THREE.Mesh(tetherGeo, this.serenaTetherMat);
+    this.mikuLeftTetherMesh = new THREE.Mesh(tetherGeo, this.mikuTetherMat);
+    this.mikuRightTetherMesh = new THREE.Mesh(tetherGeo, this.mikuTetherMat);
     this.root.add(
       this.leftTetherMesh,
       this.rightTetherMesh,
@@ -3433,9 +3444,79 @@ export class MageTowerLevel {
    * Harmonic Core Reservoir fill height/emissive, and 12-segment floor rune ring) without
    * overriding captive Miku's active FinisherSystem kiss pose during `LOBBY_SIPHON`.
    */
-  public updateMikuLobbySiphonBackdrop(charge: number, time: number): void {
+  /**
+   * Computes dynamic rune-cuff tether thickness & royal-violet pulse for active LOBBY_SIPHON
+   * resistance when coreCharge > tetherRelaxChargeThreshold (strongest at 70%-100%),
+   * smoothly relaxing back to default 1.0x thickness and calm hum once coreCharge <= 50%.
+   */
+  private computeTetherTensionVisuals(
+    charge: number,
+    time: number,
+    struggleTension: number,
+    mat: THREE.MeshBasicMaterial | null,
+  ): number {
+    const rCfg = FINISHER_RESISTANCE_CONFIG;
+    const clampedTension = THREE.MathUtils.clamp(struggleTension, 0, 1);
+
+    if (
+      charge <= rCfg.tetherRelaxChargeThreshold ||
+      clampedTension <= 0.001
+    ) {
+      if (mat) {
+        mat.color.copy(this.scratchTetherBaseColor);
+        mat.opacity = 0.62 + 0.28 * Math.sin(time * 3.8);
+      }
+      return 1.0;
+    }
+
+    const chargeBand = THREE.MathUtils.smoothstep(
+      charge,
+      rCfg.tetherRelaxChargeThreshold,
+      rCfg.tetherHighChargeThreshold,
+    );
+    const activeTension = THREE.MathUtils.clamp(
+      chargeBand * clampedTension,
+      0,
+      1,
+    );
+    const pulseWave = Math.sin(time * rCfg.tetherPulseFreqHz * Math.PI * 2);
+    const pulseDelta = pulseWave * rCfg.tetherPulseAmp * activeTension;
+    const thicknessScale = Math.max(
+      1.0,
+      THREE.MathUtils.lerp(1.0, rCfg.tetherMaxThicknessScale, activeTension) +
+        pulseDelta,
+    );
+
+    if (mat) {
+      mat.color
+        .copy(this.scratchTetherBaseColor)
+        .lerp(
+          this.scratchTetherPulseColor,
+          THREE.MathUtils.clamp(activeTension * 0.65 + Math.max(0, pulseDelta), 0, 1),
+        );
+      mat.opacity = THREE.MathUtils.clamp(
+        0.68 + activeTension * 0.3 + pulseDelta * 0.4,
+        0.4,
+        1.0,
+      );
+    }
+
+    return thicknessScale;
+  }
+
+  public updateMikuLobbySiphonBackdrop(
+    charge: number,
+    time: number,
+    tetherTension = 0,
+  ): void {
     const cfg = SIPHON_GALLERY_CONFIG;
     const clamped = THREE.MathUtils.clamp(charge, 0, 1);
+    const thicknessScale = this.computeTetherTensionVisuals(
+      clamped,
+      time,
+      tetherTension,
+      this.mikuTetherMat,
+    );
 
     if (
       this._captiveMikuRig &&
@@ -3455,17 +3536,14 @@ export class MageTowerLevel {
         this.mikuLeftTetherMesh,
         this.scratchWristL,
         this.scratchTipL,
+        thicknessScale,
       );
       this.alignTetherCylinder(
         this.mikuRightTetherMesh,
         this.scratchWristR,
         this.scratchTipR,
+        thicknessScale,
       );
-    }
-
-    const pulse = 0.62 + 0.28 * Math.sin(time * 3.8);
-    if (this.tetherMat) {
-      this.tetherMat.opacity = pulse;
     }
 
     if (this.mikuStageRingMat) {
@@ -3519,9 +3597,19 @@ export class MageTowerLevel {
    * Tidal Core Reservoir fill height/emissive, and 12-segment floor rune ring) without
    * overriding captive Serena's active FinisherSystem kiss pose during `LOBBY_SIPHON`.
    */
-  public updateSerenaLobbySiphonBackdrop(charge: number, time: number): void {
+  public updateSerenaLobbySiphonBackdrop(
+    charge: number,
+    time: number,
+    tetherTension = 0,
+  ): void {
     const cfg = SIPHON_GALLERY_CONFIG;
     const clamped = THREE.MathUtils.clamp(charge, 0, 1);
+    const thicknessScale = this.computeTetherTensionVisuals(
+      clamped,
+      time,
+      tetherTension,
+      this.serenaTetherMat,
+    );
 
     if (
       this._captiveSerenaRig &&
@@ -3541,17 +3629,14 @@ export class MageTowerLevel {
         this.serenaLeftTetherMesh,
         this.scratchWristL,
         this.scratchTipL,
+        thicknessScale,
       );
       this.alignTetherCylinder(
         this.serenaRightTetherMesh,
         this.scratchWristR,
         this.scratchTipR,
+        thicknessScale,
       );
-    }
-
-    const pulse = 0.62 + 0.28 * Math.sin(time * 3.8);
-    if (this.tetherMat) {
-      this.tetherMat.opacity = pulse;
     }
 
     if (this.serenaPoolMat && this.serenaPoolMesh) {
@@ -3603,9 +3688,19 @@ export class MageTowerLevel {
    * Reservoir fill height/emissive, and 12-segment dais floor rune ring) without overriding
    * captive Marina's active FinisherSystem kiss pose during `LOBBY_SIPHON`.
    */
-  public updateLobbySiphonBackdrop(charge: number, time: number): void {
+  public updateLobbySiphonBackdrop(
+    charge: number,
+    time: number,
+    tetherTension = 0,
+  ): void {
     const cfg = SIPHON_GALLERY_CONFIG;
     const clamped = THREE.MathUtils.clamp(charge, 0, 1);
+    const thicknessScale = this.computeTetherTensionVisuals(
+      clamped,
+      time,
+      tetherTension,
+      this.tetherMat,
+    );
 
     if (
       this._captiveMarinaRig &&
@@ -3625,18 +3720,14 @@ export class MageTowerLevel {
         this.leftTetherMesh,
         this.scratchWristL,
         this.scratchTipL,
+        thicknessScale,
       );
       this.alignTetherCylinder(
         this.rightTetherMesh,
         this.scratchWristR,
         this.scratchTipR,
+        thicknessScale,
       );
-    }
-
-    // Pulse the arcane rune-cuffs & tether energy opacity
-    const pulse = 0.62 + 0.28 * Math.sin(time * 3.8);
-    if (this.tetherMat) {
-      this.tetherMat.opacity = pulse;
     }
 
     // Update Cryo Core Reservoir Crystal fill height, color & point light
@@ -3679,6 +3770,7 @@ export class MageTowerLevel {
     mesh: THREE.Mesh,
     startWorld: THREE.Vector3,
     endWorld: THREE.Vector3,
+    thicknessScale = 1.0,
   ): void {
     this.scratchMid.addVectors(startWorld, endWorld).multiplyScalar(0.5);
     this.scratchDir.subVectors(endWorld, startWorld);
@@ -3688,7 +3780,7 @@ export class MageTowerLevel {
     this.scratchQuat.setFromUnitVectors(this.upAxis, this.scratchDir);
     mesh.position.copy(this.scratchMid);
     mesh.quaternion.copy(this.scratchQuat);
-    mesh.scale.set(1, dist, 1);
+    mesh.scale.set(thicknessScale, dist, thicknessScale);
   }
 
   /**

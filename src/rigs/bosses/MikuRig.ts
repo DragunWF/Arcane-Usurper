@@ -1749,22 +1749,47 @@ export class MikuRig extends BossBase {
     const pendulumSecondary = resistance.limpElbowSwayOffset;
     const pendulumCross = resistance.limpCrossSwayOffset;
 
-    // 3. Apply Coupled -> <- Press-and-Ease Pose to Skeleton (headAnchor decoupled from spine resistance)
-    this.harmonicHalo.visible = false;
+    // 3. Apply Coupled -> <- Press-and-Ease Pose with Full-Body Early Pull-Back & Static Struggle
+    const isDip = poseId === FINISHER_POSE_IDS.BALLROOM_DIP;
+    const hipPullBack =
+      resistance.torsoPullBack * rCfg.maxHipPullBackOffset +
+      resistance.shoveImpulse * rCfg.shoveChestRecoilOffset;
+    const torsoArchDelta =
+      -resistance.torsoPullBack * rCfg.maxTorsoPullBackRad -
+      resistance.shoveImpulse * (rCfg.maxTorsoPullBackRad * 0.28);
+
+    const staticWeight =
+      Math.min(1.4, resistance.torsoPullBack + resistance.shoveImpulse * 0.75) *
+      (1 - resistance.tauntSlack);
+    const showStaticHalo =
+      staticWeight > 0.22 && drainProgress < rCfg.sparkCutoffDrain;
+    this.harmonicHalo.visible = showStaticHalo;
+    if (showStaticHalo) {
+      this.harmonicHalo.scale.setScalar(
+        0.55 + staticWeight * 0.32 + Math.sin(time * 38.0) * 0.06,
+      );
+      this.harmonicHalo.rotation.z =
+        time * 2.2 + Math.sin(time * 49.0) * rCfg.mikuStaticJitterAmpRad * 3.0;
+    }
     this.phaseAuraRings.visible = false;
 
-    this.bodyPivot.position.y = st.bodyY + chestBreathLift;
+    this.bodyPivot.position.set(0, st.bodyY + chestBreathLift, -hipPullBack);
     this.bodyPivot.rotation.set(0, 0, savorDreamySway * 0.35);
 
     const spineResistDelta = resistance.spineResistanceOffset;
     this.torsoGroup.rotation.set(
-      st.torsoX + spineResistDelta + chestBreathPitch + surgeShudder * 0.5,
+      st.torsoX +
+        spineResistDelta +
+        torsoArchDelta +
+        chestBreathPitch +
+        surgeShudder * 0.5,
       0,
       st.torsoZ + savorDreamySway + surgeShudder,
     );
 
     const bossHeadPitch =
       st.headX -
+      torsoArchDelta * 0.72 -
       chestBreathPitch * 0.85 +
       headAnim.bossPitchResponse -
       limpness * FINISHER_CONFIG.passiveNeckDroopPitch;
@@ -1774,7 +1799,8 @@ export class MikuRig extends BossBase {
       st.headZ -
       savorDreamySway * 0.65 +
       headAnim.roll * headAnim.bossYieldScale +
-      headAnim.bossTremor;
+      headAnim.bossTremor +
+      resistance.headRollOffset;
     this.applyDecoupledHeadTransform(
       this.headGroup,
       bossHeadPitch,
@@ -1784,10 +1810,27 @@ export class MikuRig extends BossBase {
       headAnim.bossFaceNormalOffset,
     );
 
-    this.leftLegPivot.rotation.set(st.leftHipX, 0, -0.08);
-    this.rightLegPivot.rotation.set(st.rightHipX, 0, 0.08);
-    this.leftKneePivot.rotation.x = st.leftKneeX;
-    this.rightKneePivot.rotation.x = st.rightKneeX;
+    if (isDip) {
+      const dipLegLift =
+        resistance.shoveImpulse * rCfg.marinaLegBracePitchRad * 1.25;
+      this.leftLegPivot.rotation.set(
+        st.leftHipX - dipLegLift + limpness * 0.1,
+        0,
+        -0.08,
+      );
+      this.rightLegPivot.rotation.set(st.rightHipX, 0, 0.08);
+      this.leftKneePivot.rotation.x = st.leftKneeX + dipLegLift * 0.55;
+      this.rightKneePivot.rotation.x = st.rightKneeX;
+    } else {
+      const legBrace =
+        rCfg.marinaLegBracePitchRad *
+        0.85 *
+        (resistance.torsoPullBack + resistance.shoveImpulse * 0.35);
+      this.leftLegPivot.rotation.set(st.leftHipX + legBrace, 0, -0.08);
+      this.rightLegPivot.rotation.set(st.rightHipX + legBrace * 0.75, 0, 0.08);
+      this.leftKneePivot.rotation.x = st.leftKneeX - legBrace * 0.4;
+      this.rightKneePivot.rotation.x = st.rightKneeX - legBrace * 0.3;
+    }
 
     this.leftShoulderPivot.rotation.set(
       st.leftShoulderX -
@@ -1818,8 +1861,12 @@ export class MikuRig extends BossBase {
       st.rightElbowZ - rightTremor * 0.35 - pendulumCross * 0.7,
     );
 
+    const tieJitter =
+      Math.sin(time * 43.0) * rCfg.mikuStaticJitterAmpRad * 0.65 * staticWeight;
     this.necktiePivot.rotation.x =
-      -(st.torsoX + spineResistDelta) * 0.45 + chestBreathPitch * 0.5;
+      -(st.torsoX + spineResistDelta + torsoArchDelta) * 0.45 +
+      chestBreathPitch * 0.5 +
+      tieJitter;
 
     // 4. Short Pleated Skirt Billow
     const skirtSpeed = isSurge ? 4.4 : isSavor ? 1.45 : 2.5;
@@ -1831,11 +1878,13 @@ export class MikuRig extends BossBase {
         st.skirtBasePitch + Math.sin(time * skirtSpeed + sp.angle * 2.0) * skirtAmp;
     }
 
-    // 5. Miku Silhouette Fatigue: High A-Frame Twin-Tails Lose Perkiness & Droop Downward Alongside Arms
+    // 5. Miku Silhouette Struggle & Fatigue: Wide A-Frame Twin-Tail Flare + Static Jitter (Stage 1) -> Droop Downward
     const hairSpeed = isSurge ? 4.8 : isSavor ? 1.55 : 2.6;
     const hairAmp = isSurge ? 0.11 : isSavor ? 0.05 : 0.07;
-    const isDip = poseId === FINISHER_POSE_IDS.BALLROOM_DIP;
     const tailDroopBlend = Math.max(fatigue, resistance.tauntSlack * 0.7);
+    const twinTailStruggleFlare =
+      rCfg.mikuTwinTailFlareRad *
+      (resistance.torsoPullBack + resistance.shoveImpulse * 0.5);
 
     for (let i = 0; i < this.twinTails.length; i++) {
       const tt = this.twinTails[i];
@@ -1846,14 +1895,24 @@ export class MikuRig extends BossBase {
         Math.sin(time * hairSpeed + phase - 0.85) * hairAmp * 1.2 * (1 - limpness * 0.3);
       const w3 =
         Math.sin(time * hairSpeed + phase - 1.65) * hairAmp * 1.35 * (1 - limpness * 0.25);
+      const staticJit1 =
+        Math.sin(time * 47.0 + phase * 3.1) *
+        rCfg.mikuStaticJitterAmpRad *
+        staticWeight;
+      const staticJit2 =
+        Math.cos(time * 53.0 + phase * 4.7) *
+        rCfg.mikuStaticJitterAmpRad *
+        1.25 *
+        staticWeight;
 
       const flareZ =
         tt.side *
-        THREE.MathUtils.lerp(
+        (THREE.MathUtils.lerp(
           isDip ? rCfg.mikuDipTailFlareStage1 : rCfg.mikuTailFlareStage1,
           isDip ? rCfg.mikuDipTailFlareStage3 : rCfg.mikuTailFlareStage3,
           tailDroopBlend,
-        );
+        ) +
+          twinTailStruggleFlare);
       const baseSeg1X =
         (isDip ? 0.55 : 0.22) + tailDroopBlend * rCfg.mikuTailSeg1DroopRad;
       const baseSeg2X =
@@ -1866,38 +1925,40 @@ export class MikuRig extends BossBase {
 
       tt.seg1.rotation.z = THREE.MathUtils.lerp(
         tt.seg1.rotation.z,
-        flareZ + w1 * 0.5 + pendulumCross * 0.5,
+        flareZ + w1 * 0.5 + pendulumCross * 0.5 + staticJit1,
         lerpAlpha,
       );
       tt.seg1.rotation.x = THREE.MathUtils.lerp(
         tt.seg1.rotation.x,
-        baseSeg1X + w1 + tailPendulum,
+        baseSeg1X + w1 + tailPendulum + staticJit1 * 0.5,
         lerpAlpha,
       );
       tt.seg2.rotation.z = THREE.MathUtils.lerp(
         tt.seg2.rotation.z,
         tt.side *
-          THREE.MathUtils.lerp(
+          (THREE.MathUtils.lerp(
             rCfg.mikuTailSeg2FlareStage1,
             rCfg.mikuTailSeg2FlareStage3,
             tailDroopBlend,
           ) +
-          w2 * 0.4,
+            twinTailStruggleFlare * 0.42) +
+          w2 * 0.4 +
+          staticJit2,
         lerpAlpha,
       );
       tt.seg2.rotation.x = THREE.MathUtils.lerp(
         tt.seg2.rotation.x,
-        baseSeg2X + w2 + pendulumSecondary * 0.5,
+        baseSeg2X + w2 + pendulumSecondary * 0.5 + staticJit2 * 0.45,
         lerpAlpha,
       );
       tt.seg3.rotation.x = THREE.MathUtils.lerp(
         tt.seg3.rotation.x,
-        baseSeg3X + w3,
+        baseSeg3X + w3 + staticJit1 * 0.65,
         lerpAlpha,
       );
       tt.seg4.rotation.x = THREE.MathUtils.lerp(
         tt.seg4.rotation.x,
-        baseSeg4X + w3,
+        baseSeg4X + w3 + staticJit2 * 0.8,
         lerpAlpha,
       );
     }
@@ -2005,7 +2066,7 @@ export class MikuRig extends BossBase {
     this.headAccessory.rotation.set(0, 0, 0.08);
 
     const sigh = Math.sin(time * 2.1) * 0.012;
-    this.bodyPivot.position.y = DIORAMA_CONFIG.collapseBodyY + sigh;
+    this.bodyPivot.position.set(0, DIORAMA_CONFIG.collapseBodyY + sigh, 0);
     this.bodyPivot.rotation.set(-Math.PI * 0.46, 0, 0.14);
     this.torsoGroup.rotation.set(0.08 + sigh * 0.8, 0, 0);
     this.headGroup.position.set(0, 0.515, 0.008);
@@ -2061,7 +2122,7 @@ export class MikuRig extends BossBase {
     const beat = Math.sin(time * DIORAMA_CONFIG.puppetWaveCadence);
     const beatCos = Math.cos(time * DIORAMA_CONFIG.puppetWaveCadence);
 
-    this.bodyPivot.position.y = 0.95 + beat * 0.025;
+    this.bodyPivot.position.set(0, 0.95 + beat * 0.025, 0);
     this.bodyPivot.rotation.set(0, 0, beat * 0.03);
     this.torsoGroup.rotation.set(-0.05, 0, 0);
     this.headGroup.position.set(0, 0.515, 0.008);

@@ -6,6 +6,7 @@ import {
   DRAIN_THROTTLE_MODES,
   FINISHER_CONFIG,
   FINISHER_POSE_IDS,
+  FINISHER_RESISTANCE_CONFIG,
   NG_PLUS_CONFIG,
   PALETTE,
   PLAYER_CONFIG,
@@ -1200,6 +1201,8 @@ export class DarkMageRig {
     headChoreography?: FinisherHeadChoreography,
     bossFaceNormalWorld: THREE.Vector3 | null = null,
     bossWaistWrapRadius?: number,
+    bossTorsoPullBack = 0,
+    bossShoveImpulse = 0,
   ): void {
     // Guarantee cloak, hood, mantle & robes stay true dark obsidian (never washed purple)
     this.restoreObsidianMaterials();
@@ -1222,17 +1225,21 @@ export class DarkMageRig {
     const isSurge = throttleMode === DRAIN_THROTTLE_MODES.SURGE;
     const isSavor = throttleMode === DRAIN_THROTTLE_MODES.SAVOR;
 
-    // Waist wrap clearance scaled cleanly to bossWaistWrapRadius so both free hands hug without clipping
+    // Waist wrap clearance scaled cleanly to bossWaistWrapRadius & live boss torso pull-back,
+    // with reactive inward counter-grip tightening (mageCounterGripBoost) on each shove impulse
     const wrapOffset =
       bossWaistWrapRadius !== undefined
         ? (bossWaistWrapRadius - FINISHER_CONFIG.mikuWaistWrapRadius) * 0.45
         : 0;
+    const pullBackReach = bossTorsoPullBack * 0.14;
+    const counterGrip =
+      bossShoveImpulse * FINISHER_RESISTANCE_CONFIG.mageCounterGripBoost;
 
     // 1. Target Base Stance for Streamlined 2-Pose Finisher ([1] Upright Embrace / [2] Ballroom Dip)
     // Pose [1] Upright Embrace: staff planted beside him; left gloved hand tilts sovereign's chin,
-    // free right arm wraps securely around her waist.
+    // free right arm wraps securely around her waist and tightens on shove impulses.
     let targetBodyY = 0.72;
-    let targetTorsoX = 0.54;
+    let targetTorsoX = 0.54 - bossShoveImpulse * 0.025;
     let targetTorsoZ = 0;
     let targetHeadX = 0.3;
     let targetHeadZ = 0;
@@ -1242,23 +1249,24 @@ export class DarkMageRig {
     let targetRightHipZ = 0.06;
     let targetLeftKneeX = 0.24;
     let targetRightKneeX = 0.16;
-    let targetLeftShoulderX = -1.16;
-    let targetLeftShoulderY = 0.18;
-    let targetLeftShoulderZ = 0.34 + wrapOffset * 0.35;
-    let targetLeftElbowX = -0.82;
-    let targetLeftElbowZ = 0.26;
-    let targetRightShoulderX = -0.96;
-    let targetRightShoulderY = -0.22;
-    let targetRightShoulderZ = -0.36 - wrapOffset;
-    let targetRightElbowX = -0.84;
-    let targetRightElbowZ = -0.44 + wrapOffset * 0.55;
+    let targetLeftShoulderX = -1.16 - pullBackReach * 0.45;
+    let targetLeftShoulderY = 0.18 + counterGrip * 0.8;
+    let targetLeftShoulderZ = 0.34 + wrapOffset * 0.35 - counterGrip * 0.6;
+    let targetLeftElbowX = -0.82 - counterGrip * 1.1;
+    let targetLeftElbowZ = 0.26 + counterGrip * 1.4;
+    let targetRightShoulderX = -0.96 - pullBackReach - counterGrip * 1.2;
+    let targetRightShoulderY = -0.22 - counterGrip * 1.4;
+    let targetRightShoulderZ =
+      -0.36 - wrapOffset - pullBackReach * 0.35 + counterGrip * 1.8;
+    let targetRightElbowX = -0.84 - counterGrip * 1.6;
+    let targetRightElbowZ = -0.44 + wrapOffset * 0.55 - counterGrip * 2.4;
     const targetStaffRotX = Math.PI * 0.34;
     const targetStaffRotZ = -0.14;
 
     if (poseId === FINISHER_POSE_IDS.BALLROOM_DIP) {
       // Pose [2] Ballroom Dip: lowered lunging knee bend + deep forward torso/head pitch
       // so mouth locks flush onto ~45° dipped sovereign; both free arms wrap securely around
-      // her dipped waist and upper back while the planted staff pulses beside him.
+      // her dipped waist and upper back, tightening smoothly against each shove impulse.
       targetBodyY = 0.78;
       targetLeftHipX = -0.34;
       targetLeftHipZ = -0.08;
@@ -1266,18 +1274,21 @@ export class DarkMageRig {
       targetRightHipZ = 0.08;
       targetLeftKneeX = 0.68;
       targetRightKneeX = 0.48;
-      targetTorsoX = 0.48 + FINISHER_CONFIG.dipMageExtraPitch;
+      targetTorsoX =
+        0.48 + FINISHER_CONFIG.dipMageExtraPitch - bossShoveImpulse * 0.02;
       targetHeadX = 0.24;
-      targetLeftShoulderX = -1.42;
-      targetLeftShoulderY = 0.26;
-      targetLeftShoulderZ = 0.46 + wrapOffset;
-      targetLeftElbowX = -0.92;
-      targetLeftElbowZ = 0.56 - wrapOffset * 0.6;
-      targetRightShoulderX = -1.34;
-      targetRightShoulderY = -0.24;
-      targetRightShoulderZ = -0.42 - wrapOffset;
-      targetRightElbowX = -0.88;
-      targetRightElbowZ = -0.48 + wrapOffset * 0.55;
+      targetLeftShoulderX = -1.42 - pullBackReach * 0.85 - counterGrip * 1.2;
+      targetLeftShoulderY = 0.26 + counterGrip * 1.2;
+      targetLeftShoulderZ =
+        0.46 + wrapOffset + pullBackReach * 0.3 - counterGrip * 1.6;
+      targetLeftElbowX = -0.92 - counterGrip * 1.5;
+      targetLeftElbowZ = 0.56 - wrapOffset * 0.6 + counterGrip * 2.2;
+      targetRightShoulderX = -1.34 - pullBackReach * 0.85 - counterGrip * 1.2;
+      targetRightShoulderY = -0.24 - counterGrip * 1.2;
+      targetRightShoulderZ =
+        -0.42 - wrapOffset - pullBackReach * 0.3 + counterGrip * 1.6;
+      targetRightElbowX = -0.88 - counterGrip * 1.5;
+      targetRightElbowZ = -0.48 + wrapOffset * 0.55 - counterGrip * 2.2;
     }
 
     // Initialize lerp cache from live bone state on first frame (smooth entry from stagger blink)

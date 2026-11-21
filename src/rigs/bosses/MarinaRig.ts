@@ -1817,23 +1817,38 @@ export class MarinaRig extends BossBase {
     const pendulumSecondary = resistance.limpElbowSwayOffset;
     const pendulumCross = resistance.limpCrossSwayOffset;
 
-    // 3. Apply Pose to Skeleton — headAnchor is mathematically decoupled from spineResistanceOffset
+    // 3. Apply Pose to Skeleton — backward torso/hip pull-back, shove flare & strained head roll
+    // applied BEFORE updateMatrixWorld(true) so FinisherSystem aligns headAnchor with zero lip gap
+    const rCfg = FINISHER_RESISTANCE_CONFIG;
+    const isDip = poseId === FINISHER_POSE_IDS.BALLROOM_DIP;
+    const hipPullBack =
+      resistance.torsoPullBack * rCfg.maxHipPullBackOffset +
+      resistance.shoveImpulse * rCfg.shoveChestRecoilOffset;
+    const torsoArchDelta =
+      -resistance.torsoPullBack * rCfg.maxTorsoPullBackRad -
+      resistance.shoveImpulse * (rCfg.maxTorsoPullBackRad * 0.28);
+
     this.frostHalo.visible = false;
     this.phaseAuroraRings.visible = false;
 
-    this.bodyPivot.position.y = st.bodyY + chestBreathLift;
+    this.bodyPivot.position.set(0, st.bodyY + chestBreathLift, -hipPullBack);
     this.bodyPivot.rotation.set(0, 0, savorDreamySway * 0.35);
 
     const spineResistDelta = resistance.spineResistanceOffset;
     this.torsoGroup.rotation.set(
-      st.torsoX + spineResistDelta + chestBreathPitch + surgeShudder * 0.5,
+      st.torsoX +
+        spineResistDelta +
+        torsoArchDelta +
+        chestBreathPitch +
+        surgeShudder * 0.5,
       0,
       st.torsoZ + savorDreamySway + surgeShudder,
     );
 
-    // Coupled -> <- press-and-ease head choreography with exact spine resistance decoupling
+    // Coupled -> <- press-and-ease head choreography with strained early head-roll struggle
     const bossHeadPitch =
       st.headX -
+      torsoArchDelta * 0.72 -
       chestBreathPitch * 0.85 +
       headAnim.bossPitchResponse -
       limpness * FINISHER_CONFIG.passiveNeckDroopPitch;
@@ -1843,7 +1858,8 @@ export class MarinaRig extends BossBase {
       st.headZ -
       savorDreamySway * 0.65 +
       headAnim.roll * headAnim.bossYieldScale +
-      headAnim.bossTremor;
+      headAnim.bossTremor +
+      resistance.headRollOffset;
     this.applyDecoupledHeadTransform(
       this.headGroup,
       bossHeadPitch,
@@ -1853,10 +1869,35 @@ export class MarinaRig extends BossBase {
       headAnim.bossFaceNormalOffset,
     );
 
-    this.leftLegPivot.rotation.set(st.leftHipX, 0, -0.08);
-    this.rightLegPivot.rotation.set(st.rightHipX, 0, 0.08);
-    this.leftKneePivot.rotation.x = st.leftKneeX;
-    this.rightKneePivot.rotation.x = st.rightKneeX;
+    // Marina Lower-Body Struggle:
+    // Pose [1]: braced knee/leg angled back digging into floor during torsoPullBack
+    // Pose [2]: outer leg tenses upward on shoveImpulse bursts before drooping limp in Stage 3
+    if (isDip) {
+      const dipLegLift =
+        resistance.shoveImpulse * rCfg.marinaLegBracePitchRad * 1.45;
+      const dipLegDroop = limpness * 0.12;
+      this.leftLegPivot.rotation.set(
+        st.leftHipX - dipLegLift + dipLegDroop,
+        0,
+        -0.08 - resistance.shoveImpulse * 0.06,
+      );
+      this.rightLegPivot.rotation.set(
+        st.rightHipX + resistance.torsoPullBack * rCfg.marinaLegBracePitchRad * 0.4,
+        0,
+        0.08,
+      );
+      this.leftKneePivot.rotation.x =
+        st.leftKneeX + dipLegLift * 0.62 - dipLegDroop;
+      this.rightKneePivot.rotation.x = st.rightKneeX;
+    } else {
+      const legBrace =
+        rCfg.marinaLegBracePitchRad *
+        (resistance.torsoPullBack + resistance.shoveImpulse * 0.4);
+      this.leftLegPivot.rotation.set(st.leftHipX + legBrace, 0, -0.08);
+      this.rightLegPivot.rotation.set(st.rightHipX + legBrace * 0.75, 0, 0.08);
+      this.leftKneePivot.rotation.x = st.leftKneeX - legBrace * 0.45;
+      this.rightKneePivot.rotation.x = st.rightKneeX - legBrace * 0.35;
+    }
 
     this.leftShoulderPivot.rotation.set(
       st.leftShoulderX -
@@ -1887,10 +1928,11 @@ export class MarinaRig extends BossBase {
       st.rightElbowZ - rightTremor * 0.35 - pendulumCross * 0.7,
     );
 
-    // 4. Marina Silhouette Fatigue: Crystalline Dress-Ribbons & Gown Hem Relax Downward
-    const rCfg = FINISHER_RESISTANCE_CONFIG;
-    const isDip = poseId === FINISHER_POSE_IDS.BALLROOM_DIP;
+    // 4. Marina Silhouette Struggle & Fatigue: Crystalline Dress-Ribbons Flare Outward in Stage 1 -> Relax Downward
     const fatigue = THREE.MathUtils.clamp(drainProgress, 0, 1);
+    const ribbonStruggleFlare =
+      rCfg.marinaRibbonFlareRad *
+      (resistance.torsoPullBack + resistance.shoveImpulse * 0.55);
     const ribbonFlutter =
       Math.sin(time * (isSurge ? 4.4 : 2.1)) * (0.045 * (1 - fatigue * 0.55));
     for (let i = 0; i < this.dressRibbons.length; i++) {
@@ -1909,19 +1951,22 @@ export class MarinaRig extends BossBase {
           );
       const tailTargetZ =
         dr.side *
-        THREE.MathUtils.lerp(
+        (THREE.MathUtils.lerp(
           rCfg.marinaRibbonTailStage1Z,
           rCfg.marinaRibbonTailStage3Z,
           fatigue,
-        );
+        ) +
+          ribbonStruggleFlare);
       const loopTargetZ =
         dr.side *
-        THREE.MathUtils.lerp(
+        (THREE.MathUtils.lerp(
           rCfg.marinaRibbonLoopStage1Z,
           rCfg.marinaRibbonLoopStage3Z,
           fatigue,
-        );
-      dr.tailPivot.rotation.x = tailTargetX + ribbonFlutter;
+        ) +
+          ribbonStruggleFlare * 0.65);
+      dr.tailPivot.rotation.x =
+        tailTargetX + ribbonStruggleFlare * 0.35 + ribbonFlutter;
       dr.tailPivot.rotation.z = tailTargetZ + pendulumCross * 0.35;
       dr.loopMesh.rotation.z = loopTargetZ;
     }
@@ -2069,7 +2114,7 @@ export class MarinaRig extends BossBase {
     this.headAccessory.rotation.set(-0.16, 0, 0.08);
 
     const sigh = Math.sin(time * 2.1) * 0.012;
-    this.bodyPivot.position.y = DIORAMA_CONFIG.collapseBodyY + sigh;
+    this.bodyPivot.position.set(0, DIORAMA_CONFIG.collapseBodyY + sigh, 0);
     this.bodyPivot.rotation.set(-Math.PI * 0.46, 0, 0.16);
     this.torsoGroup.rotation.x = 0.08 + sigh * 0.8;
     this.headGroup.position.set(0, 0.515, 0.008);
@@ -2121,7 +2166,7 @@ export class MarinaRig extends BossBase {
     const wave = Math.sin(time * DIORAMA_CONFIG.puppetWaveCadence);
     const waveCos = Math.cos(time * DIORAMA_CONFIG.puppetWaveCadence);
 
-    this.bodyPivot.position.y = 0.96 + wave * 0.025;
+    this.bodyPivot.position.set(0, 0.96 + wave * 0.025, 0);
     this.bodyPivot.rotation.set(0, 0, 0);
     this.torsoGroup.rotation.x = -0.04;
     this.headGroup.position.set(0, 0.515, 0.008);

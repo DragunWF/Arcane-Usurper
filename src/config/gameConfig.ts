@@ -1015,6 +1015,47 @@ export const FINISHER_RESISTANCE_CONFIG = Object.freeze({
   spineResistanceHeadBaseY: 0.515,
   spineResistanceHeadBaseZ: 0.008,
 
+  // Full-Body Early-Stage Struggle: Torso Pull-Back, Strained Head Roll & Shove Impulses (0% -> 50%)
+  maxTorsoPullBackRad: 0.21,
+  maxHipPullBackOffset: 0.11,
+  maxHeadStruggleRollRad: 0.087,
+  headRollFreqHz: 2.6,
+  shoveIntervalMinSec: 1.1,
+  shoveIntervalMaxSec: 1.5,
+  shovePulseDecayRate: 8.5,
+  shoveElbowFlareRad: 0.24,
+  shoveChestRecoilOffset: 0.04,
+  mageCounterGripBoost: 0.05,
+  surgeSpikeBoost: 0.35,
+
+  // Rig-Specific Lower-Body & Silhouette Struggle Multipliers
+  marinaRibbonFlareRad: 0.32,
+  marinaLegBracePitchRad: 0.18,
+  serenaTailCurlRad: 0.55,
+  serenaTailThrashFreqHz: 3.4,
+  serenaTailThrashAmpRad: 0.36,
+  mikuTwinTailFlareRad: 0.28,
+  mikuStaticJitterAmpRad: 0.045,
+
+  // Chest-Contact Elemental Backlash Sparks (drainProgress < 0.50)
+  sparkCutoffDrain: 0.5,
+  sparkPoolSize: 28,
+  sparkBurstCount: 6,
+  sparkSurgeBurstCount: 10,
+  sparkSpeedMin: 0.9,
+  sparkSpeedMax: 2.2,
+  sparkLifetimeSec: 0.38,
+  sparkSurgeEmitIntervalSec: 0.24,
+  sparkGravity: 2.8,
+  sparkBaseRadius: 0.028,
+
+  // Siphon Gallery Rune-Cuff Tether Tension (LOBBY_SIPHON)
+  tetherHighChargeThreshold: 0.7,
+  tetherRelaxChargeThreshold: 0.5,
+  tetherMaxThicknessScale: 1.75,
+  tetherPulseFreqHz: 9.0,
+  tetherPulseAmp: 0.22,
+
   // Pose-Specific 3-Stage Arm Kinematics (Zero Chest Clipping)
   // Pose [1] Upright Embrace
   uprightStage1ShoulderX: 0.08,

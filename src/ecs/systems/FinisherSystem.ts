@@ -6,6 +6,7 @@ import {
   FINISHER_CONFIG,
   FINISHER_MODES,
   FINISHER_POSE_IDS,
+  FINISHER_RESISTANCE_CONFIG,
   GAME_STATES,
   MIKU_CONFIG,
   PALETTE,
@@ -49,12 +50,26 @@ export interface IFinisherCallbacks {
     charge: number,
     elapsed: number,
     targetId: 'marina' | 'serena' | 'miku',
+    tetherTension?: number,
   ) => void;
 }
 
 interface DynamicRibbon {
   line: THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial>;
   positions: Float32Array;
+}
+
+interface PooledBacklashSpark {
+  mesh: THREE.Mesh<THREE.OctahedronGeometry, THREE.MeshBasicMaterial>;
+  vx: number;
+  vy: number;
+  vz: number;
+  life: number;
+  maxLife: number;
+  scaleX: number;
+  scaleY: number;
+  scaleZ: number;
+  active: boolean;
 }
 
 /**
@@ -76,6 +91,7 @@ export class FinisherSystem implements ISystem {
 
   private uiThrottleOverride: DrainThrottleMode | null = null;
   private particleAccum = 0;
+  private surgeSparkAccum = 0;
   private spiralRefreshAccum = 0;
   private spiralPhase = 0;
   private currentSeparation: number = FINISHER_CONFIG.defaultRootSeparation;
@@ -124,6 +140,12 @@ export class FinisherSystem implements ISystem {
     THREE.MeshBasicMaterial
   >[] = [];
 
+  // Pre-allocated Pool for Chest-Contact Elemental Backlash Sparks (drainProgress < 0.50, zero per-frame GC)
+  private readonly backlashSparkGroup = new THREE.Group();
+  private readonly backlashSparkGeo: THREE.OctahedronGeometry;
+  private readonly backlashSparkPool: PooledBacklashSpark[] = [];
+  private backlashSparkCursor = 0;
+
   // Reusable scratch vectors & quaternions (zero per-frame GC allocations)
   private readonly scratchBossHead = new THREE.Vector3();
   private readonly scratchBossHeadQuat = new THREE.Quaternion();
@@ -132,6 +154,10 @@ export class FinisherSystem implements ISystem {
   private readonly scratchMageCrystal = new THREE.Vector3();
   private readonly scratchMageAnchor = new THREE.Vector3();
   private readonly scratchAccessoryPos = new THREE.Vector3();
+  private readonly scratchBossHandL = new THREE.Vector3();
+  private readonly scratchBossHandR = new THREE.Vector3();
+  private readonly scratchMageChest = new THREE.Vector3();
+  private readonly scratchSparkOrigin = new THREE.Vector3();
   private readonly scratchBossChest = new THREE.Vector3();
   private readonly scratchBeamVec = new THREE.Vector3();
   private readonly scratchBeamDir = new THREE.Vector3();
@@ -269,6 +295,39 @@ export class FinisherSystem implements ISystem {
       orb.frustumCulled = false;
       this.beamFxGroup.add(orb);
       this.beamEssenceOrbs.push(orb);
+    }
+
+    // Build pre-allocated chest-contact elemental backlash spark pool
+    this.backlashSparkGroup.visible = true;
+    this.scene.add(this.backlashSparkGroup);
+    this.backlashSparkGeo = new THREE.OctahedronGeometry(
+      FINISHER_RESISTANCE_CONFIG.sparkBaseRadius,
+      0,
+    );
+    for (let i = 0; i < FINISHER_RESISTANCE_CONFIG.sparkPoolSize; i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: PALETTE.frostRunes,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(this.backlashSparkGeo, mat);
+      mesh.visible = false;
+      mesh.frustumCulled = false;
+      this.backlashSparkGroup.add(mesh);
+      this.backlashSparkPool.push({
+        mesh,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        life: 0,
+        maxLife: FINISHER_RESISTANCE_CONFIG.sparkLifetimeSec,
+        scaleX: 1,
+        scaleY: 1,
+        scaleZ: 1,
+        active: false,
+      });
     }
   }
 
@@ -464,9 +523,119 @@ export class FinisherSystem implements ISystem {
     store.triggerTauntPop();
   }
 
+  private clearBacklashSparks(): void {
+    for (let i = 0; i < this.backlashSparkPool.length; i++) {
+      const sp = this.backlashSparkPool[i];
+      if (!sp) continue;
+      sp.active = false;
+      sp.life = 0;
+      sp.mesh.visible = false;
+    }
+  }
+
+  private emitBacklashSparkBurst(
+    origin: THREE.Vector3,
+    count: number,
+    activeRealm: SiphonRealmId,
+  ): void {
+    const rCfg = FINISHER_RESISTANCE_CONFIG;
+    const poolLen = this.backlashSparkPool.length;
+    if (poolLen === 0) return;
+
+    const isRealm3 = activeRealm === 3;
+    const isRealm2 = activeRealm === 2;
+    const speedSpan = rCfg.sparkSpeedMax - rCfg.sparkSpeedMin;
+
+    for (let n = 0; n < count; n++) {
+      const sp = this.backlashSparkPool[this.backlashSparkCursor];
+      this.backlashSparkCursor = (this.backlashSparkCursor + 1) % poolLen;
+      if (!sp) continue;
+
+      const azimuth = Math.random() * Math.PI * 2;
+      const elev = (Math.random() - 0.15) * Math.PI * 0.65;
+      const speed = rCfg.sparkSpeedMin + Math.random() * speedSpan;
+      const cosE = Math.cos(elev);
+
+      sp.vx = Math.cos(azimuth) * cosE * speed;
+      sp.vy = Math.sin(elev) * speed + 0.45;
+      sp.vz = Math.sin(azimuth) * cosE * speed;
+      sp.maxLife = rCfg.sparkLifetimeSec * (0.75 + Math.random() * 0.45);
+      sp.life = sp.maxLife;
+      sp.active = true;
+
+      const colorHex = isRealm3
+        ? n % 2 === 0
+          ? PALETTE.harmonicEmerald
+          : PALETTE.harmonicMagenta
+        : isRealm2
+          ? n % 2 === 0
+            ? PALETTE.biolumCyan
+            : PALETTE.serenaHairTips
+          : n % 2 === 0
+            ? PALETTE.frostRunes
+            : PALETTE.iceHighlights;
+      sp.mesh.material.color.setHex(colorHex);
+      sp.mesh.material.opacity = 0.95;
+
+      // Realm-distinct silhouette: Marina shards, Serena droplets, Miku static arcs
+      if (isRealm3) {
+        sp.scaleX = 0.45;
+        sp.scaleY = 2.15;
+        sp.scaleZ = 0.45;
+      } else if (isRealm2) {
+        sp.scaleX = 0.9;
+        sp.scaleY = 1.3;
+        sp.scaleZ = 0.9;
+      } else {
+        sp.scaleX = 0.55;
+        sp.scaleY = 1.85;
+        sp.scaleZ = 0.55;
+      }
+
+      sp.mesh.position.set(
+        origin.x + (Math.random() - 0.5) * 0.1,
+        origin.y + (Math.random() - 0.5) * 0.08,
+        origin.z + (Math.random() - 0.5) * 0.1,
+      );
+      sp.mesh.rotation.set(
+        Math.random() * Math.PI,
+        Math.random() * Math.PI,
+        Math.random() * Math.PI,
+      );
+      sp.mesh.scale.set(sp.scaleX, sp.scaleY, sp.scaleZ);
+      sp.mesh.visible = true;
+    }
+  }
+
+  private updateBacklashSparks(dt: number): void {
+    const gravity = FINISHER_RESISTANCE_CONFIG.sparkGravity;
+    for (let i = 0; i < this.backlashSparkPool.length; i++) {
+      const sp = this.backlashSparkPool[i];
+      if (!sp || !sp.active) continue;
+      sp.life -= dt;
+      if (sp.life <= 0) {
+        sp.active = false;
+        sp.mesh.visible = false;
+        continue;
+      }
+      sp.vy -= gravity * dt;
+      sp.mesh.position.x += sp.vx * dt;
+      sp.mesh.position.y += sp.vy * dt;
+      sp.mesh.position.z += sp.vz * dt;
+      sp.mesh.rotation.x += dt * 9.5;
+      sp.mesh.rotation.y += dt * 7.2;
+
+      const t = sp.life / Math.max(0.001, sp.maxLife);
+      sp.mesh.material.opacity = t * 0.95;
+      const s = 0.35 + t * 0.85;
+      sp.mesh.scale.set(sp.scaleX * s, sp.scaleY * s, sp.scaleZ * s);
+    }
+  }
+
   public hideVisuals(): void {
     this.fxGroup.visible = false;
     this.beamFxGroup.visible = false;
+    this.clearBacklashSparks();
     this.mageRig.setStaffPlanted(false);
     this.stopSiphonAudio();
   }
@@ -474,6 +643,7 @@ export class FinisherSystem implements ISystem {
   public resetState(): void {
     this.uiThrottleOverride = null;
     this.particleAccum = 0;
+    this.surgeSparkAccum = 0;
     this.spiralRefreshAccum = 0;
     this.spiralPhase = 0;
     this.currentSeparation = FINISHER_CONFIG.defaultRootSeparation;
@@ -481,6 +651,7 @@ export class FinisherSystem implements ISystem {
     this.climaxAudioFired = false;
     this.fxGroup.visible = false;
     this.beamFxGroup.visible = false;
+    this.clearBacklashSparks();
     this.mageRig.setStaffPlanted(false);
     this.stopSiphonAudio();
     this.audio.setSiphonThrottle(DRAIN_THROTTLE_MODES.FLOW);
@@ -794,15 +965,22 @@ export class FinisherSystem implements ISystem {
       .normalize();
 
     // Update Siphon Gallery wrist tether strands, reservoir crystal, and dais rune ring live
+    // with dynamic royal-violet tether tension synced to torsoPullBack & shoveImpulse when charge > 50%
+    const resistance = activeRig.getLastResistanceState();
+    const bossPullBack = resistance ? resistance.torsoPullBack : 0;
+    const bossShove = resistance ? resistance.shoveImpulse : 0;
+    const tetherTension = Math.min(1, bossPullBack * 0.78 + bossShove * 0.65);
+
     if (isLobbySiphon && this.callbacks.onLobbySiphonTick) {
       this.callbacks.onLobbySiphonTick(
         this.lobbyCharge,
         elapsed,
         this.lobbyAnchor.targetId,
+        tetherTension,
       );
     }
 
-    // Compute exact world-space root placement relative to Boss root (and dipped headAnchor in Pose [2])
+    // Compute exact world-space root placement relative to Boss root (and pulled-back / dipped headAnchor)
     const targetSep = this.getTargetSeparationForPose(sb.finisherPose);
     const sepLerpAlpha =
       1 -
@@ -816,16 +994,16 @@ export class FinisherSystem implements ISystem {
       sepLerpAlpha,
     );
 
-    // In Pose [2], Marina's dipped head translates backward along -dir; shift Mage root closer along dir
-    // so his deeply pitched torso/head aligns flush with her tilted mouth with zero air gap
+    // Track live headAnchor backward displacement (from Ballroom Dip OR early torso/hip pull-back)
+    // so Dark Mage stays locked lip-to-lip with zero air gap while her lower body pulls away
     const headForwardProj =
       (this.scratchBossHead.x - bx) * dirX +
       (this.scratchBossHead.z - bz) * dirZ;
-    const dipShift =
+    const pullBackShift =
       sb.finisherPose === FINISHER_POSE_IDS.BALLROOM_DIP
-        ? Math.min(0, headForwardProj) * 0.45
-        : 0;
-    const effectiveSep = Math.max(0.28, this.currentSeparation + dipShift);
+        ? Math.min(0, headForwardProj) * 0.5
+        : Math.min(0, headForwardProj) * 0.68;
+    const effectiveSep = Math.max(0.24, this.currentSeparation + pullBackShift);
 
     player.transform.position.x = bx + dirX * effectiveSep;
     player.transform.position.y = by;
@@ -847,7 +1025,7 @@ export class FinisherSystem implements ISystem {
       player.transform.rotationY,
     );
 
-    // Pose Dark Mage with synchronized -> <- press-and-ease motion along sovereign's world face normal
+    // Pose Dark Mage with synchronized -> <- press-and-ease motion & reactive counter-grip tightening
     this.mageRig.root.position.set(
       player.transform.position.x,
       by,
@@ -864,7 +1042,59 @@ export class FinisherSystem implements ISystem {
       headChoreography,
       this.scratchBossFaceNormal,
       activeRig.waistWrapRadius,
+      bossPullBack,
+      bossShove,
     );
+
+    // 6b. Pooled Chest-Contact Elemental Backlash Sparks (drainProgress < 0.50 on shoveImpulse / SURGE)
+    const rCfg = FINISHER_RESISTANCE_CONFIG;
+    if (
+      sb.siphonProgress < rCfg.sparkCutoffDrain &&
+      !sb.isEndlessSavor &&
+      !isTauntStunned
+    ) {
+      activeRig.getLeftHandWorldPosition(this.scratchBossHandL);
+      activeRig.getRightHandWorldPosition(this.scratchBossHandR);
+      if (sb.finisherPose === FINISHER_POSE_IDS.BALLROOM_DIP) {
+        // Right palm braces directly against his upper chest/shoulder in Ballroom Dip
+        this.scratchSparkOrigin.copy(this.scratchBossHandR);
+      } else {
+        this.scratchSparkOrigin
+          .addVectors(this.scratchBossHandL, this.scratchBossHandR)
+          .multiplyScalar(0.5);
+      }
+      this.scratchMageChest.set(
+        player.transform.position.x,
+        by + 1.18,
+        player.transform.position.z,
+      );
+      this.scratchSparkOrigin.lerp(this.scratchMageChest, 0.35);
+
+      const isSurgeThrottle = throttle === DRAIN_THROTTLE_MODES.SURGE;
+      if (resistance?.shoveTriggered) {
+        this.emitBacklashSparkBurst(
+          this.scratchSparkOrigin,
+          isSurgeThrottle ? rCfg.sparkSurgeBurstCount : rCfg.sparkBurstCount,
+          activeRealm,
+        );
+      }
+      if (isSurgeThrottle) {
+        this.surgeSparkAccum += dt;
+        if (this.surgeSparkAccum >= rCfg.sparkSurgeEmitIntervalSec) {
+          this.surgeSparkAccum = 0;
+          this.emitBacklashSparkBurst(
+            this.scratchSparkOrigin,
+            rCfg.sparkBurstCount,
+            activeRealm,
+          );
+        }
+      } else {
+        this.surgeSparkAccum = 0;
+      }
+    } else {
+      this.surgeSparkAccum = 0;
+    }
+    this.updateBacklashSparks(dt);
 
     // 7. Update Lip-to-Lip Energy Ribbons & Pose [2] Planted Staff Channeling Ribbon
     const isMikuRig = activeRig.id === MIKU_CONFIG.id;
@@ -1031,10 +1261,15 @@ export class FinisherSystem implements ISystem {
     activeRig.root.updateMatrixWorld(true);
 
     if (isLobbySiphon && this.callbacks.onLobbySiphonTick) {
+      const beamTension =
+        this.lobbyCharge > FINISHER_RESISTANCE_CONFIG.tetherRelaxChargeThreshold
+          ? Math.min(1, 0.55 + (1 - sb.siphonProgress) * 0.45)
+          : 0;
       this.callbacks.onLobbySiphonTick(
         this.lobbyCharge,
         elapsed,
         this.lobbyAnchor.targetId,
+        beamTension,
       );
     }
 
@@ -1210,6 +1445,13 @@ export class FinisherSystem implements ISystem {
     for (let i = 0; i < this.beamEssenceOrbs.length; i++) {
       const orb = this.beamEssenceOrbs[i];
       if (orb) orb.material.dispose();
+    }
+
+    this.scene.remove(this.backlashSparkGroup);
+    this.backlashSparkGeo.dispose();
+    for (let i = 0; i < this.backlashSparkPool.length; i++) {
+      const sp = this.backlashSparkPool[i];
+      if (sp) sp.mesh.material.dispose();
     }
   }
 }
