@@ -15,6 +15,7 @@ import { TitleOverlay } from './ui/TitleOverlay';
 export function App() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [controller, setController] = useState<IGameController | null>(null);
+  const isFirstPersonGaze = useGameStore((s) => s.isFirstPersonGaze);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -47,10 +48,10 @@ export function App() {
         className="fixed inset-0 w-full h-full overflow-hidden"
       />
       <TitleOverlay controller={controller} />
-      <LobbyHUD controller={controller} />
-      <CombatHUD controller={controller} />
-      <FinisherHUD controller={controller} />
-      <DioramaHUD controller={controller} />
+      {!isFirstPersonGaze && <LobbyHUD controller={controller} />}
+      {!isFirstPersonGaze && <CombatHUD controller={controller} />}
+      {!isFirstPersonGaze && <FinisherHUD controller={controller} />}
+      {!isFirstPersonGaze && <DioramaHUD controller={controller} />}
       <PauseMenu controller={controller} />
     </div>
   );

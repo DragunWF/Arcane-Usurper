@@ -2829,3 +2829,32 @@ export const SIPHON_AUDIO_CONFIG = Object.freeze({
   climaxChordSerenaHz: Object.freeze([987.77, 783.99, 659.25, 493.88] as const),
   climaxChordMikuHz: Object.freeze([1318.51, 987.77, 783.99, 587.33] as const),
 } as const);
+
+// ============================================================================
+// HOLD-[V] FIRST-PERSON GAZE CONFIGURATION
+// ============================================================================
+
+export const FIRST_PERSON_GAZE_CONFIG = Object.freeze({
+  triggerKey: 'KeyV',
+  eyeHeightOffset: 1.55,
+  forwardEyeOffset: 0.12,
+  minPitchRad: -1.25,
+  maxPitchRad: 1.25,
+  transitionLerpSpeed: 14.0,
+  hideRigDistanceThreshold: 0.45,
+  initialPitchRad: 0,
+  /** Any of these inputs instantly breaks out of first-person gaze and executes normally. */
+  breakoutKeys: Object.freeze([
+    'KeyW',
+    'KeyA',
+    'KeyS',
+    'KeyD',
+    'ArrowUp',
+    'ArrowDown',
+    'ArrowLeft',
+    'ArrowRight',
+    'Space',
+    'KeyE',
+  ] as const),
+  breakoutMouseButtons: Object.freeze([0, 2] as const),
+} as const);

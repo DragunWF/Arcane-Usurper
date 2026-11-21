@@ -295,6 +295,7 @@ export interface GameStoreState {
 
   // Audio, Pause & System Status
   isPaused: boolean;
+  isFirstPersonGaze: boolean;
   musicVolume: number;
   sfxVolume: number;
   restartRequestToken: number;
@@ -310,6 +311,7 @@ export interface GameStoreState {
   incrementEncoreTier: () => void;
   setPointerLocked: (locked: boolean) => void;
   setPaused: (isPaused: boolean) => void;
+  setFirstPersonGaze: (isFirstPersonGaze: boolean) => void;
   setMusicVolume: (volume: number) => void;
   setSfxVolume: (volume: number) => void;
   triggerRestart: () => void;
@@ -432,6 +434,7 @@ const INITIAL_STATE = {
   tauntDizzyTimer: 0,
 
   isPaused: false,
+  isFirstPersonGaze: false,
   musicVolume: AUDIO_CONFIG.defaultMusicVolume,
   sfxVolume: AUDIO_CONFIG.defaultSfxVolume,
   restartRequestToken: 0,
@@ -460,6 +463,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
     set((state) => ({ encoreTier: state.encoreTier + 1 })),
   setPointerLocked: (isPointerLocked) => set({ isPointerLocked }),
   setPaused: (isPaused) => set({ isPaused }),
+  setFirstPersonGaze: (isFirstPersonGaze) => set({ isFirstPersonGaze }),
   setMusicVolume: (volume) =>
     set({ musicVolume: Math.max(0, Math.min(1, volume)) }),
   setSfxVolume: (volume) =>

@@ -1,6 +1,7 @@
 import {
   DRAIN_THROTTLE_MODES,
   FINISHER_POSE_IDS,
+  FIRST_PERSON_GAZE_CONFIG,
   GAME_STATES,
   type DrainThrottleMode,
   type FinisherPoseId,
@@ -55,8 +56,14 @@ export class InputSystem implements ISystem {
   private queuedSurgeTap = false;
   private queuedPose: FinisherPoseId | null = null;
 
+  // Hold-[V] First-Person Gaze state & anti-flicker breakout latch
+  private isFirstPersonGaze = false;
+  private gazeKeyHeld = false;
+  private gazeBreakoutLatched = false;
+
   private readonly handleKeyDown: (e: KeyboardEvent) => void;
   private readonly handleKeyUp: (e: KeyboardEvent) => void;
+  private readonly handleBlur: () => void;
   private readonly handleMouseDown: (e: MouseEvent) => void;
   private readonly handleMouseUp: (e: MouseEvent) => void;
   private readonly handleContextMenu: (e: MouseEvent) => void;
@@ -109,6 +116,33 @@ export class InputSystem implements ISystem {
 
       if (this.callbacks.isPaused()) {
         return;
+      }
+
+      // Hold-[V] First-Person Gaze activation (planted stance, active gameplay states only)
+      if (e.code === FIRST_PERSON_GAZE_CONFIG.triggerKey) {
+        if (!e.repeat) {
+          this.gazeKeyHeld = true;
+          if (
+            !this.gazeBreakoutLatched &&
+            this.isGazeAllowedState(state) &&
+            !this.isAnyBreakoutKeyHeld()
+          ) {
+            this.isFirstPersonGaze = true;
+          } else {
+            this.gazeBreakoutLatched = true;
+          }
+        }
+        return;
+      }
+
+      // Any movement/action key instantly breaks out of gaze and executes normally
+      if (
+        this.isFirstPersonGaze &&
+        (FIRST_PERSON_GAZE_CONFIG.breakoutKeys as readonly string[]).includes(
+          e.code,
+        )
+      ) {
+        this.exitGaze(true);
       }
 
       if (e.code in this.keys) {
@@ -168,15 +202,36 @@ export class InputSystem implements ISystem {
     };
 
     this.handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === FIRST_PERSON_GAZE_CONFIG.triggerKey) {
+        this.gazeKeyHeld = false;
+        this.isFirstPersonGaze = false;
+        this.gazeBreakoutLatched = false;
+        return;
+      }
       if (e.code in this.keys) {
         this.keys[e.code as keyof typeof this.keys] = false;
       }
+    };
+
+    this.handleBlur = () => {
+      this.gazeKeyHeld = false;
+      this.isFirstPersonGaze = false;
+      this.gazeBreakoutLatched = false;
     };
 
     this.handleMouseDown = (e: MouseEvent) => {
       this.audio.unlock();
       if (this.callbacks.isPaused()) return;
       const state = this.callbacks.getGameState();
+
+      if (
+        this.isFirstPersonGaze &&
+        (FIRST_PERSON_GAZE_CONFIG.breakoutMouseButtons as readonly number[]).includes(
+          e.button,
+        )
+      ) {
+        this.exitGaze(true);
+      }
 
       if (e.button === 2) {
         this.rightMouseHeld = true;
@@ -228,6 +283,7 @@ export class InputSystem implements ISystem {
 
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
+    window.addEventListener('blur', this.handleBlur);
     this.domElement.addEventListener('mousedown', this.handleMouseDown);
     window.addEventListener('mouseup', this.handleMouseUp);
     this.domElement.addEventListener('contextmenu', this.handleContextMenu);
@@ -253,7 +309,42 @@ export class InputSystem implements ISystem {
     this.queuedSingleShotFire = true;
   }
 
+  private isGazeAllowedState(state: GameState): boolean {
+    return (
+      state === GAME_STATES.LOBBY ||
+      state === GAME_STATES.CHAMBER_COMBAT ||
+      state === GAME_STATES.BOSS_COMBAT
+    );
+  }
+
+  private isAnyBreakoutKeyHeld(): boolean {
+    return (
+      this.keys.KeyW ||
+      this.keys.KeyA ||
+      this.keys.KeyS ||
+      this.keys.KeyD ||
+      this.keys.ArrowUp ||
+      this.keys.ArrowDown ||
+      this.keys.ArrowLeft ||
+      this.keys.ArrowRight ||
+      this.keys.KeyE ||
+      this.keys.Space ||
+      this.primaryFireHeld ||
+      this.rightMouseHeld
+    );
+  }
+
+  private exitGaze(latch: boolean): void {
+    this.isFirstPersonGaze = false;
+    if (latch && this.gazeKeyHeld) {
+      this.gazeBreakoutLatched = true;
+    }
+  }
+
   public resetTransientInputs(): void {
+    this.isFirstPersonGaze = false;
+    this.gazeKeyHeld = false;
+    this.gazeBreakoutLatched = false;
     this.keys.KeyW = false;
     this.keys.KeyA = false;
     this.keys.KeyS = false;
@@ -296,6 +387,15 @@ export class InputSystem implements ISystem {
     if (!player) return;
 
     const intent = player.playerIntent;
+
+    // Force-exit gaze on any transition out of active gameplay states
+    if (
+      this.isFirstPersonGaze &&
+      !this.isGazeAllowedState(this.callbacks.getGameState())
+    ) {
+      this.exitGaze(false);
+    }
+
     const forward =
       (this.keys.KeyW || this.keys.ArrowUp ? 1 : 0) -
       (this.keys.KeyS || this.keys.ArrowDown ? 1 : 0);
@@ -303,6 +403,7 @@ export class InputSystem implements ISystem {
       (this.keys.KeyD || this.keys.ArrowRight ? 1 : 0) -
       (this.keys.KeyA || this.keys.ArrowLeft ? 1 : 0);
 
+    intent.isFirstPersonGaze = this.isFirstPersonGaze;
     intent.moveForward = forward;
     intent.moveRight = right;
     intent.primaryFireHeld = this.primaryFireHeld || this.queuedSingleShotFire;
@@ -329,6 +430,7 @@ export class InputSystem implements ISystem {
   public dispose(): void {
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
+    window.removeEventListener('blur', this.handleBlur);
     this.domElement.removeEventListener('mousedown', this.handleMouseDown);
     window.removeEventListener('mouseup', this.handleMouseUp);
     this.domElement.removeEventListener('contextmenu', this.handleContextMenu);

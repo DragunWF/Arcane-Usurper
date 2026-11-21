@@ -4,6 +4,7 @@ import {
   BOSS_CONFIG,
   BOSS_PHASES,
   FINISHER_CONFIG,
+  FIRST_PERSON_GAZE_CONFIG,
   GAME_STATES,
   NG_PLUS_CONFIG,
   PLAYER_CONFIG,
@@ -212,6 +213,18 @@ export class MovementSystem implements ISystem {
         playerCombat.afterimageTimer = PLAYER_CONFIG.afterimageInterval;
         this.vfx.spawnAfterimage(this.mageRig);
       }
+    } else if (playerIntent.isFirstPersonGaze) {
+      // Planted first-person stance: zero translation, smoothly turn rig to horizontal gaze yaw
+      velocity.vx = 0;
+      velocity.vz = 0;
+      this.callbacks.getCameraForwardXZ(this.vForward);
+      const gazeYaw = Math.atan2(this.vForward.x, this.vForward.z);
+      let gazeDiff = gazeYaw - transform.rotationY;
+      while (gazeDiff > Math.PI) gazeDiff -= Math.PI * 2;
+      while (gazeDiff < -Math.PI) gazeDiff += Math.PI * 2;
+      transform.rotationY +=
+        gazeDiff *
+        Math.min(1, dt * FIRST_PERSON_GAZE_CONFIG.transitionLerpSpeed);
     } else {
       this.computeInputMoveDirection(
         playerIntent.moveForward,

@@ -94,10 +94,11 @@ export interface PlayerIntentComponent {
   surgeTapRequested: boolean;
   requestedPose: FinisherPoseId | null;
   drainThrottle: DrainThrottleMode;
+  /** True while the player holds [V] in a planted first-person gaze. */
+  isFirstPersonGaze: boolean;
 }
 
-export interface PlayerCombatStateComponent {
-  dashTimer: number;
+export interface PlayerCombatStateComponent {  dashTimer: number;
   dashCooldown: number;
   dashDirX: number;
   dashDirZ: number;

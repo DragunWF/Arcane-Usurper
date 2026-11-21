@@ -5,6 +5,7 @@ import {
   BOSS_CONFIG,
   CAMERA_CONFIG,
   ENVIRONMENT_IDS,
+  FIRST_PERSON_GAZE_CONFIG,
   GAME_STATES,
   LOBBY_CONFIG,
   PALETTE,
@@ -56,6 +57,13 @@ export class CameraRig {
   private lastPointerY = 0;
   private activeMode: CameraMode = 'TITLE';
 
+  // Hold-[V] first-person gaze state
+  private firstPersonActive = false;
+  private gazePitch: number = FIRST_PERSON_GAZE_CONFIG.initialPitchRad;
+  private _shouldHideRig = false;
+  private readonly gazeDir = new THREE.Vector3();
+  private readonly gazeEye = new THREE.Vector3();
+
   private shakeIntensity = 0;
   private readonly currentPosition = new THREE.Vector3(0, 3.2, -6.5);
   private readonly currentLookAt = new THREE.Vector3(
@@ -106,6 +114,43 @@ export class CameraRig {
 
   public get cameraDistanceToPivot(): number {
     return this._cameraDistanceToPivot;
+  }
+
+  /** True once the gaze camera is close enough to the eye anchor that the rig must be hidden. */
+  public get shouldHideRig(): boolean {
+    return this._shouldHideRig;
+  }
+
+  public get isFirstPersonGazeActive(): boolean {
+    return this.firstPersonActive;
+  }
+
+  /**
+   * Enables/disables the planted first-person gaze camera. Gaze yaw is shared with the
+   * third-person yaw so releasing returns seamlessly facing the looked-at direction.
+   */
+  public setFirstPersonGaze(active: boolean): void {
+    if (active === this.firstPersonActive) return;
+    this.firstPersonActive = active;
+    if (active) {
+      this.gazePitch = FIRST_PERSON_GAZE_CONFIG.initialPitchRad;
+      this.cancelEnterLobbyGlide();
+    } else {
+      this._shouldHideRig = false;
+    }
+  }
+
+  private applyPitchDelta(delta: number): void {
+    if (this.firstPersonActive) {
+      this.gazePitch = THREE.MathUtils.clamp(
+        this.gazePitch + delta,
+        FIRST_PERSON_GAZE_CONFIG.minPitchRad,
+        FIRST_PERSON_GAZE_CONFIG.maxPitchRad,
+      );
+    } else {
+      this.pitch += delta;
+      this.clampCombatPitch();
+    }
   }
 
   constructor(domElement: HTMLElement) {
@@ -177,16 +222,14 @@ export class CameraRig {
 
       if (this._isPointerLocked) {
         this.yaw -= e.movementX * CAMERA_CONFIG.mouseSensitivity;
-        this.pitch += e.movementY * CAMERA_CONFIG.mouseSensitivity;
-        this.clampCombatPitch();
+        this.applyPitchDelta(e.movementY * CAMERA_CONFIG.mouseSensitivity);
       } else if (this.isDragging) {
         const dx = e.clientX - this.lastPointerX;
         const dy = e.clientY - this.lastPointerY;
         this.lastPointerX = e.clientX;
         this.lastPointerY = e.clientY;
         this.yaw -= dx * CAMERA_CONFIG.dragSensitivity;
-        this.pitch += dy * CAMERA_CONFIG.dragSensitivity;
-        this.clampCombatPitch();
+        this.applyPitchDelta(dy * CAMERA_CONFIG.dragSensitivity);
       }
     };
 
@@ -238,8 +281,7 @@ export class CameraRig {
         this.clampOrbitElevation();
       } else {
         this.yaw -= dx * scale;
-        this.pitch += dy * scale;
-        this.clampCombatPitch();
+        this.applyPitchDelta(dy * scale);
       }
     };
 
@@ -573,6 +615,35 @@ export class CameraRig {
       const smooth = Math.min(1, dt * CAMERA_CONFIG.finisherOrbitLerp);
       this.currentPosition.lerp(this.desiredPos, smooth);
       this.currentLookAt.lerp(this.desiredLookAt, smooth);
+    } else if (this.firstPersonActive) {
+      // Planted first-person gaze: glide to eye-level anchor, orient instantly to gaze yaw/pitch
+      this.orbitRimGroup.visible = false;
+      const cosP = Math.cos(this.gazePitch);
+      this.gazeDir.set(
+        -Math.sin(this.yaw) * cosP,
+        -Math.sin(this.gazePitch),
+        -Math.cos(this.yaw) * cosP,
+      );
+      this.gazeEye
+        .set(
+          targetPos.x,
+          targetPos.y + FIRST_PERSON_GAZE_CONFIG.eyeHeightOffset,
+          targetPos.z,
+        )
+        .addScaledVector(this.gazeDir, FIRST_PERSON_GAZE_CONFIG.forwardEyeOffset);
+
+      const gazeAlpha =
+        1 -
+        Math.exp(
+          -Math.max(0, dt) * FIRST_PERSON_GAZE_CONFIG.transitionLerpSpeed,
+        );
+      this.currentPosition.lerp(this.gazeEye, gazeAlpha);
+      this.currentLookAt.copy(this.currentPosition).add(this.gazeDir);
+
+      const eyeDist = this.currentPosition.distanceTo(this.gazeEye);
+      this._cameraDistanceToPivot = eyeDist;
+      this._shouldHideRig =
+        eyeDist <= FIRST_PERSON_GAZE_CONFIG.hideRigDistanceThreshold;
     } else {
       this.orbitRimGroup.visible = false;
       const dist = CAMERA_CONFIG.followDistance;

@@ -114,6 +114,7 @@ export class GameEngine implements IGameController {
   private state: GameState = GAME_STATES.TITLE;
   private activeLobbySiphonTarget: 'marina' | 'serena' | 'miku' = 'marina';
   private isPaused = false;
+  private rigHiddenByGaze = false;
   private lastAutoPauseTimestamp = 0;
   private lastRestartToken = 0;
   private elapsed = 0;
@@ -532,6 +533,7 @@ export class GameEngine implements IGameController {
         surgeTapRequested: false,
         requestedPose: null,
         drainThrottle: DRAIN_THROTTLE_MODES.FLOW,
+        isFirstPersonGaze: false,
       },
       playerCombat: {
         dashTimer: 0,
@@ -934,6 +936,7 @@ export class GameEngine implements IGameController {
     this.inputSystem.resetTransientInputs();
 
     if (paused) {
+      this.releaseFirstPersonGaze();
       this.sound.stopLaserLoop();
       this.cameraRig.exitLock();
     } else {
@@ -1509,6 +1512,17 @@ export class GameEngine implements IGameController {
     this.cameraRig.requestLock();
   }
 
+  /**
+   * Immediately exits first-person gaze, restores the Dark Mage rig and clears the HUD gaze flag.
+   */
+  private releaseFirstPersonGaze(): void {
+    this.cameraRig.setFirstPersonGaze(false);
+    this.rigHiddenByGaze = false;
+    this.mageRig.root.visible = true;
+    const store = useGameStore.getState();
+    if (store.isFirstPersonGaze) store.setFirstPersonGaze(false);
+  }
+
   private startLoop(): void {
     this.clock.start();
 
@@ -1528,6 +1542,10 @@ export class GameEngine implements IGameController {
 
       // Run ECS Simulation Pipeline in deterministic order
       this.inputSystem.update(dt, this.elapsed);
+      const gazeIntent = this.world.queryFirst('playerTag', 'playerIntent');
+      this.cameraRig.setFirstPersonGaze(
+        gazeIntent?.playerIntent.isFirstPersonGaze === true,
+      );
       this.movementSystem.update(dt, this.elapsed);
       this.lobbySystem.update(dt, this.elapsed);
       this.chamberSystem.update(dt, this.elapsed);
@@ -1608,6 +1626,17 @@ export class GameEngine implements IGameController {
           null,
           this.sceneManager,
         );
+      }
+
+      // Hood-clip prevention: hide the Dark Mage rig only while the gaze camera sits at his eye anchor
+      const hideRig = this.cameraRig.shouldHideRig;
+      if (hideRig !== this.rigHiddenByGaze) {
+        this.rigHiddenByGaze = hideRig;
+        this.mageRig.root.visible = !hideRig;
+      }
+      const gazeActive = this.cameraRig.isFirstPersonGazeActive;
+      if (useGameStore.getState().isFirstPersonGaze !== gazeActive) {
+        useGameStore.getState().setFirstPersonGaze(gazeActive);
       }
 
       // Close-range player fade when spring-arm camera pulls tight against chamber walls/pillars
