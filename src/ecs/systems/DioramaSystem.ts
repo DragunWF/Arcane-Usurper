@@ -467,7 +467,7 @@ export class DioramaSystem implements ISystem {
       boss.transform.position.z,
     );
     this.bossRig.root.rotation.y = boss.transform.rotationY;
-    this.bossRig.applyVictoryCollapsePose(elapsed);
+    this.bossRig.applyVictoryDioramaPose(elapsed);
 
     this.mageRig.root.position.set(
       player.transform.position.x,

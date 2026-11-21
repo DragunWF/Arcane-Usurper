@@ -552,6 +552,9 @@ export class FinisherSystem implements ISystem {
       if (this.siphonAudioActive || this.beamAudioActive) {
         this.stopSiphonAudio();
       }
+      if (state === GAME_STATES.VICTORY_DIORAMA) {
+        this.bossRig.applyVictoryDioramaPose(elapsed);
+      }
       return;
     }
 

@@ -13,6 +13,7 @@ import {
   MIKU_CONFIG,
   PALETTE,
   SIPHON_GALLERY_CONFIG,
+  VICTORY_DIORAMA_CONFIG,
   type BossExpression,
   type BossPhase,
   type DrainThrottleMode,
@@ -2015,10 +2016,15 @@ export class MikuRig extends BossBase {
     this.leftKneePivot.rotation.x = 0.42;
     this.rightKneePivot.rotation.x = 0.68;
 
-    this.leftShoulderPivot.rotation.set(0.18, 0, 0.5);
-    this.rightShoulderPivot.rotation.set(-0.1, 0, -0.58);
-    this.leftElbowPivot.rotation.x = -0.18;
-    this.rightElbowPivot.rotation.x = -0.26;
+    this.applySubjugatedDioramaArms(
+      this.leftShoulderPivot,
+      this.rightShoulderPivot,
+      this.leftElbowPivot,
+      this.rightElbowPivot,
+      VICTORY_DIORAMA_CONFIG.mikuExtraAbductionRad,
+      this.leftWristAnchor,
+      this.rightWristAnchor,
+    );
     this.necktiePivot.rotation.x = -0.12;
 
     // Fan bleached ash-silver twin-tails wide out beside her on the concert stage floor

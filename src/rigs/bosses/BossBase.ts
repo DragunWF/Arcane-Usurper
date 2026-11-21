@@ -6,6 +6,7 @@ import {
   FINISHER_RESISTANCE_CONFIG,
   PALETTE,
   SIPHON_BEAM_CONFIG,
+  VICTORY_DIORAMA_CONFIG,
   type BossExpression,
   type BossPhase,
   type DrainThrottleMode,
@@ -270,6 +271,7 @@ export interface BossRigAdapter {
   ): void;
   applyBeamFinisherPose(drainProgress: number, time: number): void;
   applyVictoryCollapsePose(time: number): void;
+  applyVictoryDioramaPose(time: number): void;
   applyPuppetMasterPose(time: number): void;
   applyDrainBleach(drainProgress: number): void;
   resetForEncounter(encoreTier: number): void;
@@ -326,6 +328,9 @@ export abstract class BossBase implements BossRigAdapter {
     time: number,
   ): void;
   public abstract applyVictoryCollapsePose(time: number): void;
+  public applyVictoryDioramaPose(time: number): void {
+    this.applyVictoryCollapsePose(time);
+  }
   public abstract applyPuppetMasterPose(time: number): void;
   public abstract applyDrainBleach(drainProgress: number): void;
   public abstract resetForEncounter(encoreTier: number): void;
@@ -694,6 +699,65 @@ export abstract class BossBase implements BossRigAdapter {
           slump,
         ) - tremor * 0.7,
     };
+  }
+
+  /**
+   * Shared supine arm-rest helper for VICTORY_DIORAMA (DRY & LSP):
+   * 1. Explicitly zeroes all prior x/y/z rotations on shoulders, elbows, and optional wrists
+   *    so no forward-reaching or inward-pushing combat/finisher rotations leak into the diorama.
+   * 2. Splays both arms cleanly OUTWARD away from the torso centerline along local Z
+   *    (leftShoulder is at -X, so -Z rotates (0,-L,0) outward toward -X;
+   *     rightShoulder is at +X, so +Z rotates (0,-L,0) outward toward +X).
+   * 3. Applies subtle floor-plane lift and relaxed anatomical elbow bend/roll so both arms
+   *    rest naturally beside her body parallel to the arena floor with zero clipping.
+   */
+  protected applySubjugatedDioramaArms(
+    leftShoulder: THREE.Object3D,
+    rightShoulder: THREE.Object3D,
+    leftElbow: THREE.Object3D,
+    rightElbow: THREE.Object3D,
+    extraAbductionRad = 0,
+    leftWrist?: THREE.Object3D,
+    rightWrist?: THREE.Object3D,
+  ): void {
+    leftShoulder.rotation.set(0, 0, 0);
+    rightShoulder.rotation.set(0, 0, 0);
+    leftElbow.rotation.set(0, 0, 0);
+    rightElbow.rotation.set(0, 0, 0);
+    leftWrist?.rotation.set(0, 0, 0);
+    rightWrist?.rotation.set(0, 0, 0);
+
+    const cfg = VICTORY_DIORAMA_CONFIG;
+    const totalAbduction = cfg.baseShoulderAbductionRad + extraAbductionRad;
+
+    leftShoulder.rotation.set(
+      cfg.shoulderFloorLiftRad,
+      -cfg.relaxedWristRollRad,
+      -totalAbduction,
+    );
+    rightShoulder.rotation.set(
+      cfg.shoulderFloorLiftRad,
+      cfg.relaxedWristRollRad,
+      totalAbduction,
+    );
+
+    leftElbow.rotation.set(
+      -cfg.relaxedElbowBendRad,
+      -cfg.relaxedWristRollRad,
+      0,
+    );
+    rightElbow.rotation.set(
+      -cfg.relaxedElbowBendRad,
+      cfg.relaxedWristRollRad,
+      0,
+    );
+
+    if (leftWrist) {
+      leftWrist.rotation.set(0, -cfg.relaxedWristRollRad, 0);
+    }
+    if (rightWrist) {
+      rightWrist.rotation.set(0, cfg.relaxedWristRollRad, 0);
+    }
   }
 }
 

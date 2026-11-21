@@ -1136,6 +1136,20 @@ export const DIORAMA_CONFIG = Object.freeze({
   ] as const),
 } as const);
 
+/**
+ * Frozen supine arm-rest & clearance angles for subjugated sovereigns in VICTORY_DIORAMA
+ * so arms splay naturally outward along the arena floor with zero torso, skirt, sleeve, or floor clipping.
+ */
+export const VICTORY_DIORAMA_CONFIG = Object.freeze({
+  baseShoulderAbductionRad: 0.42,
+  marinaExtraAbductionRad: 0.08,
+  serenaExtraAbductionRad: 0.04,
+  mikuExtraAbductionRad: 0.1,
+  shoulderFloorLiftRad: -0.08,
+  relaxedElbowBendRad: 0.14,
+  relaxedWristRollRad: 0.12,
+} as const);
+
 // ============================================================================
 // ENCORE (NEW GAME+) SCALING & USURPED FROST POWER CONFIGURATION
 // ============================================================================

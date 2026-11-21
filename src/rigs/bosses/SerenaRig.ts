@@ -13,6 +13,7 @@ import {
   PALETTE,
   SERENA_CONFIG,
   SIPHON_GALLERY_CONFIG,
+  VICTORY_DIORAMA_CONFIG,
   type BossExpression,
   type BossPhase,
   type DrainThrottleMode,
@@ -1817,10 +1818,15 @@ export class SerenaRig extends BossBase {
     this.tailSeg4.rotation.set(0.04, 0.48, 0.05);
     this.caudalFinPivot.rotation.set(Math.sin(time * 1.4) * 0.05, 0, 0);
 
-    this.leftShoulderPivot.rotation.set(0.2, 0, 0.48);
-    this.rightShoulderPivot.rotation.set(-0.12, 0, -0.58);
-    this.leftElbowPivot.rotation.set(-0.18, 0, 0);
-    this.rightElbowPivot.rotation.set(-0.26, 0, 0);
+    this.applySubjugatedDioramaArms(
+      this.leftShoulderPivot,
+      this.rightShoulderPivot,
+      this.leftElbowPivot,
+      this.rightElbowPivot,
+      VICTORY_DIORAMA_CONFIG.serenaExtraAbductionRad,
+      this.leftWristAnchor,
+      this.rightWristAnchor,
+    );
 
     for (let i = 0; i < this.hairRibbons.length; i++) {
       const hr = this.hairRibbons[i];
