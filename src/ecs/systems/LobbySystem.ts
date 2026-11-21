@@ -21,7 +21,7 @@ export interface ILobbyCallbacks {
   onEnterRealm1: () => void;
   onEnterRealm2: () => void;
   onEnterRealm3: () => void;
-  onEnterLobbySiphon: (target: 'marina' | 'serena') => void;
+  onEnterLobbySiphon: (target: 'marina' | 'serena' | 'miku') => void;
   onEncoreTierToggled: (nextTier: number) => void;
   onSyncGalleryUnlocked: (unlocked: boolean) => void;
 }
@@ -46,8 +46,11 @@ export class LobbySystem implements ISystem {
   private lastSyncedStoreCharge = -1;
   private liveSerenaCharge: number = SIPHON_GALLERY_CONFIG.defaultCoreCharge;
   private lastSyncedSerenaCharge = -1;
+  private liveMikuCharge: number = SIPHON_GALLERY_CONFIG.defaultCoreCharge;
+  private lastSyncedMikuCharge = -1;
   private chargeSyncAccum = 0;
   private serenaChargeSyncAccum = 0;
+  private mikuChargeSyncAccum = 0;
   private readonly scratchBurst = new THREE.Vector3();
 
   constructor(
@@ -75,19 +78,28 @@ export class LobbySystem implements ISystem {
     this.lastSyncedStoreCharge = store.marinaCoreCharge;
     this.liveSerenaCharge = store.serenaCoreCharge;
     this.lastSyncedSerenaCharge = store.serenaCoreCharge;
+    this.liveMikuCharge = store.mikuCoreCharge;
+    this.lastSyncedMikuCharge = store.mikuCoreCharge;
     this.chargeSyncAccum = 0;
     this.serenaChargeSyncAccum = 0;
+    this.mikuChargeSyncAccum = 0;
     this.mageTower.setTrophyVisible(
       store.marinaDefeated,
       store.encoreTier,
       store.serenaDefeated,
+      store.mikuDefeated,
     );
-    this.mageTower.setGalleryCaptives(store.marinaDefeated, store.serenaDefeated);
+    this.mageTower.setGalleryCaptives(
+      store.marinaDefeated,
+      store.serenaDefeated,
+      store.mikuDefeated,
+    );
     this.callbacks.onSyncGalleryUnlocked(
-      store.marinaDefeated || store.serenaDefeated,
+      store.marinaDefeated || store.serenaDefeated || store.mikuDefeated,
     );
     this.mageTower.updateMarinaCaptiveState(this.liveMarinaCharge, 0, 0.016);
     this.mageTower.updateSerenaCaptiveState(this.liveSerenaCharge, 0, 0.016);
+    this.mageTower.updateMikuCaptiveState(this.liveMikuCharge, 0, 0.016);
     this.mageRig.setEncoreTier(store.encoreTier);
     this.setPromptIfChanged(null);
   }
@@ -205,9 +217,25 @@ export class LobbySystem implements ISystem {
       return;
     }
 
+    if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.MIKU_DAIS) {
+      const store = useGameStore.getState();
+      if (!store.mikuDefeated) return;
+      store.setMikuCoreCharge(this.liveMikuCharge);
+      this.lastSyncedMikuCharge = this.liveMikuCharge;
+      this.setPromptIfChanged(null);
+      this.callbacks.onEnterLobbySiphon('miku');
+      return;
+    }
+
     if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.TROPHY_PEDESTAL) {
       const store = useGameStore.getState();
-      if (!store.marinaDefeated && !store.serenaDefeated) return;
+      if (
+        !store.marinaDefeated &&
+        !store.serenaDefeated &&
+        !store.mikuDefeated
+      ) {
+        return;
+      }
       const nextTier = store.encoreTier > 0 ? 0 : 1;
       store.setEncoreTier(nextTier);
 
@@ -221,6 +249,7 @@ export class LobbySystem implements ISystem {
         store.marinaDefeated,
         nextTier,
         store.serenaDefeated,
+        store.mikuDefeated,
       );
       this.audio.playTrophyToggle();
       this.callbacks.onEncoreTierToggled(nextTier);
@@ -244,17 +273,21 @@ export class LobbySystem implements ISystem {
       this.lastSyncedStoreCharge = store.marinaCoreCharge;
       this.liveSerenaCharge = store.serenaCoreCharge;
       this.lastSyncedSerenaCharge = store.serenaCoreCharge;
+      this.liveMikuCharge = store.mikuCoreCharge;
+      this.lastSyncedMikuCharge = store.mikuCoreCharge;
       this.mageTower.setTrophyVisible(
         store.marinaDefeated,
         store.encoreTier,
         store.serenaDefeated,
+        store.mikuDefeated,
       );
       this.mageTower.setGalleryCaptives(
         store.marinaDefeated,
         store.serenaDefeated,
+        store.mikuDefeated,
       );
       this.callbacks.onSyncGalleryUnlocked(
-        store.marinaDefeated || store.serenaDefeated,
+        store.marinaDefeated || store.serenaDefeated || store.mikuDefeated,
       );
       this.mageTower.updateMarinaCaptiveState(
         this.liveMarinaCharge,
@@ -263,6 +296,11 @@ export class LobbySystem implements ISystem {
       );
       this.mageTower.updateSerenaCaptiveState(
         this.liveSerenaCharge,
+        elapsed,
+        dt,
+      );
+      this.mageTower.updateMikuCaptiveState(
+        this.liveMikuCharge,
         elapsed,
         dt,
       );
@@ -287,6 +325,10 @@ export class LobbySystem implements ISystem {
     if (Math.abs(store.serenaCoreCharge - this.lastSyncedSerenaCharge) > 0.0005) {
       this.liveSerenaCharge = store.serenaCoreCharge;
       this.lastSyncedSerenaCharge = store.serenaCoreCharge;
+    }
+    if (Math.abs(store.mikuCoreCharge - this.lastSyncedMikuCharge) > 0.0005) {
+      this.liveMikuCharge = store.mikuCoreCharge;
+      this.lastSyncedMikuCharge = store.mikuCoreCharge;
     }
 
     // Passive cryogenic core recharge while exploring the Sanctum after defeating Marina
@@ -327,14 +369,38 @@ export class LobbySystem implements ISystem {
       }
     }
 
+    // Passive harmonic core recharge while exploring the Sanctum after defeating Miku
+    if (store.mikuDefeated && this.liveMikuCharge < 1.0) {
+      this.liveMikuCharge = Math.min(
+        1.0,
+        this.liveMikuCharge +
+          SIPHON_GALLERY_CONFIG.passiveRechargePerSec * dt,
+      );
+      this.mikuChargeSyncAccum += dt;
+      if (
+        this.mikuChargeSyncAccum >=
+          SIPHON_GALLERY_CONFIG.chargeStoreSyncIntervalSec ||
+        this.liveMikuCharge >= 1.0
+      ) {
+        this.mikuChargeSyncAccum = 0;
+        this.lastSyncedMikuCharge = this.liveMikuCharge;
+        store.setMikuCoreCharge(this.liveMikuCharge);
+      }
+    }
+
     this.mageTower.setTrophyVisible(
       store.marinaDefeated,
       store.encoreTier,
       store.serenaDefeated,
+      store.mikuDefeated,
     );
-    this.mageTower.setGalleryCaptives(store.marinaDefeated, store.serenaDefeated);
+    this.mageTower.setGalleryCaptives(
+      store.marinaDefeated,
+      store.serenaDefeated,
+      store.mikuDefeated,
+    );
     this.callbacks.onSyncGalleryUnlocked(
-      store.marinaDefeated || store.serenaDefeated,
+      store.marinaDefeated || store.serenaDefeated || store.mikuDefeated,
     );
     this.mageTower.updateMarinaCaptiveState(
       this.liveMarinaCharge,
@@ -343,6 +409,11 @@ export class LobbySystem implements ISystem {
     );
     this.mageTower.updateSerenaCaptiveState(
       this.liveSerenaCharge,
+      elapsed,
+      dt,
+    );
+    this.mageTower.updateMikuCaptiveState(
+      this.liveMikuCharge,
       elapsed,
       dt,
     );
@@ -414,8 +485,13 @@ export class LobbySystem implements ISystem {
       };
     }
 
-    const anySovereignDefeated = store.marinaDefeated || store.serenaDefeated;
+    const anySovereignDefeated =
+      store.marinaDefeated || store.serenaDefeated || store.mikuDefeated;
     if (anySovereignDefeated) {
+      const defeatedCount =
+        (store.marinaDefeated ? 1 : 0) +
+        (store.serenaDefeated ? 1 : 0) +
+        (store.mikuDefeated ? 1 : 0);
       const dTrophy = Math.hypot(
         px - LOBBY_CONFIG.trophyPedestalPos.x,
         pz - LOBBY_CONFIG.trophyPedestalPos.z,
@@ -425,11 +501,13 @@ export class LobbySystem implements ISystem {
         bestPrompt = {
           kind: LOBBY_PROMPT_KINDS.TROPHY_PEDESTAL,
           title:
-            store.marinaDefeated && store.serenaDefeated
-              ? '[E] STOLEN SOVEREIGN TIARAS — TOGGLE ENCORE (NG+)'
-              : store.serenaDefeated
-                ? '[E] STOLEN CORAL TIARA — TOGGLE ENCORE (NG+)'
-                : '[E] STOLEN FROST TIARA — TOGGLE ENCORE (NG+)',
+            defeatedCount > 1
+              ? '[E] STOLEN SOVEREIGN RELICS — TOGGLE ENCORE (NG+)'
+              : store.mikuDefeated
+                ? '[E] STOLEN HARMONIC TUNING RELIC — TOGGLE ENCORE (NG+)'
+                : store.serenaDefeated
+                  ? '[E] STOLEN CORAL TIARA — TOGGLE ENCORE (NG+)'
+                  : '[E] STOLEN FROST TIARA — TOGGLE ENCORE (NG+)',
           subtitle:
             encoreTier > 0
               ? `ENCORE USURPER: ACTIVE (NG+${encoreTier})`
@@ -463,6 +541,21 @@ export class LobbySystem implements ISystem {
             kind: LOBBY_PROMPT_KINDS.SERENA_DAIS,
             title: '[E] SIPHON CAPTIVE SIREN',
             subtitle: `TIDAL CORE CHARGE: ${Math.round(this.liveSerenaCharge * 100)}%`,
+          };
+        }
+      }
+
+      if (store.mikuDefeated) {
+        const dMiku = Math.hypot(
+          px - SIPHON_GALLERY_CONFIG.mikuDaisPos.x,
+          pz - SIPHON_GALLERY_CONFIG.mikuDaisPos.z,
+        );
+        if (dMiku <= SIPHON_GALLERY_CONFIG.interactRadius && dMiku < bestDist) {
+          bestDist = dMiku;
+          bestPrompt = {
+            kind: LOBBY_PROMPT_KINDS.MIKU_DAIS,
+            title: '[E] SIPHON CAPTIVE SOVEREIGN',
+            subtitle: `HARMONIC CORE CHARGE: ${Math.round(this.liveMikuCharge * 100)}%`,
           };
         }
       }

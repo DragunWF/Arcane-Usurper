@@ -40,6 +40,7 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
   const siphonProgress = useGameStore((s) => s.siphonProgress);
   const marinaCoreCharge = useGameStore((s) => s.marinaCoreCharge);
   const serenaCoreCharge = useGameStore((s) => s.serenaCoreCharge);
+  const mikuCoreCharge = useGameStore((s) => s.mikuCoreCharge);
   const lobbySiphonTarget = useGameStore((s) => s.lobbySiphonTarget);
   const finisherPose = useGameStore((s) => s.finisherPose);
   const throttleMode = useGameStore((s) => s.throttleMode);
@@ -67,9 +68,13 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
 
   const isSerenaLobbyTarget =
     isLobbySiphon && lobbySiphonTarget === 'serena';
-  const activeCoreCharge = isSerenaLobbyTarget
-    ? serenaCoreCharge
-    : marinaCoreCharge;
+  const isMikuLobbyTarget =
+    isLobbySiphon && lobbySiphonTarget === 'miku';
+  const activeCoreCharge = isMikuLobbyTarget
+    ? mikuCoreCharge
+    : isSerenaLobbyTarget
+      ? serenaCoreCharge
+      : marinaCoreCharge;
   const drainPct = Math.round(Math.max(0, Math.min(1, siphonProgress)) * 100);
   const chargePct = Math.round(
     Math.max(0, Math.min(1, activeCoreCharge)) * 100,
@@ -92,11 +97,13 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
             <div className="font-display text-xs sm:text-sm font-bold tracking-[0.18em] text-fuchsia-100 uppercase">
               {showEndlessBanner
                 ? 'CORE DEPLETED — ENDLESS SAVOR'
-                : isSerenaLobbyTarget
-                  ? `TIDAL CORE CHARGE • ${bossDisplayName}`
-                  : isLobbySiphon
-                    ? `CRYO CORE CHARGE • ${bossDisplayName}`
-                    : `ARCANE SIPHON KISS • ${bossDisplayName}`}
+                : isMikuLobbyTarget
+                  ? `HARMONIC CORE CHARGE • ${bossDisplayName}`
+                  : isSerenaLobbyTarget
+                    ? `TIDAL CORE CHARGE • ${bossDisplayName}`
+                    : isLobbySiphon
+                      ? `CRYO CORE CHARGE • ${bossDisplayName}`
+                      : `ARCANE SIPHON KISS • ${bossDisplayName}`}
             </div>
             <span className="text-xs font-mono font-bold text-purple-200">
               {displayPct}%
@@ -108,11 +115,13 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
               className={
                 showEndlessBanner
                   ? 'bar-fill h-full rounded-full bg-gradient-to-r from-slate-400 via-purple-400 to-fuchsia-300 shadow-[0_0_12px_rgba(168,85,247,0.85)]'
-                  : isSerenaLobbyTarget
-                    ? 'bar-fill h-full rounded-full bg-gradient-to-r from-teal-500 via-cyan-400 to-purple-400 shadow-[0_0_14px_rgba(6,182,212,0.9)]'
-                    : isLobbySiphon
-                      ? 'bar-fill h-full rounded-full bg-gradient-to-r from-cyan-400 via-sky-400 to-purple-400 shadow-[0_0_14px_rgba(56,189,248,0.9)]'
-                      : 'bar-fill h-full rounded-full bg-gradient-to-r from-sky-400 via-purple-500 to-fuchsia-400 shadow-[0_0_14px_rgba(168,85,247,0.9)]'
+                  : isMikuLobbyTarget
+                    ? 'bar-fill h-full rounded-full bg-gradient-to-r from-emerald-400 via-teal-300 to-pink-400 shadow-[0_0_14px_rgba(16,185,129,0.9)]'
+                    : isSerenaLobbyTarget
+                      ? 'bar-fill h-full rounded-full bg-gradient-to-r from-teal-500 via-cyan-400 to-purple-400 shadow-[0_0_14px_rgba(6,182,212,0.9)]'
+                      : isLobbySiphon
+                        ? 'bar-fill h-full rounded-full bg-gradient-to-r from-cyan-400 via-sky-400 to-purple-400 shadow-[0_0_14px_rgba(56,189,248,0.9)]'
+                        : 'bar-fill h-full rounded-full bg-gradient-to-r from-sky-400 via-purple-500 to-fuchsia-400 shadow-[0_0_14px_rgba(168,85,247,0.9)]'
               }
               style={{ width: `${barWidthPct}%` }}
             />
@@ -181,7 +190,8 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
         <div className="frost-panel rounded-2xl p-2.5 flex flex-wrap items-center gap-1.5">
           {POSE_OPTIONS.map((poseId) => {
             const activePose = finisherPose === poseId;
-            const isMikuSession = !isLobbySiphon && activeRealm === 3;
+            const isMikuSession =
+              isMikuLobbyTarget || (!isLobbySiphon && activeRealm === 3);
             const poseLabel =
               isMikuSession && poseId === FINISHER_POSE_IDS.BALLROOM_DIP
                 ? 'Stage Ballroom Dip'
@@ -209,7 +219,7 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
             onClick={() => controller?.triggerTaunt()}
             className="px-3.5 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-bold tracking-[0.14em] uppercase border border-rose-400/60 bg-rose-950/60 text-rose-100 hover:border-rose-300 hover:bg-rose-900/70 transition-all cursor-pointer"
           >
-            {!isLobbySiphon && activeRealm === 3
+            {isMikuLobbyTarget || (!isLobbySiphon && activeRealm === 3)
               ? '[F] FLICK HAIR-TIES'
               : '[F] FLICK TIARA'}
           </button>

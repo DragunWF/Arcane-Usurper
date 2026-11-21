@@ -112,7 +112,7 @@ export class GameEngine implements IGameController {
   private readonly handleResize: () => void;
 
   private state: GameState = GAME_STATES.TITLE;
-  private activeLobbySiphonTarget: 'marina' | 'serena' = 'marina';
+  private activeLobbySiphonTarget: 'marina' | 'serena' | 'miku' = 'marina';
   private isPaused = false;
   private lastAutoPauseTimestamp = 0;
   private lastRestartToken = 0;
@@ -366,6 +366,11 @@ export class GameEngine implements IGameController {
         onLobbySiphonTick: (charge, elapsed, targetId) => {
           if (targetId === 'serena') {
             this.sceneManager.mageTowerLevel.updateSerenaLobbySiphonBackdrop(
+              charge,
+              elapsed,
+            );
+          } else if (targetId === 'miku') {
+            this.sceneManager.mageTowerLevel.updateMikuLobbySiphonBackdrop(
               charge,
               elapsed,
             );
@@ -1309,20 +1314,25 @@ export class GameEngine implements IGameController {
 
   /**
    * Transitions from a Siphon Gallery dais in LOBBY into interactive `LOBBY_SIPHON`
-   * against either bound captive Marina or bound captive Serena with all 4 poses,
-   * 3-tier drain throttle, [F] tiara-flick taunt, and 360° spherical orbit/zoom.
+   * against bound captive Marina, Serena, or Miku with all 4 poses,
+   * 3-tier drain throttle, [F] accessory-flick taunt, and 360° spherical orbit/zoom.
    */
-  public enterLobbySiphon(target: 'marina' | 'serena' = 'marina'): void {
+  public enterLobbySiphon(target: 'marina' | 'serena' | 'miku' = 'marina'): void {
     const isSerena = target === 'serena';
+    const isMiku = target === 'miku';
     const captiveRig = isSerena
       ? this.sceneManager.mageTowerLevel.captiveSerenaRig
-      : this.sceneManager.mageTowerLevel.captiveMarinaRig;
+      : isMiku
+        ? this.sceneManager.mageTowerLevel.captiveMikuRig
+        : this.sceneManager.mageTowerLevel.captiveMarinaRig;
     if (!captiveRig) return;
 
     const store = useGameStore.getState();
     const initialCharge = isSerena
       ? store.serenaCoreCharge
-      : store.marinaCoreCharge;
+      : isMiku
+        ? store.mikuCoreCharge
+        : store.marinaCoreCharge;
     const startsDepleted =
       initialCharge <= SIPHON_GALLERY_CONFIG.minDrainableCharge;
 
@@ -1335,11 +1345,15 @@ export class GameEngine implements IGameController {
       targetId: target,
       daisPos: isSerena
         ? SIPHON_GALLERY_CONFIG.serenaDaisPos
-        : SIPHON_GALLERY_CONFIG.marinaDaisPos,
+        : isMiku
+          ? SIPHON_GALLERY_CONFIG.mikuDaisPos
+          : SIPHON_GALLERY_CONFIG.marinaDaisPos,
       daisHeight: SIPHON_GALLERY_CONFIG.daisHeight,
       facingYaw: isSerena
         ? SIPHON_GALLERY_CONFIG.serenaFacingYaw
-        : SIPHON_GALLERY_CONFIG.marinaFacingYaw,
+        : isMiku
+          ? SIPHON_GALLERY_CONFIG.mikuFacingYaw
+          : SIPHON_GALLERY_CONFIG.marinaFacingYaw,
     });
 
     const boss = this.world.queryFirst('siphonableBoss');
@@ -1361,7 +1375,11 @@ export class GameEngine implements IGameController {
       captiveRig.id,
       captiveRig.displayName,
       captiveRig.title,
-      isSerena ? SERENA_CONFIG.maxHp : BOSS_CONFIG.maxHp,
+      isSerena
+        ? SERENA_CONFIG.maxHp
+        : isMiku
+          ? MIKU_CONFIG.maxHp
+          : BOSS_CONFIG.maxHp,
     );
     store.setGameState(GAME_STATES.LOBBY_SIPHON);
     store.setLobbyPrompt(null);
@@ -1371,6 +1389,8 @@ export class GameEngine implements IGameController {
     if (startsDepleted) {
       if (isSerena) {
         store.setSerenaCoreCharge(0);
+      } else if (isMiku) {
+        store.setMikuCoreCharge(0);
       } else {
         store.setMarinaCoreCharge(0);
       }
@@ -1387,7 +1407,9 @@ export class GameEngine implements IGameController {
     this.cameraRig.resetSphericalOrbit(
       isSerena
         ? SIPHON_GALLERY_CONFIG.serenaSiphonInitialAzimuth
-        : SIPHON_GALLERY_CONFIG.siphonInitialAzimuth,
+        : isMiku
+          ? SIPHON_GALLERY_CONFIG.mikuSiphonInitialAzimuth
+          : SIPHON_GALLERY_CONFIG.siphonInitialAzimuth,
       CAMERA_CONFIG.finisherDefaultElevation,
       CAMERA_CONFIG.finisherDefaultDistance,
     );
@@ -1402,6 +1424,7 @@ export class GameEngine implements IGameController {
     if (this.state !== GAME_STATES.LOBBY_SIPHON) return;
 
     const isSerena = this.activeLobbySiphonTarget === 'serena';
+    const isMiku = this.activeLobbySiphonTarget === 'miku';
     const remainingCharge = this.finisherSystem.getLobbyCharge();
     this.finisherSystem.hideVisuals();
     this.finisherSystem.resetState();
@@ -1410,6 +1433,8 @@ export class GameEngine implements IGameController {
     const store = useGameStore.getState();
     if (isSerena) {
       store.setSerenaCoreCharge(remainingCharge);
+    } else if (isMiku) {
+      store.setMikuCoreCharge(remainingCharge);
     } else {
       store.setMarinaCoreCharge(remainingCharge);
     }
@@ -1417,10 +1442,14 @@ export class GameEngine implements IGameController {
 
     const daisPos = isSerena
       ? SIPHON_GALLERY_CONFIG.serenaDaisPos
-      : SIPHON_GALLERY_CONFIG.marinaDaisPos;
+      : isMiku
+        ? SIPHON_GALLERY_CONFIG.mikuDaisPos
+        : SIPHON_GALLERY_CONFIG.marinaDaisPos;
     const facingYaw = isSerena
       ? SIPHON_GALLERY_CONFIG.serenaFacingYaw
-      : SIPHON_GALLERY_CONFIG.marinaFacingYaw;
+      : isMiku
+        ? SIPHON_GALLERY_CONFIG.mikuFacingYaw
+        : SIPHON_GALLERY_CONFIG.marinaFacingYaw;
 
     const standX =
       daisPos.x + Math.sin(facingYaw) * SIPHON_GALLERY_CONFIG.releaseStandOffsetZ;
@@ -1447,6 +1476,12 @@ export class GameEngine implements IGameController {
     // Restore the active captive sovereign cleanly to her bound dais posture at remaining charge
     if (isSerena) {
       this.sceneManager.mageTowerLevel.updateSerenaCaptiveState(
+        remainingCharge,
+        this.elapsed,
+        0.016,
+      );
+    } else if (isMiku) {
+      this.sceneManager.mageTowerLevel.updateMikuCaptiveState(
         remainingCharge,
         this.elapsed,
         0.016,
@@ -1520,7 +1555,9 @@ export class GameEngine implements IGameController {
         const captiveRig =
           this.activeLobbySiphonTarget === 'serena'
             ? this.sceneManager.mageTowerLevel.captiveSerenaRig
-            : this.sceneManager.mageTowerLevel.captiveMarinaRig;
+            : this.activeLobbySiphonTarget === 'miku'
+              ? this.sceneManager.mageTowerLevel.captiveMikuRig
+              : this.sceneManager.mageTowerLevel.captiveMarinaRig;
         if (captiveRig) {
           captiveRig.root.updateMatrixWorld(true);
           captiveRig.headAnchor.getWorldPosition(

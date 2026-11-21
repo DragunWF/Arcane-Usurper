@@ -258,7 +258,7 @@ export interface GameStoreState {
   serenaCoreCharge: number;
   mikuDefeated: boolean;
   mikuCoreCharge: number;
-  lobbySiphonTarget: 'marina' | 'serena';
+  lobbySiphonTarget: 'marina' | 'serena' | 'miku';
   lobbyPrompt: LobbyPromptState | null;
   lobbyDummyHit: LobbyDummyHitState | null;
 
@@ -337,7 +337,7 @@ export interface GameStoreState {
   setMikuDefeated: (val: boolean) => void;
   setMikuCoreCharge: (charge: number) => void;
   addMikuCoreCharge: (delta: number) => void;
-  setLobbySiphonTarget: (target: 'marina' | 'serena') => void;
+  setLobbySiphonTarget: (target: 'marina' | 'serena' | 'miku') => void;
   setLobbyPrompt: (prompt: LobbyPromptState | null) => void;
   setLobbyDummyHit: (hit: LobbyDummyHitState | null) => void;
   setFinisherPose: (pose: FinisherPoseId) => void;
@@ -399,7 +399,7 @@ const INITIAL_STATE = {
   serenaCoreCharge: readInitialSerenaCoreCharge(),
   mikuDefeated: readInitialMikuDefeated(),
   mikuCoreCharge: readInitialMikuCoreCharge(),
-  lobbySiphonTarget: 'marina' as 'marina' | 'serena',
+  lobbySiphonTarget: 'marina' as 'marina' | 'serena' | 'miku',
   lobbyPrompt: null as LobbyPromptState | null,
   lobbyDummyHit: null as LobbyDummyHitState | null,
 

@@ -7,6 +7,7 @@ import {
 } from '../config/gameConfig';
 import { ToonAssets } from '../engine/ToonAssets';
 import { MarinaRig } from '../rigs/bosses/MarinaRig';
+import { MikuRig } from '../rigs/bosses/MikuRig';
 import { SerenaRig } from '../rigs/bosses/SerenaRig';
 
 export interface SanctumCollider {
@@ -106,7 +107,7 @@ export class MageTowerLevel {
   private readonly floatingBooks: FloatingBookRecord[] = [];
   private readonly floatingCandles: FloatingCandleRecord[] = [];
 
-  // Stolen Trophy Pedestal (Marina Frost Tiara & Serena Coral Tiara + Pearl)
+  // Stolen Trophy Pedestal (Marina Frost Tiara, Serena Coral Tiara & Miku Hair-Cube Tuning Relic)
   private trophyCrownGroup: THREE.Group | null = null;
   private trophyAuraMesh: THREE.Mesh | null = null;
   private trophyLight: THREE.PointLight | null = null;
@@ -114,6 +115,9 @@ export class MageTowerLevel {
   private serenaTrophyGroup: THREE.Group | null = null;
   private serenaTrophyLight: THREE.PointLight | null = null;
   private isSerenaTrophyVisible = false;
+  private mikuTrophyGroup: THREE.Group | null = null;
+  private mikuTrophyLight: THREE.PointLight | null = null;
+  private isMikuTrophyVisible = false;
 
   // Abyssal Target Crystal (Training Dummy)
   private dummyCrystalPivot: THREE.Group | null = null;
@@ -141,13 +145,14 @@ export class MageTowerLevel {
     THREE.PointsMaterial
   > | null = null;
 
-  // Siphon Gallery Annex (Southern Archway, Velvet Bridge, Bound Marina & Bound Serena)
+  // Siphon Gallery Annex (Southern Archway, Velvet Bridge, Bound Marina, Bound Serena & Bound Miku)
   private galleryWardGroup: THREE.Group | null = null;
   private galleryWardMat: THREE.MeshBasicMaterial | null = null;
   private galleryWardRippleTimer = 0;
   private galleryUnlocked = false;
   private marinaCaptiveUnlocked = false;
   private serenaCaptiveUnlocked = false;
+  private mikuCaptiveUnlocked = false;
   private readonly galleryBraziers: GalleryBrazierRecord[] = [];
   private marinaDaisGroup: THREE.Group | null = null;
   private _captiveMarinaRig: MarinaRig | null = null;
@@ -178,6 +183,21 @@ export class MageTowerLevel {
   private serenaReservoirLight: THREE.PointLight | null = null;
   private readonly serenaDaisRuneSegments: THREE.MeshBasicMaterial[] = [];
 
+  // Siphon Gallery Alcove III (Right Harmonic Stage Velvet Dais, Captive Miku & Harmonic Reservoir)
+  private mikuDaisGroup: THREE.Group | null = null;
+  private mikuDormantSeal: THREE.Mesh | null = null;
+  private mikuActiveGroup: THREE.Group | null = null;
+  private mikuStageRingMat: THREE.MeshBasicMaterial | null = null;
+  private _captiveMikuRig: MikuRig | null = null;
+  private mikuLeftConduitTip: THREE.Object3D | null = null;
+  private mikuRightConduitTip: THREE.Object3D | null = null;
+  private mikuLeftTetherMesh: THREE.Mesh | null = null;
+  private mikuRightTetherMesh: THREE.Mesh | null = null;
+  private mikuReservoirCoreMesh: THREE.Mesh | null = null;
+  private mikuReservoirCoreMat: THREE.MeshToonMaterial | null = null;
+  private mikuReservoirLight: THREE.PointLight | null = null;
+  private readonly mikuDaisRuneSegments: THREE.MeshBasicMaterial[] = [];
+
   // Reusable scratch vectors for zero-GC tether updates
   private readonly scratchWristL = new THREE.Vector3();
   private readonly scratchWristR = new THREE.Vector3();
@@ -190,6 +210,7 @@ export class MageTowerLevel {
   private readonly scratchColorA = new THREE.Color(PALETTE.drainedAshSilver);
   private readonly scratchColorB = new THREE.Color(PALETTE.frostRunes);
   private readonly scratchColorTeal = new THREE.Color(PALETTE.biolumCyan);
+  private readonly scratchColorEmerald = new THREE.Color(PALETTE.harmonicEmerald);
 
   public get captiveMarinaRig(): MarinaRig | null {
     return this._captiveMarinaRig;
@@ -197,6 +218,10 @@ export class MageTowerLevel {
 
   public get captiveSerenaRig(): SerenaRig | null {
     return this._captiveSerenaRig;
+  }
+
+  public get captiveMikuRig(): MikuRig | null {
+    return this._captiveMikuRig;
   }
 
   public get isGalleryUnlocked(): boolean {
@@ -1069,6 +1094,96 @@ export class MageTowerLevel {
     pedGroup.add(this.serenaTrophyLight);
     pedGroup.add(this.serenaTrophyGroup);
 
+    // Floating Geometric Hair-Cube & Glowing Tuning Relic (Miku — Realm III)
+    const mikuCubeMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.abyssalCloak, {
+        emissive: PALETTE.harmonicMagenta,
+        emissiveIntensity: 0.48,
+      }),
+    );
+    const mikuMagentaEdgeMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.harmonicMagenta,
+      }),
+    );
+    const mikuTuningMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.harmonicEmerald, {
+        emissive: PALETTE.harmonicEmerald,
+        emissiveIntensity: 0.72,
+      }),
+    );
+    const mikuAuraMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.harmonicEmerald,
+        transparent: true,
+        opacity: 0.32,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+
+    this.mikuTrophyGroup = new THREE.Group();
+    this.mikuTrophyGroup.position.y = 1.6;
+
+    // Twin iconic square hair-tie cube frames flanking the central tuning relic
+    const cubeFrameGeo = this.trackGeo(new THREE.BoxGeometry(0.14, 0.14, 0.06));
+    const cubeTrimGeo = this.trackGeo(new THREE.BoxGeometry(0.165, 0.165, 0.032));
+    for (const side of [-1, 1]) {
+      const cubeHolder = new THREE.Group();
+      cubeHolder.position.set(side * 0.18, 0.06, 0);
+      cubeHolder.rotation.z = side * 0.24;
+
+      const cubeCore = new THREE.Mesh(cubeFrameGeo, mikuCubeMat);
+      const cubeTrim = new THREE.Mesh(cubeTrimGeo, mikuMagentaEdgeMat);
+      cubeHolder.add(cubeTrim, cubeCore);
+      this.mikuTrophyGroup.add(cubeHolder);
+    }
+
+    // Central Glowing Harmonic Tuning Fork Relic
+    const forkStem = new THREE.Mesh(
+      this.trackGeo(new THREE.CylinderGeometry(0.022, 0.028, 0.22, 6)),
+      mikuTuningMat,
+    );
+    forkStem.position.y = -0.05;
+    this.mikuTrophyGroup.add(forkStem);
+
+    const forkCrossbar = new THREE.Mesh(
+      this.trackGeo(new THREE.BoxGeometry(0.15, 0.032, 0.032)),
+      mikuTuningMat,
+    );
+    forkCrossbar.position.y = 0.05;
+    this.mikuTrophyGroup.add(forkCrossbar);
+
+    const prongGeo = this.trackGeo(new THREE.BoxGeometry(0.026, 0.22, 0.026));
+    for (const side of [-1, 1]) {
+      const prong = new THREE.Mesh(prongGeo, mikuTuningMat);
+      prong.position.set(side * 0.062, 0.16, 0);
+      this.mikuTrophyGroup.add(prong);
+    }
+
+    const tuningGem = new THREE.Mesh(
+      this.trackGeo(new THREE.OctahedronGeometry(0.062, 0)),
+      mikuMagentaEdgeMat,
+    );
+    tuningGem.position.y = 0.17;
+    this.mikuTrophyGroup.add(tuningGem);
+
+    const mikuAura = new THREE.Mesh(
+      this.trackGeo(new THREE.SphereGeometry(0.38, 12, 12)),
+      mikuAuraMat,
+    );
+    this.mikuTrophyGroup.add(mikuAura);
+
+    this.mikuTrophyLight = new THREE.PointLight(
+      PALETTE.harmonicEmerald,
+      LOBBY_CONFIG.lighting.trophyLightIntensity,
+      LOBBY_CONFIG.lighting.trophyLightDistance,
+      1.8,
+    );
+    this.mikuTrophyLight.position.y = 1.68;
+    pedGroup.add(this.mikuTrophyLight);
+    pedGroup.add(this.mikuTrophyGroup);
+
     this.root.add(pedGroup);
 
     this._pillarColliders.push({
@@ -1078,30 +1193,40 @@ export class MageTowerLevel {
       height: 1.8,
     });
 
-    this.setTrophyVisible(false, 0, false);
+    this.setTrophyVisible(false, 0, false, false);
   }
 
   /**
-   * Toggles the Stolen Frost Tiara (Marina) and Coral Tiara & Glowing Pearl (Serena)
-   * trophies on the Sanctum pedestal and scales their arcane aura with encoreTier.
+   * Toggles the Stolen Frost Tiara (Marina), Coral Tiara & Glowing Pearl (Serena),
+   * and Geometric Hair-Cube Tuning Relic (Miku) on the Sanctum pedestal and arranges
+   * whichever subset is unlocked symmetrically across the plinth.
    */
   public setTrophyVisible(
     marinaVisible: boolean,
     encoreTier = 0,
     serenaVisible = this.isSerenaTrophyVisible,
+    mikuVisible = this.isMikuTrophyVisible,
   ): void {
     this.isTrophyVisible = marinaVisible;
     this.isSerenaTrophyVisible = serenaVisible;
-    const bothVisible = marinaVisible && serenaVisible;
-    const scale = 1 + Math.min(3, Math.max(0, encoreTier)) * 0.08;
+    this.isMikuTrophyVisible = mikuVisible;
+
+    const visibleEntries: Array<{ group: THREE.Group | null }> = [];
+    if (marinaVisible) visibleEntries.push({ group: this.trophyCrownGroup });
+    if (serenaVisible) visibleEntries.push({ group: this.serenaTrophyGroup });
+    if (mikuVisible) visibleEntries.push({ group: this.mikuTrophyGroup });
+
+    const count = visibleEntries.length;
+    const baseScale = 1 + Math.min(3, Math.max(0, encoreTier)) * 0.08;
+    const trophyScale =
+      count >= 3 ? baseScale * 0.78 : count === 2 ? baseScale * 0.88 : baseScale;
     const intensity =
       LOBBY_CONFIG.lighting.trophyLightIntensity *
       (1 + Math.min(3, Math.max(0, encoreTier)) * 0.15);
 
     if (this.trophyCrownGroup) {
       this.trophyCrownGroup.visible = marinaVisible;
-      this.trophyCrownGroup.scale.setScalar(bothVisible ? scale * 0.88 : scale);
-      this.trophyCrownGroup.position.x = bothVisible ? -0.34 : 0;
+      this.trophyCrownGroup.scale.setScalar(trophyScale);
     }
     if (this.trophyLight) {
       this.trophyLight.visible = marinaVisible;
@@ -1109,12 +1234,47 @@ export class MageTowerLevel {
     }
     if (this.serenaTrophyGroup) {
       this.serenaTrophyGroup.visible = serenaVisible;
-      this.serenaTrophyGroup.scale.setScalar(bothVisible ? scale * 0.88 : scale);
-      this.serenaTrophyGroup.position.x = bothVisible ? 0.34 : 0;
+      this.serenaTrophyGroup.scale.setScalar(trophyScale);
     }
     if (this.serenaTrophyLight) {
       this.serenaTrophyLight.visible = serenaVisible;
       this.serenaTrophyLight.intensity = serenaVisible ? intensity : 0;
+    }
+    if (this.mikuTrophyGroup) {
+      this.mikuTrophyGroup.visible = mikuVisible;
+      this.mikuTrophyGroup.scale.setScalar(trophyScale);
+    }
+    if (this.mikuTrophyLight) {
+      this.mikuTrophyLight.visible = mikuVisible;
+      this.mikuTrophyLight.intensity = mikuVisible ? intensity : 0;
+    }
+
+    if (count === 1) {
+      const g = visibleEntries[0]?.group;
+      if (g) {
+        g.position.x = 0;
+        g.position.z = 0;
+      }
+    } else if (count === 2) {
+      const g0 = visibleEntries[0]?.group;
+      const g1 = visibleEntries[1]?.group;
+      if (g0) {
+        g0.position.x = -0.34;
+        g0.position.z = 0;
+      }
+      if (g1) {
+        g1.position.x = 0.34;
+        g1.position.z = 0;
+      }
+    } else if (count >= 3) {
+      const ringRadius = 0.34;
+      for (let i = 0; i < visibleEntries.length; i++) {
+        const g = visibleEntries[i]?.group;
+        if (!g) continue;
+        const ang = (i / visibleEntries.length) * Math.PI * 2 - Math.PI / 2;
+        g.position.x = Math.cos(ang) * ringRadius;
+        g.position.z = Math.sin(ang) * ringRadius;
+      }
     }
   }
 
@@ -2200,82 +2360,353 @@ export class MageTowerLevel {
     this.root.add(galleryGroup);
 
     // -----------------------------------------------------------------------
-    // 4. Right Dormant Boss Alcove Dais (Future Realm III)
+    // 4. Shared Arcane Rune-Cuff Builder & Right Alcove III (Captive Miku)
     // -----------------------------------------------------------------------
-    const dormantTier1Geo = this.trackGeo(
-      new THREE.CylinderGeometry(
-        cfg.dormantDaisRadius,
-        cfg.dormantDaisRadius + 0.16,
-        cfg.daisHeight * 0.55,
-        18,
-      ),
-    );
-    const dormantTier2Geo = this.trackGeo(
-      new THREE.CylinderGeometry(
-        cfg.dormantDaisRadius - 0.18,
-        cfg.dormantDaisRadius - 0.12,
-        cfg.daisHeight * 0.45,
-        18,
-      ),
-    );
     const dormantSealGeo = this.trackGeo(
       new THREE.CylinderGeometry(0.92, 0.92, 2.35, 16, 1, true),
     );
 
-    const rightDormantGroup = new THREE.Group();
-    rightDormantGroup.position.set(
-      cfg.rightDormantDaisPos.x,
-      cfg.rightDormantDaisPos.y,
-      cfg.rightDormantDaisPos.z,
+    // Shared Arcane Rune-Cuff material & geometry across all 3 captive alcoves
+    this.cuffMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.glowViolet,
+      }),
     );
-    const { group: rD1 } = ToonAssets.createOutlinedMesh(
-      dormantTier1Geo,
+    const cuffGeo = this.trackGeo(
+      new THREE.TorusGeometry(cfg.wristCuffRadius, cfg.wristCuffTube, 8, 16),
+    );
+    const cuffPipGeo = this.trackGeo(new THREE.OctahedronGeometry(0.022, 0));
+
+    const attachWristCuff = (anchor: THREE.Object3D): void => {
+      const cuffGroup = new THREE.Group();
+      const ring = new THREE.Mesh(cuffGeo, this.cuffMat!);
+      ring.rotation.x = Math.PI / 2;
+      cuffGroup.add(ring);
+
+      for (let p = 0; p < 4; p++) {
+        const pa = (p / 4) * Math.PI * 2;
+        const pip = new THREE.Mesh(cuffPipGeo, this.cuffMat!);
+        pip.position.set(
+          Math.cos(pa) * (cfg.wristCuffRadius + 0.015),
+          0,
+          Math.sin(pa) * (cfg.wristCuffRadius + 0.015),
+        );
+        cuffGroup.add(pip);
+      }
+      anchor.add(cuffGroup);
+    };
+
+    // -----------------------------------------------------------------------
+    // 4A. Right Alcove III — Harmonic Stage Velvet Dais, Captive Miku & Harmonic Reservoir
+    // -----------------------------------------------------------------------
+    this.mikuDaisGroup = new THREE.Group();
+    this.mikuDaisGroup.position.set(
+      cfg.mikuDaisPos.x,
+      cfg.mikuDaisPos.y,
+      cfg.mikuDaisPos.z,
+    );
+
+    const mDaisTier1Geo = this.trackGeo(
+      new THREE.CylinderGeometry(
+        cfg.mikuDaisRadius,
+        cfg.mikuDaisRadius + 0.18,
+        cfg.daisHeight * 0.55,
+        24,
+      ),
+    );
+    const { group: mikuDais1 } = ToonAssets.createOutlinedMesh(
+      mDaisTier1Geo,
       darkObsidianMat,
-      1.03,
+      1.025,
       true,
     );
-    rD1.position.y = cfg.daisHeight * 0.275;
-    rightDormantGroup.add(rD1);
-    const { group: rD2 } = ToonAssets.createOutlinedMesh(
-      dormantTier2Geo,
+    mikuDais1.position.y = cfg.daisHeight * 0.275;
+    this.mikuDaisGroup.add(mikuDais1);
+
+    const mDaisTier2Geo = this.trackGeo(
+      new THREE.CylinderGeometry(
+        cfg.mikuDaisRadius - 0.16,
+        cfg.mikuDaisRadius - 0.08,
+        cfg.daisHeight * 0.45,
+        24,
+      ),
+    );
+    const { group: mikuDais2 } = ToonAssets.createOutlinedMesh(
+      mDaisTier2Geo,
       velvetMat,
-      1.03,
+      1.025,
       true,
     );
-    rD2.position.y = cfg.daisHeight * 0.775;
-    rightDormantGroup.add(rD2);
+    mikuDais2.position.y = cfg.daisHeight * 0.775;
+    this.mikuDaisGroup.add(mikuDais2);
+
+    // Dormant emerald ward seal shown while Miku has not yet been defeated
     const rightSealMat = this.trackMat(
       new THREE.MeshBasicMaterial({
         color: PALETTE.harmonicEmerald,
         transparent: true,
-        opacity: 0.14,
+        opacity: 0.15,
         side: THREE.DoubleSide,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
     );
-    const rightSealCylinder = new THREE.Mesh(dormantSealGeo, rightSealMat);
-    rightSealCylinder.position.y = cfg.daisHeight + 1.18;
-    rightDormantGroup.add(rightSealCylinder);
-    const rightDormantRing = new THREE.Mesh(
+    this.mikuDormantSeal = new THREE.Mesh(dormantSealGeo, rightSealMat);
+    this.mikuDormantSeal.position.y = cfg.daisHeight + 1.18;
+    this.mikuDaisGroup.add(this.mikuDormantSeal);
+
+    // Active Harmonic Stage Trim & Captive Miku Alcove Group (shown when mikuDefeated === true)
+    this.mikuActiveGroup = new THREE.Group();
+    this.mikuDaisGroup.add(this.mikuActiveGroup);
+
+    // Obsidian-and-neon stage deck inlays (emerald outer ring + magenta inner equalizer accent)
+    this.mikuStageRingMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.harmonicEmerald,
+        transparent: true,
+        opacity: 0.78,
+        side: THREE.DoubleSide,
+      }),
+    );
+    const mikuStageRim = new THREE.Mesh(
+      this.trackGeo(
+        new THREE.TorusGeometry(cfg.mikuDaisRadius - 0.22, 0.045, 8, 28),
+      ),
+      this.mikuStageRingMat,
+    );
+    mikuStageRim.rotation.x = Math.PI / 2;
+    mikuStageRim.position.y = cfg.daisHeight + 0.025;
+    this.mikuActiveGroup.add(mikuStageRim);
+
+    const mikuMagentaAccentMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.harmonicMagenta,
+        transparent: true,
+        opacity: 0.65,
+        side: THREE.DoubleSide,
+      }),
+    );
+    const mikuStageInnerRing = new THREE.Mesh(
       this.trackGeo(
         new THREE.RingGeometry(
-          cfg.dormantDaisRadius + 0.08,
-          cfg.dormantDaisRadius + 0.2,
-          24,
+          cfg.mikuDaisRadius - 0.56,
+          cfg.mikuDaisRadius - 0.48,
+          28,
         ),
       ),
-      this.trackMat(new THREE.MeshBasicMaterial({ color: PALETTE.harmonicEmerald })),
+      mikuMagentaAccentMat,
     );
-    rightDormantRing.rotation.x = -Math.PI / 2;
-    rightDormantRing.position.y = 0.02;
-    rightDormantGroup.add(rightDormantRing);
-    this.root.add(rightDormantGroup);
+    mikuStageInnerRing.rotation.x = -Math.PI / 2;
+    mikuStageInnerRing.position.y = cfg.daisHeight + 0.015;
+    this.mikuActiveGroup.add(mikuStageInnerRing);
+
+    // 12-Segment Diegetic Harmonic Core Floor Rune Ring around Miku's Dais
+    const mikuSegCount = cfg.runeSegmentCount;
+    const mikuSegArc = ((Math.PI * 2) / mikuSegCount) * 0.78;
+    for (let i = 0; i < mikuSegCount; i++) {
+      const startAngle = (i / mikuSegCount) * Math.PI * 2 - Math.PI * 0.5;
+      const segGeo = this.trackGeo(
+        new THREE.RingGeometry(
+          cfg.mikuRuneRingInnerRadius,
+          cfg.mikuRuneRingOuterRadius,
+          6,
+          1,
+          startAngle,
+          mikuSegArc,
+        ),
+      );
+      const segMat = this.trackMat(
+        new THREE.MeshBasicMaterial({
+          color: PALETTE.harmonicEmerald,
+          transparent: true,
+          opacity: 0.9,
+          side: THREE.DoubleSide,
+        }),
+      );
+      const segMesh = new THREE.Mesh(segGeo, segMat);
+      segMesh.rotation.x = -Math.PI / 2;
+      segMesh.position.y = 0.022;
+      this.mikuDaisGroup.add(segMesh);
+      this.mikuDaisRuneSegments.push(segMat);
+    }
+
+    // Dedicated Captive MikuRig mounted on the harmonic stage dais facing into the Siphon Gallery
+    this._captiveMikuRig = new MikuRig(this.mikuDaisGroup);
+    this._captiveMikuRig.root.position.set(0, cfg.daisHeight, 0);
+    this._captiveMikuRig.root.rotation.set(0, cfg.mikuFacingYaw, 0);
+    attachWristCuff(this._captiveMikuRig.leftWristAnchor);
+    attachWristCuff(this._captiveMikuRig.rightWristAnchor);
+
+    // Oriented peripheral frame matching Miku's facing direction for twin tuning conduits & Harmonic Reservoir
+    const mikuPeripherals = new THREE.Group();
+    mikuPeripherals.rotation.y = cfg.mikuFacingYaw - Math.PI;
+    this.mikuActiveGroup.add(mikuPeripherals);
+
+    const tuningShaftMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.abyssalCloak, {
+        emissive: PALETTE.harmonicEmerald,
+        emissiveIntensity: 0.22,
+      }),
+    );
+    const tuningEmeraldMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.harmonicEmerald, {
+        emissive: PALETTE.harmonicEmerald,
+        emissiveIntensity: 0.72,
+      }),
+    );
+    const tuningMagentaMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.harmonicMagenta, {
+        emissive: PALETTE.harmonicMagenta,
+        emissiveIntensity: 0.72,
+      }),
+    );
+    const tuningConduitGeo = this.trackGeo(
+      new THREE.CylinderGeometry(0.11, 0.2, cfg.conduitHeight * 0.72, 6),
+    );
+    const tuningProngGeo = this.trackGeo(new THREE.BoxGeometry(0.055, 0.34, 0.055));
+
+    sides.forEach((side) => {
+      const cg = new THREE.Group();
+      cg.position.set(
+        side * cfg.mikuConduitOffsetX,
+        cfg.daisHeight,
+        cfg.mikuConduitOffsetZ,
+      );
+
+      const { group: shaft } = ToonAssets.createOutlinedMesh(
+        tuningConduitGeo,
+        tuningShaftMat,
+        1.06,
+        true,
+      );
+      shaft.position.y = cfg.conduitHeight * 0.36;
+      cg.add(shaft);
+
+      // Twin emerald/magenta tuning prongs crowning each conduit pylon
+      const tipMat = side > 0 ? tuningEmeraldMat : tuningMagentaMat;
+      for (const prongSide of [-1, 1]) {
+        const prong = new THREE.Mesh(tuningProngGeo, tipMat);
+        prong.position.set(
+          prongSide * 0.085,
+          cfg.conduitTipY - cfg.daisHeight + 0.04,
+          0,
+        );
+        cg.add(prong);
+      }
+
+      const tipNode = new THREE.Mesh(
+        this.trackGeo(new THREE.OctahedronGeometry(0.11, 0)),
+        side > 0 ? tuningMagentaMat : tuningEmeraldMat,
+      );
+      tipNode.position.y = cfg.conduitTipY - cfg.daisHeight;
+      cg.add(tipNode);
+
+      const tipAnchor = new THREE.Object3D();
+      tipAnchor.position.y = cfg.conduitTipY - cfg.daisHeight;
+      cg.add(tipAnchor);
+
+      if (side > 0) {
+        this.mikuLeftConduitTip = tipAnchor;
+      } else {
+        this.mikuRightConduitTip = tipAnchor;
+      }
+      mikuPeripherals.add(cg);
+    });
+
+    // Vertical Harmonic Core Reservoir Crystal beside Miku's stage dais
+    const mResGroup = new THREE.Group();
+    mResGroup.position.set(
+      cfg.mikuReservoirOffsetX,
+      0,
+      cfg.mikuReservoirOffsetZ,
+    );
+
+    const mResPedestalGeo = this.trackGeo(
+      new THREE.CylinderGeometry(0.4, 0.54, 0.42, 6),
+    );
+    const { group: mResBase } = ToonAssets.createOutlinedMesh(
+      mResPedestalGeo,
+      tuningShaftMat,
+      1.05,
+      true,
+    );
+    mResBase.position.y = 0.21;
+    mResGroup.add(mResBase);
+
+    const mResHousingGeo = this.trackGeo(
+      new THREE.CylinderGeometry(0.32, 0.34, cfg.reservoirHeight, 6, 1, true),
+    );
+    const mResHousing = new THREE.Mesh(mResHousingGeo, crystalGlassMat);
+    mResHousing.position.y = 0.42 + cfg.reservoirHeight * 0.5;
+    mResGroup.add(mResHousing);
+
+    const mStrutGeo = this.trackGeo(
+      new THREE.BoxGeometry(0.06, cfg.reservoirHeight + 0.12, 0.06),
+    );
+    for (let s = 0; s < 3; s++) {
+      const sa = (s / 3) * Math.PI * 2;
+      const strut = new THREE.Mesh(mStrutGeo, pierMat);
+      strut.position.set(
+        Math.cos(sa) * 0.35,
+        0.42 + cfg.reservoirHeight * 0.5,
+        Math.sin(sa) * 0.35,
+      );
+      mResGroup.add(strut);
+    }
+
+    const mResCoreGeo = this.trackGeo(
+      new THREE.CylinderGeometry(
+        cfg.reservoirCoreRadius,
+        cfg.reservoirCoreRadius,
+        cfg.reservoirHeight - 0.14,
+        8,
+      ),
+    );
+    mResCoreGeo.translate(0, (cfg.reservoirHeight - 0.14) * 0.5, 0);
+
+    this.mikuReservoirCoreMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.harmonicEmerald, {
+        emissive: PALETTE.harmonicEmerald,
+        emissiveIntensity: 0.9,
+      }),
+    );
+    this.mikuReservoirCoreMesh = new THREE.Mesh(
+      mResCoreGeo,
+      this.mikuReservoirCoreMat,
+    );
+    this.mikuReservoirCoreMesh.position.y = 0.46;
+    mResGroup.add(this.mikuReservoirCoreMesh);
+
+    const mResCapGeo = this.trackGeo(new THREE.ConeGeometry(0.36, 0.62, 6));
+    const { group: mResCap } = ToonAssets.createOutlinedMesh(
+      mResCapGeo,
+      tuningShaftMat,
+      1.05,
+      true,
+    );
+    mResCap.position.y = 0.42 + cfg.reservoirHeight + 0.31;
+    mResGroup.add(mResCap);
+
+    this.mikuReservoirLight = new THREE.PointLight(
+      PALETTE.harmonicEmerald,
+      cfg.reservoirLightIntensity,
+      cfg.reservoirLightDistance,
+      1.7,
+    );
+    this.mikuReservoirLight.position.set(
+      0,
+      0.42 + cfg.reservoirHeight * 0.55,
+      0,
+    );
+    mResGroup.add(this.mikuReservoirLight);
+    mikuPeripherals.add(mResGroup);
+
+    this.root.add(this.mikuDaisGroup);
     this._pillarColliders.push({
-      x: cfg.rightDormantDaisPos.x,
-      z: cfg.rightDormantDaisPos.z,
-      radius: cfg.dormantDaisCollisionRadius,
-      height: 2.5,
+      x: cfg.mikuDaisPos.x,
+      z: cfg.mikuDaisPos.z,
+      radius: cfg.daisCollisionRadius,
+      height: 2.2,
     });
 
     // -----------------------------------------------------------------------
@@ -2405,36 +2836,6 @@ export class MageTowerLevel {
       this.serenaDaisGroup.add(segMesh);
       this.serenaDaisRuneSegments.push(segMat);
     }
-
-    // Shared Arcane Rune-Cuff material & geometry
-    this.cuffMat = this.trackMat(
-      new THREE.MeshBasicMaterial({
-        color: PALETTE.glowViolet,
-      }),
-    );
-    const cuffGeo = this.trackGeo(
-      new THREE.TorusGeometry(cfg.wristCuffRadius, cfg.wristCuffTube, 8, 16),
-    );
-    const cuffPipGeo = this.trackGeo(new THREE.OctahedronGeometry(0.022, 0));
-
-    const attachWristCuff = (anchor: THREE.Object3D): void => {
-      const cuffGroup = new THREE.Group();
-      const ring = new THREE.Mesh(cuffGeo, this.cuffMat!);
-      ring.rotation.x = Math.PI / 2;
-      cuffGroup.add(ring);
-
-      for (let p = 0; p < 4; p++) {
-        const pa = (p / 4) * Math.PI * 2;
-        const pip = new THREE.Mesh(cuffPipGeo, this.cuffMat!);
-        pip.position.set(
-          Math.cos(pa) * (cfg.wristCuffRadius + 0.015),
-          0,
-          Math.sin(pa) * (cfg.wristCuffRadius + 0.015),
-        );
-        cuffGroup.add(pip);
-      }
-      anchor.add(cuffGroup);
-    };
 
     // Dedicated Captive SerenaRig mounted on the tide-pool dais facing into the Siphon Gallery
     this._captiveSerenaRig = new SerenaRig(this.serenaDaisGroup);
@@ -2752,11 +3153,15 @@ export class MageTowerLevel {
     this.rightTetherMesh = new THREE.Mesh(tetherGeo, this.tetherMat);
     this.serenaLeftTetherMesh = new THREE.Mesh(tetherGeo, this.tetherMat);
     this.serenaRightTetherMesh = new THREE.Mesh(tetherGeo, this.tetherMat);
+    this.mikuLeftTetherMesh = new THREE.Mesh(tetherGeo, this.tetherMat);
+    this.mikuRightTetherMesh = new THREE.Mesh(tetherGeo, this.tetherMat);
     this.root.add(
       this.leftTetherMesh,
       this.rightTetherMesh,
       this.serenaLeftTetherMesh,
       this.serenaRightTetherMesh,
+      this.mikuLeftTetherMesh,
+      this.mikuRightTetherMesh,
     );
 
     // Tall Vertical Cryo Core Reservoir Crystal mounted beside Marina's dais
@@ -2855,20 +3260,26 @@ export class MageTowerLevel {
     });
 
     // Initialize sealed state until synced from persisted store state
-    this.setGalleryCaptives(false, false);
+    this.setGalleryCaptives(false, false, false);
     this.updateMarinaCaptiveState(cfg.defaultCoreCharge, 0, 0.016);
     this.updateSerenaCaptiveState(cfg.defaultCoreCharge, 0, 0.016);
+    this.updateMikuCaptiveState(cfg.defaultCoreCharge, 0, 0.016);
   }
 
   /**
-   * Unlocks the Siphon Gallery southern doorway when either Marina or Serena is defeated,
+   * Unlocks the Siphon Gallery southern doorway when Marina, Serena, or Miku is defeated,
    * and toggles each captive sovereign's alcove rig, tethers, and reservoir independently.
    */
-  public setGalleryCaptives(marinaUnlocked: boolean, serenaUnlocked: boolean): void {
-    const anyUnlocked = marinaUnlocked || serenaUnlocked;
+  public setGalleryCaptives(
+    marinaUnlocked: boolean,
+    serenaUnlocked: boolean,
+    mikuUnlocked = false,
+  ): void {
+    const anyUnlocked = marinaUnlocked || serenaUnlocked || mikuUnlocked;
     this.galleryUnlocked = anyUnlocked;
     this.marinaCaptiveUnlocked = marinaUnlocked;
     this.serenaCaptiveUnlocked = serenaUnlocked;
+    this.mikuCaptiveUnlocked = mikuUnlocked;
 
     if (this.galleryWardGroup) {
       this.galleryWardGroup.visible = !anyUnlocked;
@@ -2903,6 +3314,25 @@ export class MageTowerLevel {
     }
     if (this.serenaReservoirLight && !serenaUnlocked) {
       this.serenaReservoirLight.intensity = 0;
+    }
+
+    if (this.mikuDormantSeal) {
+      this.mikuDormantSeal.visible = !mikuUnlocked;
+    }
+    if (this.mikuActiveGroup) {
+      this.mikuActiveGroup.visible = mikuUnlocked;
+    }
+    if (this._captiveMikuRig) {
+      this._captiveMikuRig.root.visible = mikuUnlocked;
+    }
+    if (this.mikuLeftTetherMesh) {
+      this.mikuLeftTetherMesh.visible = mikuUnlocked;
+    }
+    if (this.mikuRightTetherMesh) {
+      this.mikuRightTetherMesh.visible = mikuUnlocked;
+    }
+    if (this.mikuReservoirLight && !mikuUnlocked) {
+      this.mikuReservoirLight.intensity = 0;
     }
 
     for (let i = 0; i < this.galleryBraziers.length; i++) {
@@ -2977,6 +3407,111 @@ export class MageTowerLevel {
     }
 
     this.updateSerenaLobbySiphonBackdrop(clamped, time);
+  }
+
+  /**
+   * Updates the bound Miku rig in Right Alcove III, pulsing wrist tether strands to the
+   * twin emerald/magenta tuning conduits, neon stage deck ring, 12-segment dais rune ring,
+   * and vertical Harmonic Core Reservoir Crystal smoothly from `charge` (0.0 -> 1.0).
+   */
+  public updateMikuCaptiveState(
+    charge: number,
+    time: number,
+    dt: number,
+  ): void {
+    const clamped = THREE.MathUtils.clamp(charge, 0, 1);
+
+    if (this._captiveMikuRig && this.mikuCaptiveUnlocked) {
+      this._captiveMikuRig.applyCaptiveDaisPose(clamped, time, dt);
+    }
+
+    this.updateMikuLobbySiphonBackdrop(clamped, time);
+  }
+
+  /**
+   * Updates Miku's Alcove III diegetic peripherals (wrist tether strands, stage neon trim,
+   * Harmonic Core Reservoir fill height/emissive, and 12-segment floor rune ring) without
+   * overriding captive Miku's active FinisherSystem kiss pose during `LOBBY_SIPHON`.
+   */
+  public updateMikuLobbySiphonBackdrop(charge: number, time: number): void {
+    const cfg = SIPHON_GALLERY_CONFIG;
+    const clamped = THREE.MathUtils.clamp(charge, 0, 1);
+
+    if (
+      this._captiveMikuRig &&
+      this.mikuCaptiveUnlocked &&
+      this.mikuLeftConduitTip &&
+      this.mikuRightConduitTip &&
+      this.mikuLeftTetherMesh &&
+      this.mikuRightTetherMesh
+    ) {
+      this.root.updateMatrixWorld(true);
+      this._captiveMikuRig.getLeftWristWorldPosition(this.scratchWristL);
+      this._captiveMikuRig.getRightWristWorldPosition(this.scratchWristR);
+      this.mikuLeftConduitTip.getWorldPosition(this.scratchTipL);
+      this.mikuRightConduitTip.getWorldPosition(this.scratchTipR);
+
+      this.alignTetherCylinder(
+        this.mikuLeftTetherMesh,
+        this.scratchWristL,
+        this.scratchTipL,
+      );
+      this.alignTetherCylinder(
+        this.mikuRightTetherMesh,
+        this.scratchWristR,
+        this.scratchTipR,
+      );
+    }
+
+    const pulse = 0.62 + 0.28 * Math.sin(time * 3.8);
+    if (this.tetherMat) {
+      this.tetherMat.opacity = pulse;
+    }
+
+    if (this.mikuStageRingMat) {
+      this.mikuStageRingMat.color
+        .copy(this.scratchColorA)
+        .lerp(this.scratchColorEmerald, 0.25 + clamped * 0.75);
+      this.mikuStageRingMat.opacity =
+        0.34 + clamped * 0.56 + Math.sin(time * 3.0) * 0.06;
+    }
+
+    if (this.mikuReservoirCoreMesh && this.mikuReservoirCoreMat) {
+      const fillScale = Math.max(cfg.reservoirMinFillScale, clamped);
+      this.mikuReservoirCoreMesh.scale.set(1, fillScale, 1);
+      this.mikuReservoirCoreMat.color
+        .copy(this.scratchColorA)
+        .lerp(this.scratchColorEmerald, clamped);
+      this.mikuReservoirCoreMat.emissive
+        .copy(this.scratchColorA)
+        .lerp(this.scratchColorEmerald, clamped);
+      this.mikuReservoirCoreMat.emissiveIntensity =
+        0.15 + clamped * (0.85 + 0.14 * Math.sin(time * 3.4));
+    }
+    if (this.mikuReservoirLight) {
+      this.mikuReservoirLight.intensity = this.mikuCaptiveUnlocked
+        ? cfg.reservoirLightIntensity * (0.12 + clamped * 0.88)
+        : 0;
+    }
+
+    const segCount = this.mikuDaisRuneSegments.length;
+    for (let i = 0; i < segCount; i++) {
+      const segMat = this.mikuDaisRuneSegments[i];
+      if (!segMat) continue;
+      const segThreshold = (i + 1) / segCount;
+      const prevThreshold = i / segCount;
+      const segFill = THREE.MathUtils.clamp(
+        (clamped - prevThreshold) / Math.max(0.001, segThreshold - prevThreshold),
+        0,
+        1,
+      );
+      segMat.color
+        .copy(this.scratchColorA)
+        .lerp(this.scratchColorEmerald, segFill);
+      segMat.opacity = this.mikuCaptiveUnlocked
+        ? 0.22 + segFill * 0.74
+        : 0.14;
+    }
   }
 
   /**
@@ -3203,7 +3738,7 @@ export class MageTowerLevel {
       }
     }
 
-    // 4. Rotate Stolen Sovereign Trophies (Frost Tiara & Coral Tiara + Pearl) when unlocked
+    // 4. Rotate Stolen Sovereign Trophies (Frost Tiara, Coral Tiara & Miku Tuning Relic) when unlocked
     if (this.trophyCrownGroup && this.isTrophyVisible) {
       this.trophyCrownGroup.rotation.y = time * 0.85;
       this.trophyCrownGroup.position.y = 1.56 + Math.sin(time * 2.4) * 0.06;
@@ -3212,6 +3747,11 @@ export class MageTowerLevel {
       this.serenaTrophyGroup.rotation.y = -time * 0.78;
       this.serenaTrophyGroup.position.y =
         1.62 + Math.sin(time * 2.4 + 1.4) * 0.06;
+    }
+    if (this.mikuTrophyGroup && this.isMikuTrophyVisible) {
+      this.mikuTrophyGroup.rotation.y = time * 0.92;
+      this.mikuTrophyGroup.position.y =
+        1.6 + Math.sin(time * 2.6 + 2.8) * 0.06;
     }
 
     // 5. Animate Abyssal Target Crystal idle hover & damped hit reaction wobble
@@ -3326,6 +3866,10 @@ export class MageTowerLevel {
     if (this._captiveSerenaRig) {
       this._captiveSerenaRig.dispose();
       this._captiveSerenaRig = null;
+    }
+    if (this._captiveMikuRig) {
+      this._captiveMikuRig.dispose();
+      this._captiveMikuRig = null;
     }
     for (let i = 0; i < this.ownedGeometries.length; i++) {
       this.ownedGeometries[i]?.dispose();

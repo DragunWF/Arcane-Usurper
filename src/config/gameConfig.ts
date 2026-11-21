@@ -108,6 +108,7 @@ export const LOBBY_PROMPT_KINDS = Object.freeze({
   SIPHON_GALLERY_WARD: 'SIPHON_GALLERY_WARD',
   MARINA_DAIS: 'MARINA_DAIS',
   SERENA_DAIS: 'SERENA_DAIS',
+  MIKU_DAIS: 'MIKU_DAIS',
 } as const);
 
 export type LobbyPromptKind =
@@ -1505,13 +1506,15 @@ export const SIPHON_GALLERY_CONFIG = Object.freeze({
   southArchwayHalfWidth: 2.52,
   southArchwayHeight: 5.4,
 
-  // Raised Velvet Dais Alcoves (Center-South Marina + Left Serena Tide-Pool + Right Dormant Realm III)
+  // Raised Velvet Dais Alcoves (Center-South Marina + Left Serena Tide-Pool + Right Miku Harmonic Stage)
   marinaDaisPos: Object.freeze({ x: 0, y: 0, z: 27.6 }),
   serenaDaisPos: Object.freeze({ x: -4.75, y: 0, z: 24.9 }),
+  mikuDaisPos: Object.freeze({ x: 4.75, y: 0, z: 24.9 }),
   leftDormantDaisPos: Object.freeze({ x: -4.75, y: 0, z: 24.9 }),
   rightDormantDaisPos: Object.freeze({ x: 4.75, y: 0, z: 24.9 }),
   daisRadius: 1.85,
   serenaDaisRadius: 1.72,
+  mikuDaisRadius: 1.72,
   dormantDaisRadius: 1.45,
   daisHeight: 0.28,
   serenaPoolSurfaceY: 0.285,
@@ -1523,16 +1526,21 @@ export const SIPHON_GALLERY_CONFIG = Object.freeze({
   // Bound Sovereign Captive Postures, Arcane Rune-Cuffs & Core Reservoir Crystals
   marinaFacingYaw: Math.PI,
   serenaFacingYaw: 1.655,
+  mikuFacingYaw: -1.655,
   conduitOffsetX: 1.32,
   conduitOffsetZ: -0.22,
   serenaConduitOffsetX: 1.24,
   serenaConduitOffsetZ: -0.22,
+  mikuConduitOffsetX: 1.24,
+  mikuConduitOffsetZ: -0.22,
   conduitHeight: 2.05,
   conduitTipY: 1.88,
   reservoirOffsetX: 2.15,
   reservoirOffsetZ: -0.45,
   serenaReservoirOffsetX: -1.92,
   serenaReservoirOffsetZ: -0.48,
+  mikuReservoirOffsetX: 1.92,
+  mikuReservoirOffsetZ: -0.48,
   reservoirHeight: 2.35,
   reservoirCoreRadius: 0.22,
   reservoirMinFillScale: 0.04,
@@ -1541,6 +1549,8 @@ export const SIPHON_GALLERY_CONFIG = Object.freeze({
   runeRingOuterRadius: 2.18,
   serenaRuneRingInnerRadius: 1.82,
   serenaRuneRingOuterRadius: 2.02,
+  mikuRuneRingInnerRadius: 1.82,
+  mikuRuneRingOuterRadius: 2.02,
   tetherRadius: 0.016,
   wristCuffRadius: 0.056,
   wristCuffTube: 0.014,
@@ -1565,6 +1575,7 @@ export const SIPHON_GALLERY_CONFIG = Object.freeze({
   releaseStandOffsetZ: 2.25,
   siphonInitialAzimuth: Math.PI + 0.55,
   serenaSiphonInitialAzimuth: 1.655 + 0.55,
+  mikuSiphonInitialAzimuth: -1.655 - 0.55,
 
   // Gallery Atmosphere & Cold-Flame Brazier Lights
   brazierLightIntensity: 3.1,

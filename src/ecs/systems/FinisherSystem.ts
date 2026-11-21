@@ -25,7 +25,7 @@ import { useGameStore } from '../../state/useGameStore';
 import type { ECSWorld, ISystem } from '../World';
 
 export interface LobbySiphonAnchorConfig {
-  readonly targetId: 'marina' | 'serena';
+  readonly targetId: 'marina' | 'serena' | 'miku';
   readonly daisPos: {
     readonly x: number;
     readonly y: number;
@@ -41,7 +41,7 @@ export interface IFinisherCallbacks {
   onLobbySiphonTick?: (
     charge: number,
     elapsed: number,
-    targetId: 'marina' | 'serena',
+    targetId: 'marina' | 'serena' | 'miku',
   ) => void;
 }
 
@@ -384,7 +384,9 @@ export class FinisherSystem implements ISystem {
           this.lobbyCharge = 0;
           this.lobbyDepleted = true;
           const store = useGameStore.getState();
-          if (this.lobbyAnchor.targetId === 'serena') {
+          if (this.lobbyAnchor.targetId === 'miku') {
+            store.setMikuCoreCharge(0);
+          } else if (this.lobbyAnchor.targetId === 'serena') {
             store.setSerenaCoreCharge(0);
           } else {
             store.setMarinaCoreCharge(0);
@@ -399,7 +401,9 @@ export class FinisherSystem implements ISystem {
           ) {
             this.lobbyChargeSyncAccum = 0;
             const store = useGameStore.getState();
-            if (this.lobbyAnchor.targetId === 'serena') {
+            if (this.lobbyAnchor.targetId === 'miku') {
+              store.setMikuCoreCharge(this.lobbyCharge);
+            } else if (this.lobbyAnchor.targetId === 'serena') {
               store.setSerenaCoreCharge(this.lobbyCharge);
             } else {
               store.setMarinaCoreCharge(this.lobbyCharge);

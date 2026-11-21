@@ -21,6 +21,7 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
   const encoreTier = useGameStore((s) => s.encoreTier);
   const marinaCoreCharge = useGameStore((s) => s.marinaCoreCharge);
   const serenaCoreCharge = useGameStore((s) => s.serenaCoreCharge);
+  const mikuCoreCharge = useGameStore((s) => s.mikuCoreCharge);
   const lobbyPrompt = useGameStore((s) => s.lobbyPrompt);
   const lobbyDummyHit = useGameStore((s) => s.lobbyDummyHit);
   const audioMuted = useGameStore((s) => s.audioMuted);
@@ -47,12 +48,16 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
     lobbyPrompt?.kind === LOBBY_PROMPT_KINDS.SIPHON_GALLERY_WARD;
   const isMarinaDais = lobbyPrompt?.kind === LOBBY_PROMPT_KINDS.MARINA_DAIS;
   const isSerenaDais = lobbyPrompt?.kind === LOBBY_PROMPT_KINDS.SERENA_DAIS;
+  const isMikuDais = lobbyPrompt?.kind === LOBBY_PROMPT_KINDS.MIKU_DAIS;
   const isSealed = isSealedRealm2 || isSealedRealm3 || isSealedGallery;
   const marinaChargePct = Math.round(
     Math.max(0, Math.min(1, marinaCoreCharge)) * 100,
   );
   const serenaChargePct = Math.round(
     Math.max(0, Math.min(1, serenaCoreCharge)) * 100,
+  );
+  const mikuChargePct = Math.round(
+    Math.max(0, Math.min(1, mikuCoreCharge)) * 100,
   );
 
   return (
@@ -188,7 +193,7 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
                 color:
                   isRealm2Active || isSealedRealm2 || isSerenaDais
                     ? PALETTE.hex.biolumCyan
-                    : isRealm3Active || isSealedRealm3
+                    : isRealm3Active || isSealedRealm3 || isMikuDais
                       ? PALETTE.hex.harmonicEmerald
                       : isSealedGallery
                         ? PALETTE.hex.pulseLavender
@@ -202,7 +207,7 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
               style={{
                 color: isSealed
                   ? PALETTE.hex.drainedAshSilver
-                  : isRealm3Active
+                  : isRealm3Active || isMikuDais
                     ? PALETTE.hex.harmonicMagenta
                     : isRealm2Active
                       ? PALETTE.hex.atlanteanGold
@@ -216,20 +221,30 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
               {lobbyPrompt.subtitle}
             </div>
 
-            {(isMarinaDais || isSerenaDais) && (
+            {(isMarinaDais || isSerenaDais || isMikuDais) && (
               <div className="mt-2.5 w-56 sm:w-64 mx-auto">
                 <div className="h-2 w-full rounded-full bg-slate-950/90 border border-sky-400/40 overflow-hidden p-[1px]">
                   <div
                     className="bar-fill h-full rounded-full transition-all duration-150"
                     style={{
-                      width: `${isSerenaDais ? serenaChargePct : marinaChargePct}%`,
-                      background: isSerenaDais
-                        ? `linear-gradient(90deg, ${PALETTE.hex.kelpEmerald}, ${PALETTE.hex.biolumCyan}, ${PALETTE.hex.pearlWhite})`
-                        : `linear-gradient(90deg, ${PALETTE.hex.frostRunes}, ${PALETTE.hex.iceHighlights})`,
+                      width: `${
+                        isMikuDais
+                          ? mikuChargePct
+                          : isSerenaDais
+                            ? serenaChargePct
+                            : marinaChargePct
+                      }%`,
+                      background: isMikuDais
+                        ? `linear-gradient(90deg, ${PALETTE.hex.harmonicEmerald}, ${PALETTE.hex.mikuCyan}, ${PALETTE.hex.harmonicMagenta})`
+                        : isSerenaDais
+                          ? `linear-gradient(90deg, ${PALETTE.hex.kelpEmerald}, ${PALETTE.hex.biolumCyan}, ${PALETTE.hex.pearlWhite})`
+                          : `linear-gradient(90deg, ${PALETTE.hex.frostRunes}, ${PALETTE.hex.iceHighlights})`,
                       boxShadow: `0 0 12px ${
-                        isSerenaDais
-                          ? PALETTE.hex.biolumCyan
-                          : PALETTE.hex.frostRunes
+                        isMikuDais
+                          ? PALETTE.hex.harmonicEmerald
+                          : isSerenaDais
+                            ? PALETTE.hex.biolumCyan
+                            : PALETTE.hex.frostRunes
                       }`,
                     }}
                   />
