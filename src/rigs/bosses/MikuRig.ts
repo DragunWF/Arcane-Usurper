@@ -1617,12 +1617,12 @@ export class MikuRig extends BossBase {
     const isSavor = throttleMode === DRAIN_THROTTLE_MODES.SAVOR;
     const rCfg = FINISHER_RESISTANCE_CONFIG;
 
-    // 1. Target Base Stances for Poses [1-4]
-    let targetBodyY = 0.48;
+    // 1. Target Base Stances for Poses [1-2]
+    let targetBodyY = THREE.MathUtils.lerp(0.48, 0.45, limpness);
     let targetTorsoX = THREE.MathUtils.lerp(0.14, 0.28, limpness);
-    let targetTorsoZ = 0;
+    const targetTorsoZ = 0;
     let targetHeadX = -0.38;
-    let targetHeadZ = 0;
+    const targetHeadZ = 0;
     let targetLeftHipX = -0.18;
     let targetRightHipX = -0.18;
     let targetLeftKneeX = 1.72;
@@ -1630,7 +1630,7 @@ export class MikuRig extends BossBase {
     let targetSkirtPitch = -0.34;
 
     if (poseId === FINISHER_POSE_IDS.BALLROOM_DIP) {
-      // Pose [2]: Stage Ballroom Dip (~45° backward dip)
+      // Pose [2]: Ballroom Dip (~45° backward dip)
       targetBodyY = THREE.MathUtils.lerp(0.68, 0.64, limpness);
       targetTorsoX = -FINISHER_CONFIG.dipBossSpineAngleRad - limpness * 0.06;
       targetHeadX = -0.18 - limpness * 0.04;
@@ -1639,21 +1639,6 @@ export class MikuRig extends BossBase {
       targetLeftKneeX = 0.52;
       targetRightKneeX = 0.34;
       targetSkirtPitch = -0.18;
-    } else if (poseId === FINISHER_POSE_IDS.HAIR_REINS) {
-      // Pose [3]: Twin-Tail Reins
-      targetBodyY = THREE.MathUtils.lerp(0.49, 0.46, limpness);
-      targetTorsoX = THREE.MathUtils.lerp(0.16, 0.3, limpness);
-      targetHeadX = -0.44;
-      targetHeadZ = 0.06;
-    } else if (poseId === FINISHER_POSE_IDS.STAFF_LEAN) {
-      // Pose [4]: Staff-Prop Lean
-      targetBodyY = THREE.MathUtils.lerp(0.48, 0.45, limpness);
-      targetTorsoX = THREE.MathUtils.lerp(0.15, 0.29, limpness);
-      targetTorsoZ = 0.04;
-      targetHeadX = -0.39;
-    } else {
-      // Pose [1]: Chin-Lift Tilt
-      targetBodyY = THREE.MathUtils.lerp(0.48, 0.45, limpness);
     }
 
     const st = this.finisherPoseState;
@@ -1849,7 +1834,6 @@ export class MikuRig extends BossBase {
     const hairSpeed = isSurge ? 4.8 : isSavor ? 1.55 : 2.6;
     const hairAmp = isSurge ? 0.11 : isSavor ? 0.05 : 0.07;
     const isDip = poseId === FINISHER_POSE_IDS.BALLROOM_DIP;
-    const isReins = poseId === FINISHER_POSE_IDS.HAIR_REINS;
     const tailDroopBlend = Math.max(fatigue, resistance.tauntSlack * 0.7);
 
     for (let i = 0; i < this.twinTails.length; i++) {
@@ -1869,10 +1853,8 @@ export class MikuRig extends BossBase {
           isDip ? rCfg.mikuDipTailFlareStage3 : rCfg.mikuTailFlareStage3,
           tailDroopBlend,
         );
-      // In Pose [3] Twin-Tail Reins, the left twin-tail angles slightly forward toward Mage's hand
-      const reinsPullX = isReins && tt.side === -1 ? -0.42 : 0;
       const baseSeg1X =
-        (isDip ? 0.55 : 0.22) + tailDroopBlend * rCfg.mikuTailSeg1DroopRad + reinsPullX;
+        (isDip ? 0.55 : 0.22) + tailDroopBlend * rCfg.mikuTailSeg1DroopRad;
       const baseSeg2X =
         (isDip ? 0.35 : 0.3) + tailDroopBlend * rCfg.mikuTailSeg2DroopRad;
       const baseSeg3X =

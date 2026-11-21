@@ -54,11 +54,11 @@ export class DarkMageRig {
   private staffFrostLight: THREE.PointLight | null = null;
   private encoreTier = 0;
 
-  // Defeat "Forced Frost Puppet" Diorama & Finisher Pose [3] Accessories
+  // Defeat "Forced Frost Puppet" Diorama Accessories & Planted Staff State
   private defeatBlushGroup: THREE.Group | null = null;
   private puppetCrystalLeft: THREE.Group | null = null;
   private puppetCrystalRight: THREE.Group | null = null;
-  private hairReinLoop: THREE.Group | null = null;
+  private isStaffPlanted = false;
   private readonly leftHandAnchor = new THREE.Object3D();
   private readonly rightHandAnchor = new THREE.Object3D();
   private readonly headTopAnchor = new THREE.Object3D();
@@ -841,36 +841,6 @@ export class DarkMageRig {
     this.puppetCrystalRight = buildPuppetCrystal();
     this.rightElbowPivot.add(this.puppetCrystalRight);
 
-    // Sculpted thick silver-white hair lock wrapped around left forearm for Pose [3] (Silver-Hair Reins)
-    this.hairReinLoop = new THREE.Group();
-    this.hairReinLoop.position.set(0, -0.21, 0.01);
-    this.hairReinLoop.visible = false;
-    const hairCoilMat = ToonAssets.createToonMaterial(PALETTE.marinaHair, {
-      emissive: PALETTE.frostRibbon,
-      emissiveIntensity: 0.12,
-    });
-    const hairTipMat = ToonAssets.createToonMaterial(PALETTE.marinaHairTips, {
-      emissive: PALETTE.frostRibbon,
-      emissiveIntensity: 0.22,
-    });
-    for (let c = 0; c < 3; c++) {
-      const coil = new THREE.Mesh(
-        new THREE.TorusGeometry(0.095, 0.022, 8, 22),
-        hairCoilMat,
-      );
-      coil.rotation.x = Math.PI / 2 + (c - 1) * 0.16;
-      coil.position.y = (c - 1) * -0.026;
-      this.hairReinLoop.add(coil);
-    }
-    const danglingTip = new THREE.Mesh(
-      new THREE.ConeGeometry(0.028, 0.22, 6),
-      hairTipMat,
-    );
-    danglingTip.rotation.x = Math.PI;
-    danglingTip.position.set(0.055, -0.14, 0.04);
-    this.hairReinLoop.add(danglingTip);
-    this.leftElbowPivot.add(this.hairReinLoop);
-
     this.buildObsidianSiphonStaff(this.rightElbowPivot);
   }
 
@@ -1137,6 +1107,62 @@ export class DarkMageRig {
   }
 
   /**
+   * Plants the Obsidian Siphon Staff upright on the floor beside the Dark Mage during
+   * finishers (freeing both hands to wrap around the sovereign), or re-attaches it cleanly
+   * back into his right hand at its exact default combat/lobby local transform.
+   */
+  public setStaffPlanted(
+    planted: boolean,
+    anchorWorldPos?: THREE.Vector3,
+    facingYawRad?: number,
+  ): void {
+    const cfg = FINISHER_CONFIG;
+    if (planted) {
+      if (!this.isStaffPlanted || this.staffGroup.parent !== this.scene) {
+        this.rightElbowPivot.remove(this.staffGroup);
+        this.scene.add(this.staffGroup);
+        this.isStaffPlanted = true;
+      }
+      const anchor = anchorWorldPos ?? this.root.position;
+      const yaw = facingYawRad ?? this.root.rotation.y;
+      const fwdX = Math.sin(yaw);
+      const fwdZ = Math.cos(yaw);
+      const rightX = Math.cos(yaw);
+      const rightZ = -Math.sin(yaw);
+
+      const plantedX =
+        anchor.x +
+        rightX * cfg.staffPlantedLateralOffset +
+        fwdX * cfg.staffPlantedForwardOffset;
+      const plantedY =
+        anchor.y + cfg.staffPlantedBaseY + cfg.staffFerruleBottomOffsetY;
+      const plantedZ =
+        anchor.z +
+        rightZ * cfg.staffPlantedLateralOffset +
+        fwdZ * cfg.staffPlantedForwardOffset;
+
+      this.staffGroup.visible = true;
+      this.staffGroup.position.set(plantedX, plantedY, plantedZ);
+      this.staffGroup.rotation.order = 'YXZ';
+      this.staffGroup.rotation.set(
+        cfg.staffPlantedTiltXRad,
+        yaw,
+        cfg.staffPlantedTiltZRad,
+      );
+      return;
+    }
+
+    if (this.isStaffPlanted || this.staffGroup.parent !== this.rightElbowPivot) {
+      this.scene.remove(this.staffGroup);
+      this.rightElbowPivot.add(this.staffGroup);
+      this.isStaffPlanted = false;
+    }
+    this.staffGroup.rotation.order = 'XYZ';
+    this.staffGroup.position.set(0, -0.3, 0.04);
+    this.staffGroup.rotation.set(Math.PI * 0.44, 0, 0);
+  }
+
+  /**
    * Restores standard combat staff attachment & hides diorama-only props.
    */
   public resetCombatPose(): void {
@@ -1145,10 +1171,8 @@ export class DarkMageRig {
     if (this.defeatBlushGroup) this.defeatBlushGroup.visible = false;
     if (this.puppetCrystalLeft) this.puppetCrystalLeft.visible = false;
     if (this.puppetCrystalRight) this.puppetCrystalRight.visible = false;
-    if (this.hairReinLoop) this.hairReinLoop.visible = false;
+    this.setStaffPlanted(false);
     this.staffGroup.visible = true;
-    this.staffGroup.position.set(0, -0.3, 0.04);
-    this.staffGroup.rotation.set(Math.PI * 0.44, 0, 0);
     this.bodyPivot.position.set(0, 0.96, 0);
     this.torsoGroup.rotation.set(0, 0, 0);
     this.bodyPivot.rotation.set(0, 0, 0);
@@ -1160,10 +1184,9 @@ export class DarkMageRig {
   }
 
   /**
-   * Poses the Dark Mage for interactive Arcane Siphon Kiss poses [1-4] with:
-   * - True Abyssal Obsidian (#09090B) / Shadow Slate (#18181B) robes (zero purple wash)
-   * - Physically articulated arms & gloved hands holding Marina in every pose
-   * - Smooth ~0.25s bone interpolation, throttle-synced siphon recoil & billowing robes
+   * Poses the Dark Mage for streamlined 2-pose Arcane Siphon Kiss:
+   * - Pose [1] Upright Embrace: left hand tilts sovereign's chin while free right arm wraps waist
+   * - Pose [2] Ballroom Dip: deep forward lunge with both free arms cradling dipped waist & back
    * - Exact world-space fixed-pivot lip alignment against bossLipWorldPos (zero air gap)
    */
   public applyFinisherPose(
@@ -1186,9 +1209,6 @@ export class DarkMageRig {
     if (this.defeatBlushGroup) this.defeatBlushGroup.visible = false;
     if (this.puppetCrystalLeft) this.puppetCrystalLeft.visible = false;
     if (this.puppetCrystalRight) this.puppetCrystalRight.visible = false;
-    if (this.hairReinLoop) {
-      this.hairReinLoop.visible = poseId === FINISHER_POSE_IDS.HAIR_REINS;
-    }
     this.staffGroup.visible = true;
 
     const safeDt = Math.max(0.001, Math.min(dt, 0.05));
@@ -1201,9 +1221,15 @@ export class DarkMageRig {
     const isSurge = throttleMode === DRAIN_THROTTLE_MODES.SURGE;
     const isSavor = throttleMode === DRAIN_THROTTLE_MODES.SAVOR;
 
-    // 1. Target Base Stance for Poses [1-4] (All arms physically contact & hold Marina)
-    // Pose [1] Default (Chin-Lift Tilt): left gloved hand raised forward/inward beneath Marina's chin,
-    // right hand grips planted obsidian staff beside them.
+    // Waist wrap clearance scaled cleanly to bossWaistWrapRadius so both free hands hug without clipping
+    const wrapOffset =
+      bossWaistWrapRadius !== undefined
+        ? (bossWaistWrapRadius - FINISHER_CONFIG.mikuWaistWrapRadius) * 0.45
+        : 0;
+
+    // 1. Target Base Stance for Streamlined 2-Pose Finisher ([1] Upright Embrace / [2] Ballroom Dip)
+    // Pose [1] Upright Embrace: staff planted beside him; left gloved hand tilts sovereign's chin,
+    // free right arm wraps securely around her waist.
     let targetBodyY = 0.72;
     let targetTorsoX = 0.54;
     let targetTorsoZ = 0;
@@ -1215,23 +1241,23 @@ export class DarkMageRig {
     let targetRightHipZ = 0.06;
     let targetLeftKneeX = 0.24;
     let targetRightKneeX = 0.16;
-    let targetLeftShoulderX = -1.18;
+    let targetLeftShoulderX = -1.16;
     let targetLeftShoulderY = 0.18;
-    let targetLeftShoulderZ = 0.34;
+    let targetLeftShoulderZ = 0.34 + wrapOffset * 0.35;
     let targetLeftElbowX = -0.82;
     let targetLeftElbowZ = 0.26;
-    let targetRightShoulderX = -0.42;
-    let targetRightShoulderY = 0;
-    let targetRightShoulderZ = -0.26;
-    let targetRightElbowX = -0.58;
-    let targetRightElbowZ = 0;
-    let targetStaffRotX = Math.PI * 0.34;
-    let targetStaffRotZ = -0.14;
+    let targetRightShoulderX = -0.96;
+    let targetRightShoulderY = -0.22;
+    let targetRightShoulderZ = -0.36 - wrapOffset;
+    let targetRightElbowX = -0.84;
+    let targetRightElbowZ = -0.44 + wrapOffset * 0.55;
+    const targetStaffRotX = Math.PI * 0.34;
+    const targetStaffRotZ = -0.14;
 
     if (poseId === FINISHER_POSE_IDS.BALLROOM_DIP) {
-      // Pose [2]: Glacial Ballroom Dip — lowered lunging knee bend + deep forward torso/head pitch
-      // (+0.46 rad extra) so mouth locks flush onto dipped Marina; left arm wraps around her dipped
-      // waist/mid-back; right arm raises Obsidian Siphon Staff high aloft absorbing frost ribbons.
+      // Pose [2] Ballroom Dip: lowered lunging knee bend + deep forward torso/head pitch
+      // so mouth locks flush onto ~45° dipped sovereign; both free arms wrap securely around
+      // her dipped waist and upper back while the planted staff pulses beside him.
       targetBodyY = 0.78;
       targetLeftHipX = -0.34;
       targetLeftHipZ = -0.08;
@@ -1239,71 +1265,18 @@ export class DarkMageRig {
       targetRightHipZ = 0.08;
       targetLeftKneeX = 0.68;
       targetRightKneeX = 0.48;
-      targetTorsoX = 0.48 + FINISHER_CONFIG.dipMageExtraPitch; // ~0.94 rad deep forward dip follow
+      targetTorsoX = 0.48 + FINISHER_CONFIG.dipMageExtraPitch;
       targetHeadX = 0.24;
-      // Left arm wraps forward & inward around the sovereign's dipped waist/mid-back (scaled by waistWrapRadius)
-      const wrapOffset =
-        bossWaistWrapRadius !== undefined
-          ? (bossWaistWrapRadius - FINISHER_CONFIG.mikuWaistWrapRadius) * 0.45
-          : 0;
       targetLeftShoulderX = -1.42;
       targetLeftShoulderY = 0.26;
       targetLeftShoulderZ = 0.46 + wrapOffset;
       targetLeftElbowX = -0.92;
       targetLeftElbowZ = 0.56 - wrapOffset * 0.6;
-      // Right arm raises hand upward & outward holding Obsidian Siphon Staff upright / diagonally
-      // skyward (~18° off vertical) with crystal high overhead as a channeling beacon (zero clipping)
-      targetRightShoulderX = FINISHER_CONFIG.dipRightShoulderX;
-      targetRightShoulderY = FINISHER_CONFIG.dipRightShoulderY;
-      targetRightShoulderZ = FINISHER_CONFIG.dipRightShoulderZ;
-      targetRightElbowX = FINISHER_CONFIG.dipRightElbowX;
-      targetRightElbowZ = FINISHER_CONFIG.dipRightElbowZ;
-      targetStaffRotX = FINISHER_CONFIG.dipStaffRotX;
-      targetStaffRotZ = FINISHER_CONFIG.dipStaffRotZ;
-    } else if (poseId === FINISHER_POSE_IDS.HAIR_REINS) {
-      // Pose [3]: Silver-Hair Reins — left forearm raised across chest/shoulder with silver hair lock
-      // looped around wrist; right gloved hand reaches forward/inward to steady Marina's shoulder.
-      targetBodyY = 0.72;
-      targetTorsoX = 0.56;
-      targetHeadX = 0.28;
-      targetLeftShoulderX = -1.32;
-      targetLeftShoulderY = 0.22;
-      targetLeftShoulderZ = 0.38;
-      targetLeftElbowX = -1.35;
-      targetLeftElbowZ = 0.48;
-      targetRightShoulderX = -0.98;
-      targetRightShoulderY = -0.16;
-      targetRightShoulderZ = -0.24;
-      targetRightElbowX = -0.68;
-      targetRightElbowZ = -0.24;
-      targetStaffRotX = Math.PI * 0.58;
-      targetStaffRotZ = -0.22;
-    } else if (poseId === FINISHER_POSE_IDS.STAFF_LEAN) {
-      // Pose [4]: Staff-Prop Lean — right elbow/forearm braced casually against upright planted staff,
-      // ankles crossed, while left arm extends forward so gloved hand rests on kneeling Marina's head/chin.
-      targetBodyY = 0.72;
-      targetLeftHipX = 0.06;
-      targetLeftHipZ = 0.14;
-      targetRightHipX = -0.22;
-      targetRightHipZ = -0.16;
-      targetLeftKneeX = 0.12;
-      targetRightKneeX = 0.28;
-      targetTorsoX = 0.52;
-      targetTorsoZ = -0.11;
-      targetHeadX = 0.3;
-      targetHeadZ = 0.09;
-      targetLeftShoulderX = -1.16;
-      targetLeftShoulderY = 0.14;
-      targetLeftShoulderZ = 0.3;
-      targetLeftElbowX = -0.46;
-      targetLeftElbowZ = 0.22;
-      targetRightShoulderX = -0.68;
-      targetRightShoulderY = 0;
-      targetRightShoulderZ = -0.38;
-      targetRightElbowX = -1.08;
-      targetRightElbowZ = 0.18;
-      targetStaffRotX = Math.PI * 0.14;
-      targetStaffRotZ = 0.22;
+      targetRightShoulderX = -1.34;
+      targetRightShoulderY = -0.24;
+      targetRightShoulderZ = -0.42 - wrapOffset;
+      targetRightElbowX = -0.88;
+      targetRightElbowZ = -0.48 + wrapOffset * 0.55;
     }
 
     // Initialize lerp cache from live bone state on first frame (smooth entry from stagger blink)
@@ -1471,16 +1444,18 @@ export class DarkMageRig {
     );
 
     this.rightShoulderPivot.rotation.set(
-      st.rightShoulderX - staffHandRecoil,
+      st.rightShoulderX - (this.isStaffPlanted ? holdHandCaress * 0.85 : staffHandRecoil),
       st.rightShoulderY,
       st.rightShoulderZ,
     );
     this.rightElbowPivot.rotation.set(
-      st.rightElbowX + staffHandRecoil * 0.75,
+      st.rightElbowX + (this.isStaffPlanted ? holdHandCaress * 0.45 : staffHandRecoil * 0.75),
       0,
       st.rightElbowZ,
     );
-    this.staffGroup.rotation.set(st.staffRotX, 0, st.staffRotZ);
+    if (!this.isStaffPlanted) {
+      this.staffGroup.rotation.set(st.staffRotX, 0, st.staffRotZ);
+    }
 
     // 3. Asymmetric -> <- Press-and-Ease Lip Alignment along Marina's World Face Normal
     //    - At pulse = 1 (press peak): target gap = 0.0m (firm lip contact, zero clipping)
@@ -1531,12 +1506,13 @@ export class DarkMageRig {
     const crystalSpeedMult = isSurge ? 2.4 : isSavor ? 0.65 : 1.0;
     this.staffCrystal.rotation.y =
       time * (2.6 + drainProgress * 4.5) * crystalSpeedMult;
+    this.staffCrystal.position.y = 1.54 + Math.sin(time * 3.2) * 0.026;
     this.staffRuneRing.rotation.y =
       -time * (2.2 + drainProgress * 3.5) * crystalSpeedMult;
     this.staffLight.intensity =
       FINISHER_CONFIG.finisherStaffLightIntensity +
       (isSurge ? FINISHER_CONFIG.finisherStaffLightSurgeBoost : 0) +
-      siphonPulse * 0.12;
+      siphonPulse * 0.16;
     if (this.staffFrostLight && this.encoreTier >= 1) {
       this.staffFrostLight.intensity = 1.1;
     }
@@ -1619,7 +1595,8 @@ export class DarkMageRig {
         -0.32 + Math.cos(time * 3.5) * DIORAMA_CONFIG.puppetCrystalBobAmp * 0.3;
     }
 
-    // Dimmed Obsidian Staff resting aside (hidden in hand, resting visual dimness)
+    // Dimmed Obsidian Staff resting aside (unplanted & hidden in hand)
+    this.setStaffPlanted(false);
     this.staffGroup.visible = false;
     this.staffLight.intensity = 0.15;
     if (this.staffFrostLight) this.staffFrostLight.intensity = 0;
@@ -1629,7 +1606,11 @@ export class DarkMageRig {
    * Returns the exact world-space position of the levitating staff crystal for bolt spawning.
    */
   public getStaffCrystalWorldPosition(outVec: THREE.Vector3): THREE.Vector3 {
-    this.root.updateMatrixWorld(true);
+    if (this.isStaffPlanted) {
+      this.staffGroup.updateMatrixWorld(true);
+    } else {
+      this.root.updateMatrixWorld(true);
+    }
     return this.staffCrystal.getWorldPosition(outVec);
   }
 
@@ -1817,6 +1798,7 @@ export class DarkMageRig {
   }
 
   public dispose(): void {
+    this.setStaffPlanted(false);
     this.scene.remove(this.root);
   }
 }

@@ -596,7 +596,7 @@ export class GameEngine implements IGameController {
       },
       siphonableBoss: {
         siphonProgress: 0,
-        finisherPose: FINISHER_POSE_IDS.CHIN_LIFT,
+        finisherPose: FINISHER_POSE_IDS.UPRIGHT_EMBRACE,
         drainThrottle: DRAIN_THROTTLE_MODES.FLOW,
         isEndlessSavor: false,
         tauntDizzyTimer: 0,
@@ -1178,7 +1178,7 @@ export class GameEngine implements IGameController {
       boss.bossPhase.ascendHeight = 0;
       boss.siphonableBoss.siphonProgress = 0;
       boss.siphonableBoss.isEndlessSavor = false;
-      boss.siphonableBoss.finisherPose = FINISHER_POSE_IDS.CHIN_LIFT;
+      boss.siphonableBoss.finisherPose = FINISHER_POSE_IDS.UPRIGHT_EMBRACE;
     }
 
     this.mageRig.resetCombatPose();
@@ -1285,7 +1285,7 @@ export class GameEngine implements IGameController {
     if (boss) {
       boss.siphonableBoss.siphonProgress = 0;
       boss.siphonableBoss.isEndlessSavor = false;
-      boss.siphonableBoss.finisherPose = FINISHER_POSE_IDS.CHIN_LIFT;
+      boss.siphonableBoss.finisherPose = FINISHER_POSE_IDS.UPRIGHT_EMBRACE;
       boss.siphonableBoss.drainThrottle = DRAIN_THROTTLE_MODES.FLOW;
       boss.siphonableBoss.tauntDizzyTimer = 0;
     }
@@ -1296,7 +1296,7 @@ export class GameEngine implements IGameController {
     const store = useGameStore.getState();
     store.setGameState(GAME_STATES.SIPHON_FINISHER);
     store.setCanExecuteFinisher(false);
-    store.setFinisherPose(FINISHER_POSE_IDS.CHIN_LIFT);
+    store.setFinisherPose(FINISHER_POSE_IDS.UPRIGHT_EMBRACE);
     store.setDrainThrottle(DRAIN_THROTTLE_MODES.FLOW);
     store.setEndlessSavor(false);
     store.setBossExpression(BOSS_EXPRESSIONS.SIPHON_KISS);
@@ -1362,7 +1362,7 @@ export class GameEngine implements IGameController {
         ? 1.0
         : 1.0 - initialCharge;
       boss.siphonableBoss.isEndlessSavor = startsDepleted;
-      boss.siphonableBoss.finisherPose = FINISHER_POSE_IDS.CHIN_LIFT;
+      boss.siphonableBoss.finisherPose = FINISHER_POSE_IDS.UPRIGHT_EMBRACE;
       boss.siphonableBoss.drainThrottle = DRAIN_THROTTLE_MODES.FLOW;
       boss.siphonableBoss.tauntDizzyTimer = 0;
     }
@@ -1383,7 +1383,7 @@ export class GameEngine implements IGameController {
     );
     store.setGameState(GAME_STATES.LOBBY_SIPHON);
     store.setLobbyPrompt(null);
-    store.setFinisherPose(FINISHER_POSE_IDS.CHIN_LIFT);
+    store.setFinisherPose(FINISHER_POSE_IDS.UPRIGHT_EMBRACE);
     store.setDrainThrottle(DRAIN_THROTTLE_MODES.FLOW);
     store.setEndlessSavor(startsDepleted);
     if (startsDepleted) {

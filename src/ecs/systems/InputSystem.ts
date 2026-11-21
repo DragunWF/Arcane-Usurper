@@ -134,19 +134,16 @@ export class InputSystem implements ISystem {
         return;
       }
 
-      // Interactive Finisher / Endless Savor / Lobby Siphon pose switching [1-4], [F] Taunt, and Space tap surge boost
+      // Interactive Finisher / Endless Savor / Lobby Siphon pose switching [1-2], [F] Taunt, and Space tap surge boost
       if (
         state === GAME_STATES.SIPHON_FINISHER ||
         state === GAME_STATES.ENDLESS_SAVOR ||
         state === GAME_STATES.LOBBY_SIPHON
       ) {
-        if (e.code === 'Digit1') this.queuedPose = FINISHER_POSE_IDS.CHIN_LIFT;
+        if (e.code === 'Digit1')
+          this.queuedPose = FINISHER_POSE_IDS.UPRIGHT_EMBRACE;
         else if (e.code === 'Digit2')
           this.queuedPose = FINISHER_POSE_IDS.BALLROOM_DIP;
-        else if (e.code === 'Digit3')
-          this.queuedPose = FINISHER_POSE_IDS.HAIR_REINS;
-        else if (e.code === 'Digit4')
-          this.queuedPose = FINISHER_POSE_IDS.STAFF_LEAN;
         else if (e.code === 'KeyF') this.queuedTaunt = true;
         else if (e.code === 'Space') {
           e.preventDefault();

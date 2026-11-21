@@ -15,10 +15,8 @@ interface FinisherHUDProps {
 }
 
 const POSE_OPTIONS: readonly FinisherPoseId[] = [
-  FINISHER_POSE_IDS.CHIN_LIFT,
+  FINISHER_POSE_IDS.UPRIGHT_EMBRACE,
   FINISHER_POSE_IDS.BALLROOM_DIP,
-  FINISHER_POSE_IDS.HAIR_REINS,
-  FINISHER_POSE_IDS.STAFF_LEAN,
 ];
 
 const THROTTLE_OPTIONS: readonly {
@@ -185,19 +183,12 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
         </div>
       )}
 
-      {/* Bottom-Left Dominance Pose Switcher [1-4] + [F] Tiara Flick Taunt */}
+      {/* Bottom-Left Dominance Pose Switcher [1-2] + [F] Tiara / Hair-Cube Flick Taunt */}
       <div className="absolute bottom-5 left-4 sm:left-6 flex flex-col gap-2 max-w-[calc(100vw-2rem)] pointer-events-auto">
         <div className="frost-panel rounded-2xl p-2.5 flex flex-wrap items-center gap-1.5">
           {POSE_OPTIONS.map((poseId) => {
             const activePose = finisherPose === poseId;
-            const isMikuSession =
-              isMikuLobbyTarget || (!isLobbySiphon && activeRealm === 3);
-            const poseLabel =
-              isMikuSession && poseId === FINISHER_POSE_IDS.BALLROOM_DIP
-                ? 'Stage Ballroom Dip'
-                : isMikuSession && poseId === FINISHER_POSE_IDS.HAIR_REINS
-                  ? 'Twin-Tail Reins'
-                  : FINISHER_POSE_LABELS[poseId];
+            const poseLabel = FINISHER_POSE_LABELS[poseId];
             return (
               <button
                 key={poseId}
@@ -220,7 +211,7 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
             className="px-3.5 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-bold tracking-[0.14em] uppercase border border-rose-400/60 bg-rose-950/60 text-rose-100 hover:border-rose-300 hover:bg-rose-900/70 transition-all cursor-pointer"
           >
             {isMikuLobbyTarget || (!isLobbySiphon && activeRealm === 3)
-              ? '[F] FLICK HAIR-TIES'
+              ? '[F] FLICK HAIR-CUBE'
               : '[F] FLICK TIARA'}
           </button>
         </div>

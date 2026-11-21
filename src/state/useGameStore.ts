@@ -423,7 +423,7 @@ const INITIAL_STATE = {
   canExecuteFinisher: false,
 
   siphonProgress: 0,
-  finisherPose: FINISHER_POSE_IDS.CHIN_LIFT as FinisherPoseId,
+  finisherPose: FINISHER_POSE_IDS.UPRIGHT_EMBRACE as FinisherPoseId,
   drainThrottle: DRAIN_THROTTLE_MODES.FLOW as DrainThrottleMode,
   throttleMode: DRAIN_THROTTLE_MODES.FLOW as DrainThrottleMode,
   isEndlessSavor: false,
@@ -655,7 +655,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
         isBossStaggered: false,
         canExecuteFinisher: false,
         siphonProgress: 0,
-        finisherPose: FINISHER_POSE_IDS.CHIN_LIFT,
+        finisherPose: FINISHER_POSE_IDS.UPRIGHT_EMBRACE,
         drainThrottle: DRAIN_THROTTLE_MODES.FLOW,
         throttleMode: DRAIN_THROTTLE_MODES.FLOW,
         isEndlessSavor: false,

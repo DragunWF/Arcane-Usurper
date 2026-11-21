@@ -260,6 +260,7 @@ export class DioramaSystem implements ISystem {
       }
     }
 
+    this.mageRig.setStaffPlanted(false);
     this.bossRig.applyDrainBleach(1.0);
     this.bossRig.setExpression(BOSS_EXPRESSIONS.DRAINED_FAINT, this.spiralPhase);
     this.audio.setMode(AUDIO_MODES.VICTORY);
@@ -332,6 +333,7 @@ export class DioramaSystem implements ISystem {
    * seats blushing Dark Mage holding frost crystals wired to Marina's raised fingertips.
    */
   public enterDefeatDiorama(): void {
+    this.mageRig.setStaffPlanted(false);
     this.callbacks.clearAllCombatEntities();
     this.callbacks.setGameState(GAME_STATES.DEFEAT_DIORAMA);
     this.callbacks.exitPointerLock();

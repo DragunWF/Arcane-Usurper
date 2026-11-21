@@ -1438,9 +1438,9 @@ export class SerenaRig extends BossBase {
     // 1. Target Pose Geometry (matching Marina's lip elevation & Pose [2] ~45° dip exactly)
     let targetBodyY = THREE.MathUtils.lerp(0.48, 0.45, limpness);
     let targetTorsoX = THREE.MathUtils.lerp(0.14, 0.28, limpness);
-    let targetTorsoZ = 0;
+    const targetTorsoZ = 0;
     let targetHeadX = -0.38;
-    let targetHeadZ = 0;
+    const targetHeadZ = 0;
 
     // Tail curls behind/beside her in Stage 1, then uncurls gradually and hangs lower as her Tidal Core drains
     const yawRelax = THREE.MathUtils.lerp(1.0, rCfg.serenaTailYawRelaxScale, fatigue);
@@ -1456,7 +1456,7 @@ export class SerenaRig extends BossBase {
     let targetTail4Y = 0.52 * yawRelax;
 
     if (poseId === FINISHER_POSE_IDS.BALLROOM_DIP) {
-      // Pose [2]: Tidal Ballroom Dip (~45° backward spine dip with floating S-curved tail uncurling lower)
+      // Pose [2]: Ballroom Dip (~45° backward spine dip with floating S-curved tail uncurling lower)
       targetBodyY = THREE.MathUtils.lerp(0.68, 0.64, limpness);
       targetTorsoX = -FINISHER_CONFIG.dipBossSpineAngleRad - limpness * 0.06;
       targetHeadX = -0.18 - limpness * 0.04;
@@ -1469,36 +1469,6 @@ export class SerenaRig extends BossBase {
       targetTail3Y = -0.44 * yawRelax;
       targetTail4X = 0.22 + rCfg.serenaDipTailUncurlSeg4X * fatigue;
       targetTail4Y = -0.36 * yawRelax;
-    } else if (poseId === FINISHER_POSE_IDS.HAIR_REINS) {
-      // Pose [3]: Aquamarine-Hair Reins (tail uncurls gradually lower behind her)
-      targetBodyY = THREE.MathUtils.lerp(0.49, 0.46, limpness);
-      targetTorsoX = THREE.MathUtils.lerp(0.16, 0.3, limpness);
-      targetHeadX = -0.44;
-      targetHeadZ = 0.05;
-      targetTail1X = 1.08 + rCfg.serenaTailUncurlSeg1X * fatigue;
-      targetTail1Y = -0.42 * yawRelax;
-      targetTail1Z = -0.24 * rollRelax;
-      targetTail2X = 0.38 + rCfg.serenaTailUncurlSeg2X * fatigue;
-      targetTail2Y = -0.54 * yawRelax;
-      targetTail3X = 0.1 + rCfg.serenaTailUncurlSeg3X * fatigue;
-      targetTail3Y = -0.62 * yawRelax;
-      targetTail4X = 0.04 + rCfg.serenaTailUncurlSeg4X * fatigue;
-      targetTail4Y = -0.5 * yawRelax;
-    } else if (poseId === FINISHER_POSE_IDS.STAFF_LEAN) {
-      // Pose [4]: Staff-Prop Lean (sweeping mermaid side-coil uncurling lower behind her)
-      targetBodyY = THREE.MathUtils.lerp(0.48, 0.45, limpness);
-      targetTorsoX = THREE.MathUtils.lerp(0.15, 0.29, limpness);
-      targetTorsoZ = 0.04;
-      targetHeadX = -0.39;
-      targetTail1X = 1.02 + rCfg.serenaTailUncurlSeg1X * fatigue;
-      targetTail1Y = 0.48 * yawRelax;
-      targetTail1Z = 0.26 * rollRelax;
-      targetTail2X = 0.4 + rCfg.serenaTailUncurlSeg2X * fatigue;
-      targetTail2Y = 0.52 * yawRelax;
-      targetTail3X = 0.12 + rCfg.serenaTailUncurlSeg3X * fatigue;
-      targetTail3Y = 0.58 * yawRelax;
-      targetTail4X = 0.06 + rCfg.serenaTailUncurlSeg4X * fatigue;
-      targetTail4Y = 0.46 * yawRelax;
     }
 
     const st = this.finisherPoseState;

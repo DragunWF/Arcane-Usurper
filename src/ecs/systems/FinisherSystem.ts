@@ -82,12 +82,11 @@ export class FinisherSystem implements ISystem {
     facingYaw: SIPHON_GALLERY_CONFIG.marinaFacingYaw,
   };
 
-  // Live 3D Finisher Energy Ribbons & Pose [3] Silver Hair Rein Strand
+  // Live 3D Finisher Energy Ribbons
   private readonly fxGroup = new THREE.Group();
   private readonly voidRibbon: DynamicRibbon;
   private readonly frostRibbon: DynamicRibbon;
   private readonly staffAloftRibbon: DynamicRibbon;
-  private readonly hairReinStrand: DynamicRibbon;
 
   // Reusable scratch vectors & quaternions (zero per-frame GC allocations)
   private readonly scratchBossHead = new THREE.Vector3();
@@ -95,7 +94,7 @@ export class FinisherSystem implements ISystem {
   private readonly scratchBossFaceNormal = new THREE.Vector3();
   private readonly scratchMageMouth = new THREE.Vector3();
   private readonly scratchMageCrystal = new THREE.Vector3();
-  private readonly scratchMageLeftHand = new THREE.Vector3();
+  private readonly scratchMageAnchor = new THREE.Vector3();
   private readonly scratchAccessoryPos = new THREE.Vector3();
 
   constructor(
@@ -122,7 +121,6 @@ export class FinisherSystem implements ISystem {
     this.voidRibbon = this.createRibbon(PALETTE.voidRibbon, 0.9, segs);
     this.frostRibbon = this.createRibbon(PALETTE.frostRibbon, 0.9, segs);
     this.staffAloftRibbon = this.createRibbon(PALETTE.frostRibbon, 0.85, segs);
-    this.hairReinStrand = this.createRibbon(PALETTE.marinaHair, 0.92, segs);
   }
 
   private createRibbon(
@@ -248,6 +246,7 @@ export class FinisherSystem implements ISystem {
 
   public hideVisuals(): void {
     this.fxGroup.visible = false;
+    this.mageRig.setStaffPlanted(false);
   }
 
   public resetState(): void {
@@ -257,18 +256,13 @@ export class FinisherSystem implements ISystem {
     this.spiralPhase = 0;
     this.currentSeparation = FINISHER_CONFIG.defaultRootSeparation;
     this.fxGroup.visible = false;
+    this.mageRig.setStaffPlanted(false);
     this.audio.setSiphonThrottle(DRAIN_THROTTLE_MODES.FLOW);
   }
 
   private getTargetSeparationForPose(poseId: FinisherPoseId): number {
     if (poseId === FINISHER_POSE_IDS.BALLROOM_DIP) {
       return FINISHER_CONFIG.dipRootSeparation;
-    }
-    if (poseId === FINISHER_POSE_IDS.HAIR_REINS) {
-      return FINISHER_CONFIG.reinsRootSeparation;
-    }
-    if (poseId === FINISHER_POSE_IDS.STAFF_LEAN) {
-      return FINISHER_CONFIG.staffLeanRootSeparation;
     }
     return FINISHER_CONFIG.defaultRootSeparation;
   }
@@ -538,7 +532,19 @@ export class FinisherSystem implements ISystem {
       bz - player.transform.position.z,
     );
 
-    // Pose Dark Mage with synchronized -> <- press-and-ease motion along Marina's world face normal
+    // Plant the Obsidian Siphon Staff upright beside the Dark Mage so both hands are free
+    this.scratchMageAnchor.set(
+      player.transform.position.x,
+      by,
+      player.transform.position.z,
+    );
+    this.mageRig.setStaffPlanted(
+      true,
+      this.scratchMageAnchor,
+      player.transform.rotationY,
+    );
+
+    // Pose Dark Mage with synchronized -> <- press-and-ease motion along sovereign's world face normal
     this.mageRig.root.position.set(
       player.transform.position.x,
       by,
@@ -557,7 +563,7 @@ export class FinisherSystem implements ISystem {
       activeRig.waistWrapRadius,
     );
 
-    // 7. Update Lip-to-Lip Energy Ribbons, Pose [2] Aloft Staff Ribbon, & Pose [3] Hair/Twin-Tail Reins Strand
+    // 7. Update Lip-to-Lip Energy Ribbons & Pose [2] Planted Staff Channeling Ribbon
     const isMikuRig = activeRig.id === MIKU_CONFIG.id;
     const isSerenaRig = activeRig.id === SERENA_CONFIG.id;
     this.frostRibbon.line.material.color.setHex(
@@ -573,13 +579,6 @@ export class FinisherSystem implements ISystem {
         : isSerenaRig
           ? PALETTE.serenaHairTips
           : PALETTE.frostRibbon,
-    );
-    this.hairReinStrand.line.material.color.setHex(
-      isMikuRig
-        ? PALETTE.mikuHairCyan
-        : isSerenaRig
-          ? PALETTE.serenaHairBase
-          : PALETTE.marinaHair,
     );
 
     this.fxGroup.visible = true;
@@ -610,7 +609,7 @@ export class FinisherSystem implements ISystem {
       -0.03,
     );
 
-    // Pose [2]: Arcing frost ribbon from Marina's core upward into raised staff crystal
+    // Pose [2]: Arcing energy ribbon from sovereign into the planted staff's pulsing crystal
     const isDip = sb.finisherPose === FINISHER_POSE_IDS.BALLROOM_DIP;
     this.staffAloftRibbon.line.visible = isDip;
     if (isDip) {
@@ -622,23 +621,6 @@ export class FinisherSystem implements ISystem {
         1.2,
         waveAmp * 1.1,
         0.22,
-      );
-    }
-
-    // Pose [3]: Silver-white hair lock bridging Marina's crown to Mage's left forearm
-    const isReins = sb.finisherPose === FINISHER_POSE_IDS.HAIR_REINS;
-    this.hairReinStrand.line.visible = isReins;
-    if (isReins) {
-      this.mageRig.getLeftHandWorldPosition(this.scratchMageLeftHand);
-      activeRig.headAccessory.getWorldPosition(this.scratchAccessoryPos);
-      this.updateCurvedRibbon(
-        this.hairReinStrand,
-        this.scratchAccessoryPos,
-        this.scratchMageLeftHand,
-        elapsed * 0.4,
-        0.5,
-        0.025,
-        -0.05,
       );
     }
 
@@ -658,18 +640,15 @@ export class FinisherSystem implements ISystem {
     // 9. Trigger 100% Siphon Climax -> Victory Floor Collapse Diorama (never fires in Endless Savor or Lobby Siphon)
     if (isFinisher && sb.siphonProgress >= 1.0) {
       this.fxGroup.visible = false;
+      this.mageRig.setStaffPlanted(false);
       this.callbacks.onSiphonClimax();
     }
   }
 
   public dispose(): void {
+    this.mageRig.setStaffPlanted(false);
     this.scene.remove(this.fxGroup);
-    [
-      this.voidRibbon,
-      this.frostRibbon,
-      this.staffAloftRibbon,
-      this.hairReinStrand,
-    ].forEach((r) => {
+    [this.voidRibbon, this.frostRibbon, this.staffAloftRibbon].forEach((r) => {
       r.line.geometry.dispose();
       r.line.material.dispose();
     });

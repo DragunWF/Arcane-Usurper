@@ -523,54 +523,7 @@ export abstract class BossBase implements BossRigAdapter {
       };
     }
 
-    if (poseId === FINISHER_POSE_IDS.STAFF_LEAN) {
-      // Pose [4]: Left hand pushes against Dark Mage's cloak, Right hand pushes against his forearm,
-      // then both slip off to hang dead-weight at her sides.
-      return {
-        leftShoulderX: blend3(
-          cfg.staffLeftStage1ShoulderX + clearanceBias,
-          cfg.staffLeftStage2ShoulderX,
-          cfg.uprightStage3ShoulderX,
-        ),
-        leftShoulderZ: blend3(
-          cfg.staffLeftStage1ShoulderZ,
-          cfg.staffLeftStage2ShoulderZ,
-          -cfg.uprightStage3ShoulderZ,
-        ),
-        rightShoulderX: blend3(
-          cfg.staffRightStage1ShoulderX + clearanceBias,
-          cfg.staffRightStage2ShoulderX,
-          cfg.uprightStage3ShoulderX,
-        ),
-        rightShoulderZ: blend3(
-          cfg.staffRightStage1ShoulderZ,
-          cfg.staffRightStage2ShoulderZ,
-          cfg.uprightStage3ShoulderZ,
-        ),
-        leftElbowX: blend3(
-          cfg.staffLeftStage1ElbowX,
-          cfg.staffLeftStage2ElbowX,
-          cfg.uprightStage3ElbowX,
-        ),
-        leftElbowZ: blend3(
-          cfg.staffLeftStage1ElbowZ,
-          cfg.staffLeftStage2ElbowZ,
-          cfg.uprightStage3ElbowZ,
-        ),
-        rightElbowX: blend3(
-          cfg.staffRightStage1ElbowX,
-          cfg.staffRightStage2ElbowX,
-          cfg.uprightStage3ElbowX,
-        ),
-        rightElbowZ: blend3(
-          cfg.staffRightStage1ElbowZ,
-          cfg.staffRightStage2ElbowZ,
-          cfg.uprightStage3ElbowZ,
-        ),
-      };
-    }
-
-    // Poses [1] Chin-Lift Tilt & [3] Hair/Twin-Tail Reins:
+    // Pose [1] Upright Embrace:
     // Both elbows flare outward while palms brace against Dark Mage's upper chest/shoulders,
     // then elbows drop inward as hands slide down his ribs/cloak to hang limp at her sides.
     const shX = blend3(

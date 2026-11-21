@@ -1682,12 +1682,12 @@ export class MarinaRig extends BossBase {
     const isSurge = throttleMode === DRAIN_THROTTLE_MODES.SURGE;
     const isSavor = throttleMode === DRAIN_THROTTLE_MODES.SAVOR;
 
-    // 1. Resolve Target Base Bone Rotations for Poses [1-4]
-    let targetBodyY = 0.48;
+    // 1. Resolve Target Base Bone Rotations for Poses [1-2]
+    let targetBodyY = THREE.MathUtils.lerp(0.48, 0.45, limpness);
     let targetTorsoX = THREE.MathUtils.lerp(0.14, 0.28, limpness);
-    let targetTorsoZ = 0;
+    const targetTorsoZ = 0;
     let targetHeadX = -0.38;
-    let targetHeadZ = 0;
+    const targetHeadZ = 0;
     let targetLeftHipX = -0.18;
     let targetRightHipX = -0.18;
     let targetLeftKneeX = 1.72;
@@ -1695,7 +1695,7 @@ export class MarinaRig extends BossBase {
     let targetSkirtPitch = -0.44;
 
     if (poseId === FINISHER_POSE_IDS.BALLROOM_DIP) {
-      // Pose [2]: Glacial Ballroom Dip (~45° backward dip)
+      // Pose [2]: Ballroom Dip (~45° backward dip)
       targetBodyY = THREE.MathUtils.lerp(0.68, 0.64, limpness);
       targetTorsoX =
         -FINISHER_CONFIG.dipBossSpineAngleRad - limpness * 0.06;
@@ -1705,19 +1705,6 @@ export class MarinaRig extends BossBase {
       targetLeftKneeX = 0.52;
       targetRightKneeX = 0.34;
       targetSkirtPitch = -0.18;
-    } else if (poseId === FINISHER_POSE_IDS.HAIR_REINS) {
-      targetBodyY = THREE.MathUtils.lerp(0.49, 0.46, limpness);
-      targetTorsoX = THREE.MathUtils.lerp(0.16, 0.3, limpness);
-      targetHeadX = -0.44;
-      targetHeadZ = 0.05;
-    } else if (poseId === FINISHER_POSE_IDS.STAFF_LEAN) {
-      targetBodyY = THREE.MathUtils.lerp(0.48, 0.45, limpness);
-      targetTorsoX = THREE.MathUtils.lerp(0.15, 0.29, limpness);
-      targetTorsoZ = 0.04;
-      targetHeadX = -0.39;
-    } else {
-      // Pose [1]: Chin-Lift Tilt
-      targetBodyY = THREE.MathUtils.lerp(0.48, 0.45, limpness);
     }
 
     // Initialize lerp cache from live bone state on first finisher frame (zero initial snap)

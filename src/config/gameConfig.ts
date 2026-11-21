@@ -39,10 +39,8 @@ export type BossExpression =
   (typeof BOSS_EXPRESSIONS)[keyof typeof BOSS_EXPRESSIONS];
 
 export const FINISHER_POSE_IDS = Object.freeze({
-  CHIN_LIFT: 1,
+  UPRIGHT_EMBRACE: 1,
   BALLROOM_DIP: 2,
-  HAIR_REINS: 3,
-  STAFF_LEAN: 4,
 } as const);
 
 export type FinisherPoseId =
@@ -50,10 +48,8 @@ export type FinisherPoseId =
 
 export const FINISHER_POSE_LABELS: Readonly<Record<FinisherPoseId, string>> =
   Object.freeze({
-    1: 'Chin-Lift Tilt',
-    2: 'Glacial Ballroom Dip',
-    3: 'Silver-Hair Reins',
-    4: 'Staff-Prop Lean',
+    1: 'Upright Embrace',
+    2: 'Ballroom Dip',
   } as const);
 
 export const DRAIN_THROTTLE_MODES = Object.freeze({
@@ -893,13 +889,12 @@ export const FINISHER_CONFIG = Object.freeze({
   endlessSavorLockedProgress: 1.0,
   spaceTapSurgeBoost: 0.06,
 
-  // Dominance Pose Alignment & Smooth Reactive Animation (Zero Air Gap across [1-4])
+  // Dominance Pose Alignment & Smooth Reactive Animation (Zero Air Gap across [1-2])
+  poseCount: 2,
   defaultRootSeparation: 0.54,
   dipRootSeparation: 0.37,
   dipBossSpineAngleRad: Math.PI * 0.25,
   dipMageExtraPitch: 0.46,
-  reinsRootSeparation: 0.48,
-  staffLeanRootSeparation: 0.52,
   mikuWaistWrapRadius: 0.31,
   poseBlendSpeed: 6.5,
   poseTransitionDurationSec: 0.25,
@@ -916,14 +911,13 @@ export const FINISHER_CONFIG = Object.freeze({
   finisherStaffLightIntensity: 1.85,
   finisherStaffLightSurgeBoost: 0.45,
 
-  // Pose [2] (Glacial Ballroom Dip) Upright Skyward Staff Channeling Angles (~18° off vertical)
-  dipRightShoulderX: -2.48,
-  dipRightShoulderY: 0.14,
-  dipRightShoulderZ: -0.38,
-  dipRightElbowX: -1.18,
-  dipRightElbowZ: -0.1,
-  dipStaffRotX: 2.96,
-  dipStaffRotZ: -0.18,
+  // Planted Staff Positioning Beside Dark Mage During Finisher (Frees Both Hands)
+  staffPlantedLateralOffset: 0.92,
+  staffPlantedForwardOffset: -0.15,
+  staffPlantedBaseY: 0.0,
+  staffPlantedTiltZRad: -0.06,
+  staffPlantedTiltXRad: 0.04,
+  staffFerruleBottomOffsetY: 0.99,
 
   // Coupled Lip-Pivot Head Choreography & Asymmetric -> <- Kiss Press-and-Ease (All 4 Poses)
   kissPressDepth: 0.022,
@@ -1012,7 +1006,7 @@ export const FINISHER_RESISTANCE_CONFIG = Object.freeze({
   spineResistanceHeadBaseZ: 0.008,
 
   // Pose-Specific 3-Stage Arm Kinematics (Zero Chest Clipping)
-  // Poses [1] Chin-Lift Tilt & [3] Hair/Twin-Tail Reins
+  // Pose [1] Upright Embrace
   uprightStage1ShoulderX: 0.08,
   uprightStage1ShoulderZ: 0.38,
   uprightStage1ElbowX: -2.18,
@@ -1052,24 +1046,6 @@ export const FINISHER_RESISTANCE_CONFIG = Object.freeze({
   dipOuterStage3ShoulderZ: -0.11,
   dipOuterStage3ElbowX: -0.1,
   dipOuterStage3ElbowZ: 0.0,
-
-  // Pose [4] Staff-Prop Lean (Left hand pushes cloak/chest, Right hand braces against Mage's forearm)
-  staffLeftStage1ShoulderX: 0.06,
-  staffLeftStage1ShoulderZ: -0.36,
-  staffLeftStage1ElbowX: -2.02,
-  staffLeftStage1ElbowZ: 0.3,
-  staffRightStage1ShoulderX: -0.1,
-  staffRightStage1ShoulderZ: 0.34,
-  staffRightStage1ElbowX: -2.16,
-  staffRightStage1ElbowZ: -0.34,
-  staffLeftStage2ShoulderX: 0.0,
-  staffLeftStage2ShoulderZ: -0.18,
-  staffLeftStage2ElbowX: -1.06,
-  staffLeftStage2ElbowZ: 0.14,
-  staffRightStage2ShoulderX: -0.04,
-  staffRightStage2ShoulderZ: 0.18,
-  staffRightStage2ElbowX: -1.08,
-  staffRightStage2ElbowZ: -0.14,
 
   // Boss-Specific Silhouette Fatigue
   marinaRibbonTailStage1X: 0.26,
