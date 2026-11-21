@@ -476,12 +476,14 @@ export class FinisherSystem implements ISystem {
     const dirX = Math.sin(bossYaw);
     const dirZ = Math.cos(bossYaw);
 
+    const isTauntStunned = sb.tauntDizzyTimer > 0;
     activeRig.applyFinisherPose(
       sb.finisherPose,
       sb.siphonProgress,
       elapsed,
       dt,
       throttle,
+      isTauntStunned,
       headChoreography,
     );
     activeRig.root.updateMatrixWorld(true);

@@ -8,6 +8,7 @@ import {
   DRAIN_THROTTLE_MODES,
   FINISHER_CONFIG,
   FINISHER_POSE_IDS,
+  FINISHER_RESISTANCE_CONFIG,
   GAME_STATES,
   PALETTE,
   SIPHON_GALLERY_CONFIG,
@@ -19,10 +20,10 @@ import {
 } from '../../config/gameConfig';
 import { ToonAssets } from '../../engine/ToonAssets';
 import {
+  BossBase,
   applyMaterialBleach,
   computeFinisherHeadChoreography,
   restoreDrainableMaterials,
-  type BossRigAdapter,
   type FinisherHeadChoreography,
   type MaterialBleachMetadata,
 } from './BossBase';
@@ -64,8 +65,16 @@ interface MarinaFinisherBoneState {
   rightShoulderX: number;
   rightShoulderZ: number;
   leftElbowX: number;
+  leftElbowZ: number;
   rightElbowX: number;
+  rightElbowZ: number;
   skirtBasePitch: number;
+}
+
+interface DressRibbonRecord {
+  readonly side: -1 | 1;
+  readonly loopMesh: THREE.Mesh;
+  readonly tailPivot: THREE.Group;
 }
 
 /**
@@ -73,7 +82,7 @@ interface MarinaFinisherBoneState {
  * Ported verbatim from the legacy Glacial Spire monolith and implementing
  * the standardized BossRigAdapter contract (LSP & SRP).
  */
-export class MarinaRig implements BossRigAdapter {
+export class MarinaRig extends BossBase {
   public readonly id: string = BOSS_CONFIG.defaultId;
   public readonly displayName: string = BOSS_CONFIG.defaultDisplayName;
   public readonly title: string = BOSS_CONFIG.defaultTitle;
@@ -89,6 +98,7 @@ export class MarinaRig implements BossRigAdapter {
   private readonly rimFlashMaterials: THREE.MeshToonMaterial[] = [];
   private readonly hairRibbons: HairRibbonRecord[] = [];
   private readonly skirtPanels: SkirtPanelRecord[] = [];
+  private readonly dressRibbons: DressRibbonRecord[] = [];
 
   // Dynamic 512x512 Offscreen Face Canvas & Texture
   private readonly faceCanvas: HTMLCanvasElement;
@@ -154,15 +164,18 @@ export class MarinaRig implements BossRigAdapter {
     leftKneeX: 1.72,
     rightKneeX: 1.72,
     leftShoulderX: -0.28,
-    leftShoulderZ: 0.2,
+    leftShoulderZ: -0.2,
     rightShoulderX: -0.28,
-    rightShoulderZ: -0.2,
+    rightShoulderZ: 0.2,
     leftElbowX: -0.55,
+    leftElbowZ: 0,
     rightElbowX: -0.55,
+    rightElbowZ: 0,
     skirtBasePitch: -0.44,
   };
 
   constructor(parent: THREE.Object3D) {
+    super();
     this.parent = parent;
     this.root = new THREE.Group();
     this.bodyPivot = new THREE.Group();
@@ -487,14 +500,20 @@ export class MarinaRig implements BossRigAdapter {
       loop.rotation.y = -s * 0.25;
       bowGroup.add(loop);
 
+      const tailPivot = new THREE.Group();
+      tailPivot.position.set(s * 0.055, 0, -0.01);
+      tailPivot.rotation.z = s * 0.14;
+      tailPivot.rotation.x = 0.24;
+      bowGroup.add(tailPivot);
+
       const tail = new THREE.Mesh(
         new THREE.BoxGeometry(0.055, 0.42, 0.016),
         this.matSapphireRibbon,
       );
-      tail.position.set(s * 0.055, -0.21, -0.05);
-      tail.rotation.z = s * 0.14;
-      tail.rotation.x = 0.24;
-      bowGroup.add(tail);
+      tail.position.set(0, -0.21, -0.04);
+      tailPivot.add(tail);
+
+      this.dressRibbons.push({ side: s, loopMesh: loop, tailPivot });
     }
 
     const panelCount = 10;
@@ -1633,6 +1652,7 @@ export class MarinaRig implements BossRigAdapter {
     time: number,
     dt = 1 / 60,
     throttleMode: DrainThrottleMode = DRAIN_THROTTLE_MODES.FLOW,
+    isTauntStunned = false,
     headChoreography?: FinisherHeadChoreography,
   ): void {
     this.applyDrainBleach(drainProgress);
@@ -1647,14 +1667,17 @@ export class MarinaRig implements BossRigAdapter {
         -safeDt / (FINISHER_CONFIG.poseTransitionDurationSec * 0.35),
       );
 
-    // Progressive vitality (0% -> 50%) vs limpness (50% -> 100% & Endless Savor)
-    const half = FINISHER_CONFIG.limpThreshold;
-    const earlyResistance = 1 - THREE.MathUtils.clamp(drainProgress / half, 0, 1);
-    const limpness = THREE.MathUtils.clamp(
-      (drainProgress - half) / (1 - half),
-      0,
-      1,
+    // Shared 3-stage resistance-to-limp curves (Stage 1: 0-35%, Stage 2: 35-75%, Stage 3: 75-100%)
+    const resistance = this.computeResistanceState(
+      drainProgress,
+      time,
+      throttleMode,
+      isTauntStunned,
+      safeDt,
     );
+    const armTargets = this.computeResistanceArmTargets(poseId, resistance);
+    const limpness = resistance.limpFactor;
+    const earlyWeight = 1 - limpness;
 
     const isSurge = throttleMode === DRAIN_THROTTLE_MODES.SURGE;
     const isSavor = throttleMode === DRAIN_THROTTLE_MODES.SAVOR;
@@ -1697,11 +1720,6 @@ export class MarinaRig implements BossRigAdapter {
       targetBodyY = THREE.MathUtils.lerp(0.48, 0.45, limpness);
     }
 
-    // Arms transition from clutching/resisting (-0.34) to deeply slumped & hanging limp (+0.12)
-    const targetShoulderX = THREE.MathUtils.lerp(-0.34, 0.12, limpness);
-    const targetShoulderZ = THREE.MathUtils.lerp(0.24, 0.06, limpness);
-    const targetElbowX = THREE.MathUtils.lerp(-0.68, -0.05, limpness);
-
     // Initialize lerp cache from live bone state on first finisher frame (zero initial snap)
     const st = this.finisherPoseState;
     if (!st.initialized) {
@@ -1720,11 +1738,13 @@ export class MarinaRig implements BossRigAdapter {
       st.rightShoulderX = this.rightShoulderPivot.rotation.x;
       st.rightShoulderZ = this.rightShoulderPivot.rotation.z;
       st.leftElbowX = this.leftElbowPivot.rotation.x;
+      st.leftElbowZ = this.leftElbowPivot.rotation.z;
       st.rightElbowX = this.rightElbowPivot.rotation.x;
+      st.rightElbowZ = this.rightElbowPivot.rotation.z;
       st.skirtBasePitch = targetSkirtPitch;
     }
 
-    // Smooth ~0.25s interpolation toward target pose
+    // Smooth ~0.25s interpolation toward target pose & 3-stage resistance arm targets
     st.bodyY = THREE.MathUtils.lerp(st.bodyY, targetBodyY, lerpAlpha);
     st.torsoX = THREE.MathUtils.lerp(st.torsoX, targetTorsoX, lerpAlpha);
     st.torsoZ = THREE.MathUtils.lerp(st.torsoZ, targetTorsoZ, lerpAlpha);
@@ -1740,32 +1760,42 @@ export class MarinaRig implements BossRigAdapter {
     );
     st.leftShoulderX = THREE.MathUtils.lerp(
       st.leftShoulderX,
-      targetShoulderX,
+      armTargets.leftShoulderX,
       lerpAlpha,
     );
     st.leftShoulderZ = THREE.MathUtils.lerp(
       st.leftShoulderZ,
-      targetShoulderZ,
+      armTargets.leftShoulderZ,
       lerpAlpha,
     );
     st.rightShoulderX = THREE.MathUtils.lerp(
       st.rightShoulderX,
-      targetShoulderX,
+      armTargets.rightShoulderX,
       lerpAlpha,
     );
     st.rightShoulderZ = THREE.MathUtils.lerp(
       st.rightShoulderZ,
-      -targetShoulderZ,
+      armTargets.rightShoulderZ,
       lerpAlpha,
     );
     st.leftElbowX = THREE.MathUtils.lerp(
       st.leftElbowX,
-      targetElbowX,
+      armTargets.leftElbowX,
+      lerpAlpha,
+    );
+    st.leftElbowZ = THREE.MathUtils.lerp(
+      st.leftElbowZ,
+      armTargets.leftElbowZ,
       lerpAlpha,
     );
     st.rightElbowX = THREE.MathUtils.lerp(
       st.rightElbowX,
-      targetElbowX,
+      armTargets.rightElbowX,
+      lerpAlpha,
+    );
+    st.rightElbowZ = THREE.MathUtils.lerp(
+      st.rightElbowZ,
+      armTargets.rightElbowZ,
       lerpAlpha,
     );
     st.skirtBasePitch = THREE.MathUtils.lerp(
@@ -1774,10 +1804,7 @@ export class MarinaRig implements BossRigAdapter {
       lerpAlpha,
     );
 
-    // 2. Reactive Breathing & Trembling-to-Limpness Layers
-    // 0%->50%: rapid shallow chest breathing (5.5 rad/s) + forearm/wrist trembling
-    // 50%->100% (& Endless Savor): deep exhausted slow breathing + passive pendulum arm sway
-    const earlyWeight = 1 - limpness;
+    // 2. Reactive Breathing, Struggle Tremor & Cadence-Synced Limp Pendulum Sway
     const earlyBreath = Math.sin(time * FINISHER_CONFIG.earlyBreathFreq);
     const lateBreath = Math.sin(time * FINISHER_CONFIG.lateBreathFreq);
 
@@ -1786,67 +1813,37 @@ export class MarinaRig implements BossRigAdapter {
     const chestBreathLift =
       earlyBreath * 0.008 * earlyWeight + lateBreath * 0.014 * limpness;
     const shoulderBreathHeave =
-      earlyBreath * 0.065 * earlyWeight + lateBreath * 0.04 * limpness;
+      earlyBreath * 0.055 * earlyWeight + lateBreath * 0.035 * limpness;
 
-    // Throttle modulation: SURGE amplifies micro-shudder; SAVOR adds dreamy slow sway
-    const throttleTrembleScale = isSurge
-      ? FINISHER_CONFIG.surgeShudderMultiplier
-      : isSavor
-        ? FINISHER_CONFIG.savorSwayMultiplier
-        : 1.0;
-
-    // Active trembling curve peaks in 0%->50% and fades cleanly to 0 past 50%
-    const trembleEnvelope =
-      (0.35 + earlyResistance * 0.65) * earlyWeight * throttleTrembleScale;
-    const surgeShudder = isSurge
-      ? Math.sin(time * 34.0) * 0.018 * (1 - limpness * 0.55)
-      : 0;
+    const surgeShudder =
+      isSurge && !isTauntStunned
+        ? Math.sin(time * 34.0) * 0.018 * (1 - limpness * 0.7)
+        : 0;
     const savorDreamySway = isSavor
       ? Math.sin(time * FINISHER_CONFIG.savorSwayFreq) * 0.032
       : Math.sin(time * 1.4) * 0.012;
 
-    const leftForearmTremble =
-      Math.sin(time * FINISHER_CONFIG.trembleFreq) * 0.048 * trembleEnvelope;
-    const rightForearmTremble =
-      Math.sin(time * FINISHER_CONFIG.trembleSecondaryFreq + 1.3) *
-      0.048 *
-      trembleEnvelope;
-    const wristRollTremble =
-      Math.cos(time * (FINISHER_CONFIG.trembleFreq + 4.5)) *
-      0.036 *
-      trembleEnvelope;
+    const leftTremor = resistance.tremorOffset;
+    const rightTremor = resistance.tremorSecondaryOffset;
+    const pendulumPrimary = resistance.limpSwayOffset;
+    const pendulumSecondary = resistance.limpElbowSwayOffset;
+    const pendulumCross = resistance.limpCrossSwayOffset;
 
-    // Passive pendulum arm & wrist sway in 50%->100% drain and Endless Savor
-    const pendulumPrimary =
-      Math.sin(time * FINISHER_CONFIG.pendulumFreq) *
-      FINISHER_CONFIG.pendulumAmp *
-      limpness;
-    const pendulumSecondary =
-      Math.sin(time * FINISHER_CONFIG.pendulumFreq - 0.85) *
-      FINISHER_CONFIG.pendulumAmp *
-      0.95 *
-      limpness;
-    const pendulumCross =
-      Math.cos(time * FINISHER_CONFIG.pendulumFreq * 0.72) *
-      0.045 *
-      limpness;
-
-    // 3. Apply Pose to Skeleton — Head counter-stabilizes chest heave so mouth stays locked as fixed pivot
+    // 3. Apply Pose to Skeleton — headAnchor is mathematically decoupled from spineResistanceOffset
     this.frostHalo.visible = false;
     this.phaseAuroraRings.visible = false;
 
     this.bodyPivot.position.y = st.bodyY + chestBreathLift;
     this.bodyPivot.rotation.set(0, 0, savorDreamySway * 0.35);
 
+    const spineResistDelta = resistance.spineResistanceOffset;
     this.torsoGroup.rotation.set(
-      st.torsoX + chestBreathPitch + surgeShudder * 0.5,
+      st.torsoX + spineResistDelta + chestBreathPitch + surgeShudder * 0.5,
       0,
       st.torsoZ + savorDreamySway + surgeShudder,
     );
-    // Coupled -> <- press-and-ease head choreography:
-    // - Translates headGroup along its local face normal (+Z) by bossFaceNormalOffset
-    //   (leaning eagerly into early presses 0->50%, yielding softly back past 50% & Endless Savor)
-    // - Complementary pitch nod/yield, alternating subtle roll, and early neck tremor
+
+    // Coupled -> <- press-and-ease head choreography with exact spine resistance decoupling
     const bossHeadPitch =
       st.headX -
       chestBreathPitch * 0.85 +
@@ -1859,14 +1856,13 @@ export class MarinaRig implements BossRigAdapter {
       savorDreamySway * 0.65 +
       headAnim.roll * headAnim.bossYieldScale +
       headAnim.bossTremor;
-    this.headGroup.rotation.set(bossHeadPitch, bossHeadYaw, bossHeadRoll);
-
-    // Apply face-normal travel in torso local space so Pose [2] dipped head yields accurately along its normal
-    const headPitchForNormal = bossHeadPitch;
-    this.headGroup.position.set(
-      0,
-      0.515 - Math.sin(headPitchForNormal) * headAnim.bossFaceNormalOffset,
-      0.008 + Math.cos(headPitchForNormal) * headAnim.bossFaceNormalOffset,
+    this.applyDecoupledHeadTransform(
+      this.headGroup,
+      bossHeadPitch,
+      spineResistDelta,
+      bossHeadYaw,
+      bossHeadRoll,
+      headAnim.bossFaceNormalOffset,
     );
 
     this.leftLegPivot.rotation.set(st.leftHipX, 0, -0.08);
@@ -1875,40 +1871,86 @@ export class MarinaRig implements BossRigAdapter {
     this.rightKneePivot.rotation.x = st.rightKneeX;
 
     this.leftShoulderPivot.rotation.set(
-      st.leftShoulderX - shoulderBreathHeave + pendulumPrimary + surgeShudder,
+      st.leftShoulderX -
+        shoulderBreathHeave * (0.4 + 0.6 * resistance.pushStrength) +
+        leftTremor * 0.55 +
+        pendulumPrimary +
+        surgeShudder,
       0,
-      st.leftShoulderZ + pendulumCross + leftForearmTremble * 0.45,
+      st.leftShoulderZ + pendulumCross - leftTremor * 0.45,
     );
     this.rightShoulderPivot.rotation.set(
-      st.rightShoulderX - shoulderBreathHeave - pendulumPrimary - surgeShudder,
+      st.rightShoulderX -
+        shoulderBreathHeave * (0.4 + 0.6 * resistance.pushStrength) +
+        rightTremor * 0.55 -
+        pendulumPrimary -
+        surgeShudder,
       0,
-      st.rightShoulderZ - pendulumCross - rightForearmTremble * 0.45,
+      st.rightShoulderZ - pendulumCross + rightTremor * 0.45,
     );
     this.leftElbowPivot.rotation.set(
-      st.leftElbowX + leftForearmTremble + pendulumSecondary,
+      st.leftElbowX + leftTremor + pendulumSecondary,
       0,
-      wristRollTremble + pendulumCross * 0.7,
+      st.leftElbowZ + leftTremor * 0.35 + pendulumCross * 0.7,
     );
     this.rightElbowPivot.rotation.set(
-      st.rightElbowX + rightForearmTremble - pendulumSecondary,
+      st.rightElbowX + rightTremor - pendulumSecondary,
       0,
-      -wristRollTremble - pendulumCross * 0.7,
+      st.rightElbowZ - rightTremor * 0.35 - pendulumCross * 0.7,
     );
 
-    // 4. Continuous Gown Hem Billowing
+    // 4. Marina Silhouette Fatigue: Crystalline Dress-Ribbons & Gown Hem Relax Downward
+    const rCfg = FINISHER_RESISTANCE_CONFIG;
+    const isDip = poseId === FINISHER_POSE_IDS.BALLROOM_DIP;
+    const fatigue = THREE.MathUtils.clamp(drainProgress, 0, 1);
+    const ribbonFlutter =
+      Math.sin(time * (isSurge ? 4.4 : 2.1)) * (0.045 * (1 - fatigue * 0.55));
+    for (let i = 0; i < this.dressRibbons.length; i++) {
+      const dr = this.dressRibbons[i];
+      if (!dr) continue;
+      const tailTargetX = isDip
+        ? THREE.MathUtils.lerp(
+            rCfg.marinaRibbonTailStage1X,
+            rCfg.marinaRibbonTailDipStage3X,
+            fatigue,
+          )
+        : THREE.MathUtils.lerp(
+            rCfg.marinaRibbonTailStage1X,
+            rCfg.marinaRibbonTailStage3X,
+            fatigue,
+          );
+      const tailTargetZ =
+        dr.side *
+        THREE.MathUtils.lerp(
+          rCfg.marinaRibbonTailStage1Z,
+          rCfg.marinaRibbonTailStage3Z,
+          fatigue,
+        );
+      const loopTargetZ =
+        dr.side *
+        THREE.MathUtils.lerp(
+          rCfg.marinaRibbonLoopStage1Z,
+          rCfg.marinaRibbonLoopStage3Z,
+          fatigue,
+        );
+      dr.tailPivot.rotation.x = tailTargetX + ribbonFlutter;
+      dr.tailPivot.rotation.z = tailTargetZ + pendulumCross * 0.35;
+      dr.loopMesh.rotation.z = loopTargetZ;
+    }
+
     const gownSpeed = isSurge ? 4.4 : isSavor ? 1.45 : 2.5;
     const gownAmp = isSurge ? 0.062 : isSavor ? 0.032 : 0.044;
     for (let i = 0; i < this.skirtPanels.length; i++) {
       const sp = this.skirtPanels[i];
       if (!sp) continue;
       const billow = Math.sin(time * gownSpeed + sp.angle * 2.0) * gownAmp;
-      sp.pivot.rotation.x = st.skirtBasePitch + billow;
+      sp.pivot.rotation.x =
+        st.skirtBasePitch + fatigue * rCfg.marinaSkirtRelaxDelta + billow;
     }
 
     // 5. Continuous Volumetric Silver-White Hair Cascade Motion
     const hairSpeed = isSurge ? 4.6 : isSavor ? 1.55 : 2.5;
     const hairAmp = isSurge ? 0.11 : isSavor ? 0.055 : 0.075;
-    const isDip = poseId === FINISHER_POSE_IDS.BALLROOM_DIP;
     const targetRootX = isDip ? 0.54 : 0.32;
     const targetMidX = isDip ? 0.36 : 0.46;
     const targetTipX = isDip ? 0.24 : 0.62;
@@ -1962,6 +2004,7 @@ export class MarinaRig implements BossRigAdapter {
    */
   public applyVictoryCollapsePose(time: number): void {
     this.finisherPoseState.initialized = false;
+    this.resetResistanceState();
     this.applyDrainBleach(1.0);
     this.frostHalo.visible = false;
     this.phaseAuroraRings.visible = false;
@@ -2063,6 +2106,13 @@ export class MarinaRig implements BossRigAdapter {
 
     this.staggerBlend = 0;
     this.finisherPoseState.initialized = false;
+    this.resetResistanceState();
+    for (let i = 0; i < this.dressRibbons.length; i++) {
+      const dr = this.dressRibbons[i];
+      if (!dr) continue;
+      dr.tailPivot.rotation.set(0.24, 0, dr.side * 0.14);
+      dr.loopMesh.rotation.z = dr.side * 0.26;
+    }
     this.hitFlashTimer = 0;
     this.castAnimTimer = 0;
     this.accessoryFlickTimer = 0;
@@ -2097,6 +2147,7 @@ export class MarinaRig implements BossRigAdapter {
     const depletion = 1 - clampedCharge;
 
     this.finisherPoseState.initialized = false;
+    this.resetResistanceState();
     this.applyDrainBleach(depletion);
 
     // Facial expression tracks her cryogenic core recharge level

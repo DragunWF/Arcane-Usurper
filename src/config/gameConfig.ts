@@ -973,6 +973,137 @@ export const FINISHER_CONFIG = Object.freeze({
   puppetCrystalBobAmp: 0.12,
 } as const);
 
+export const FINISHER_RESISTANCE_CONFIG = Object.freeze({
+  // 3-Stage Resistance-to-Limp Thresholds (0% -> 35% Active Push, 35% -> 75% Fading, 75% -> 100% Limp)
+  stage1End: 0.35,
+  stage2End: 0.75,
+  stage1PushEnd: 0.82,
+  stage2PushEnd: 0.08,
+  stage1SlideEnd: 0.14,
+  stage2SlideEnd: 0.88,
+  stage2LimpEnd: 0.25,
+
+  // Tremor, Intermittent Shoves & Throttle Reactivity
+  baseTremorFreqHz: 4.4,
+  secondaryTremorFreqHz: 5.8,
+  stage2ShoveFreqHz: 1.55,
+  baseTremorAmpRad: 0.048,
+  stage2ShoveScale: 0.78,
+  surgeTremorAmpMultiplier: 2.15,
+  savorTremorAmpMultiplier: 0.45,
+  tauntStunSlackBlendRate: 11.5,
+
+  // Clip-Free Chest Push Clearance & Cadence-Synced Limp Pendulum Sway
+  chestPushSurfaceOffset: 0.24,
+  chestPushReferenceOffset: 0.24,
+  chestPushClearancePitchGain: 1.6,
+  limpPendulumFreqHz: 1.25,
+  limpPendulumAmpRad: 0.095,
+  limpPendulumElbowRatio: 0.9,
+  limpPendulumCrossAmpRad: 0.045,
+  limpPendulumPhaseLagRad: 0.55,
+  limpPendulumElbowPhaseLagRad: 1.35,
+
+  // Upper-Spine Resistance Arch -> Embrace Softening (decoupled from headAnchor!)
+  stage1SpineArchRad: -0.055,
+  stage2SpineSoftenRad: 0.045,
+  stage3SpineSlumpRad: 0.085,
+  spineResistanceHeadBaseY: 0.515,
+  spineResistanceHeadBaseZ: 0.008,
+
+  // Pose-Specific 3-Stage Arm Kinematics (Zero Chest Clipping)
+  // Poses [1] Chin-Lift Tilt & [3] Hair/Twin-Tail Reins
+  uprightStage1ShoulderX: 0.08,
+  uprightStage1ShoulderZ: 0.38,
+  uprightStage1ElbowX: -2.18,
+  uprightStage1ElbowZ: 0.34,
+  uprightStage2ShoulderX: -0.02,
+  uprightStage2ShoulderZ: 0.17,
+  uprightStage2ElbowX: -1.08,
+  uprightStage2ElbowZ: 0.16,
+  uprightStage3ShoulderX: 0.16,
+  uprightStage3ShoulderZ: 0.1,
+  uprightStage3ElbowX: -0.1,
+  uprightStage3ElbowZ: 0.0,
+
+  // Pose [2] Ballroom Dip (Inner Right Hand braces his shoulder; Outer Left Arm reaches back -> both droop)
+  dipInnerStage1ShoulderX: -0.52,
+  dipInnerStage1ShoulderZ: 0.32,
+  dipInnerStage1ElbowX: -1.42,
+  dipInnerStage1ElbowZ: -0.34,
+  dipInnerStage2ShoulderX: 0.22,
+  dipInnerStage2ShoulderZ: 0.18,
+  dipInnerStage2ElbowX: -0.68,
+  dipInnerStage2ElbowZ: -0.12,
+  dipInnerStage3ShoulderX: 0.8,
+  dipInnerStage3ShoulderZ: 0.11,
+  dipInnerStage3ElbowX: -0.12,
+  dipInnerStage3ElbowZ: 0.0,
+
+  dipOuterStage1ShoulderX: 0.38,
+  dipOuterStage1ShoulderZ: -0.56,
+  dipOuterStage1ElbowX: -0.36,
+  dipOuterStage1ElbowZ: -0.14,
+  dipOuterStage2ShoulderX: 0.62,
+  dipOuterStage2ShoulderZ: -0.3,
+  dipOuterStage2ElbowX: -0.22,
+  dipOuterStage2ElbowZ: -0.05,
+  dipOuterStage3ShoulderX: 0.82,
+  dipOuterStage3ShoulderZ: -0.11,
+  dipOuterStage3ElbowX: -0.1,
+  dipOuterStage3ElbowZ: 0.0,
+
+  // Pose [4] Staff-Prop Lean (Left hand pushes cloak/chest, Right hand braces against Mage's forearm)
+  staffLeftStage1ShoulderX: 0.06,
+  staffLeftStage1ShoulderZ: -0.36,
+  staffLeftStage1ElbowX: -2.02,
+  staffLeftStage1ElbowZ: 0.3,
+  staffRightStage1ShoulderX: -0.1,
+  staffRightStage1ShoulderZ: 0.34,
+  staffRightStage1ElbowX: -2.16,
+  staffRightStage1ElbowZ: -0.34,
+  staffLeftStage2ShoulderX: 0.0,
+  staffLeftStage2ShoulderZ: -0.18,
+  staffLeftStage2ElbowX: -1.06,
+  staffLeftStage2ElbowZ: 0.14,
+  staffRightStage2ShoulderX: -0.04,
+  staffRightStage2ShoulderZ: 0.18,
+  staffRightStage2ElbowX: -1.08,
+  staffRightStage2ElbowZ: -0.14,
+
+  // Boss-Specific Silhouette Fatigue
+  marinaRibbonTailStage1X: 0.26,
+  marinaRibbonTailStage3X: 0.03,
+  marinaRibbonTailDipStage3X: 0.48,
+  marinaRibbonTailStage1Z: 0.16,
+  marinaRibbonTailStage3Z: 0.04,
+  marinaRibbonLoopStage1Z: 0.28,
+  marinaRibbonLoopStage3Z: 0.08,
+  marinaSkirtRelaxDelta: 0.06,
+
+  serenaTailUncurlSeg1X: 0.22,
+  serenaTailUncurlSeg2X: -0.18,
+  serenaTailUncurlSeg3X: -0.08,
+  serenaTailUncurlSeg4X: -0.04,
+  serenaDipTailUncurlSeg1X: -0.24,
+  serenaDipTailUncurlSeg2X: -0.26,
+  serenaDipTailUncurlSeg3X: -0.22,
+  serenaDipTailUncurlSeg4X: -0.14,
+  serenaTailYawRelaxScale: 0.42,
+  serenaTailRollRelaxScale: 0.48,
+
+  mikuTailFlareStage1: 0.6,
+  mikuTailFlareStage3: 0.16,
+  mikuDipTailFlareStage1: 0.64,
+  mikuDipTailFlareStage3: 0.22,
+  mikuTailSeg2FlareStage1: 0.16,
+  mikuTailSeg2FlareStage3: 0.02,
+  mikuTailSeg1DroopRad: 0.26,
+  mikuTailSeg2DroopRad: 0.32,
+  mikuTailSeg3DroopRad: 0.34,
+  mikuTailSeg4DroopRad: 0.28,
+} as const);
+
 // ============================================================================
 // VICTORY / ENDLESS SAVOR / DEFEAT PUPPET DIORAMA CONFIGURATION (BLOCK 5)
 // ============================================================================

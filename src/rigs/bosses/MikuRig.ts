@@ -8,6 +8,7 @@ import {
   DRAIN_THROTTLE_MODES,
   FINISHER_CONFIG,
   FINISHER_POSE_IDS,
+  FINISHER_RESISTANCE_CONFIG,
   GAME_STATES,
   MIKU_CONFIG,
   PALETTE,
@@ -20,10 +21,10 @@ import {
 } from '../../config/gameConfig';
 import { ToonAssets } from '../../engine/ToonAssets';
 import {
+  BossBase,
   applyMaterialBleach,
   computeFinisherHeadChoreography,
   restoreDrainableMaterials,
-  type BossRigAdapter,
   type FinisherHeadChoreography,
   type MaterialBleachMetadata,
 } from './BossBase';
@@ -65,7 +66,9 @@ interface MikuFinisherPoseCache {
   rightShoulderX: number;
   rightShoulderZ: number;
   leftElbowX: number;
+  leftElbowZ: number;
   rightElbowX: number;
+  rightElbowZ: number;
   skirtBasePitch: number;
 }
 
@@ -78,11 +81,11 @@ interface MikuFinisherPoseCache {
  *   short pleated skirt with cyan hem trim, thigh-high cyber boots, and floating headset mic
  * - 512x512 CanvasTexture emerald anime face, zero-gap lip alignment across [1-4], and Victory/Defeat dioramas
  */
-export class MikuRig implements BossRigAdapter {
+export class MikuRig extends BossBase {
   public readonly id = MIKU_CONFIG.id;
   public readonly displayName = MIKU_CONFIG.displayName;
   public readonly title = MIKU_CONFIG.title;
-  public readonly waistWrapRadius = FINISHER_CONFIG.mikuWaistWrapRadius;
+  public override readonly waistWrapRadius = FINISHER_CONFIG.mikuWaistWrapRadius;
 
   public readonly root = new THREE.Group();
   public readonly headAnchor = new THREE.Object3D();
@@ -167,15 +170,18 @@ export class MikuRig implements BossRigAdapter {
     leftKneeX: 1.72,
     rightKneeX: 1.72,
     leftShoulderX: -0.34,
-    leftShoulderZ: 0.24,
+    leftShoulderZ: -0.24,
     rightShoulderX: -0.34,
-    rightShoulderZ: -0.24,
+    rightShoulderZ: 0.24,
     leftElbowX: -0.68,
+    leftElbowZ: 0,
     rightElbowX: -0.68,
+    rightElbowZ: 0,
     skirtBasePitch: -0.32,
   };
 
   constructor(parent: THREE.Object3D) {
+    super();
     this.parent = parent;
     this.root.name = 'MikuTheHarmonicSovereign';
 
@@ -1579,6 +1585,7 @@ export class MikuRig implements BossRigAdapter {
     time: number,
     dt = 1 / 60,
     throttleMode: DrainThrottleMode = DRAIN_THROTTLE_MODES.FLOW,
+    isTauntStunned = false,
     headChoreography?: FinisherHeadChoreography,
   ): void {
     this.applyDrainBleach(drainProgress);
@@ -1593,16 +1600,22 @@ export class MikuRig implements BossRigAdapter {
         -safeDt / (FINISHER_CONFIG.poseTransitionDurationSec * 0.35),
       );
 
-    const half = FINISHER_CONFIG.limpThreshold;
-    const earlyResistance = 1 - THREE.MathUtils.clamp(drainProgress / half, 0, 1);
-    const limpness = THREE.MathUtils.clamp(
-      (drainProgress - half) / (1 - half),
-      0,
-      1,
+    // Shared 3-stage resistance-to-limp curves (Stage 1: 0-35%, Stage 2: 35-75%, Stage 3: 75-100%)
+    const resistance = this.computeResistanceState(
+      drainProgress,
+      time,
+      throttleMode,
+      isTauntStunned,
+      safeDt,
     );
+    const armTargets = this.computeResistanceArmTargets(poseId, resistance);
+    const limpness = resistance.limpFactor;
+    const earlyWeight = 1 - limpness;
+    const fatigue = THREE.MathUtils.clamp(drainProgress, 0, 1);
 
     const isSurge = throttleMode === DRAIN_THROTTLE_MODES.SURGE;
     const isSavor = throttleMode === DRAIN_THROTTLE_MODES.SAVOR;
+    const rCfg = FINISHER_RESISTANCE_CONFIG;
 
     // 1. Target Base Stances for Poses [1-4]
     let targetBodyY = 0.48;
@@ -1643,10 +1656,6 @@ export class MikuRig implements BossRigAdapter {
       targetBodyY = THREE.MathUtils.lerp(0.48, 0.45, limpness);
     }
 
-    const targetShoulderX = THREE.MathUtils.lerp(-0.34, 0.12, limpness);
-    const targetShoulderZ = THREE.MathUtils.lerp(0.24, 0.06, limpness);
-    const targetElbowX = THREE.MathUtils.lerp(-0.68, -0.05, limpness);
-
     const st = this.finisherPoseState;
     if (!st.initialized) {
       st.initialized = true;
@@ -1664,7 +1673,9 @@ export class MikuRig implements BossRigAdapter {
       st.rightShoulderX = this.rightShoulderPivot.rotation.x;
       st.rightShoulderZ = this.rightShoulderPivot.rotation.z;
       st.leftElbowX = this.leftElbowPivot.rotation.x;
+      st.leftElbowZ = this.leftElbowPivot.rotation.z;
       st.rightElbowX = this.rightElbowPivot.rotation.x;
+      st.rightElbowZ = this.rightElbowPivot.rotation.z;
       st.skirtBasePitch = targetSkirtPitch;
     }
 
@@ -1683,28 +1694,42 @@ export class MikuRig implements BossRigAdapter {
     );
     st.leftShoulderX = THREE.MathUtils.lerp(
       st.leftShoulderX,
-      targetShoulderX,
+      armTargets.leftShoulderX,
       lerpAlpha,
     );
     st.leftShoulderZ = THREE.MathUtils.lerp(
       st.leftShoulderZ,
-      targetShoulderZ,
+      armTargets.leftShoulderZ,
       lerpAlpha,
     );
     st.rightShoulderX = THREE.MathUtils.lerp(
       st.rightShoulderX,
-      targetShoulderX,
+      armTargets.rightShoulderX,
       lerpAlpha,
     );
     st.rightShoulderZ = THREE.MathUtils.lerp(
       st.rightShoulderZ,
-      -targetShoulderZ,
+      armTargets.rightShoulderZ,
       lerpAlpha,
     );
-    st.leftElbowX = THREE.MathUtils.lerp(st.leftElbowX, targetElbowX, lerpAlpha);
+    st.leftElbowX = THREE.MathUtils.lerp(
+      st.leftElbowX,
+      armTargets.leftElbowX,
+      lerpAlpha,
+    );
+    st.leftElbowZ = THREE.MathUtils.lerp(
+      st.leftElbowZ,
+      armTargets.leftElbowZ,
+      lerpAlpha,
+    );
     st.rightElbowX = THREE.MathUtils.lerp(
       st.rightElbowX,
-      targetElbowX,
+      armTargets.rightElbowX,
+      lerpAlpha,
+    );
+    st.rightElbowZ = THREE.MathUtils.lerp(
+      st.rightElbowZ,
+      armTargets.rightElbowZ,
       lerpAlpha,
     );
     st.skirtBasePitch = THREE.MathUtils.lerp(
@@ -1713,8 +1738,7 @@ export class MikuRig implements BossRigAdapter {
       lerpAlpha,
     );
 
-    // 2. Reactive Breathing & Tremble-to-Limpness Layers
-    const earlyWeight = 1 - limpness;
+    // 2. Reactive Breathing, Struggle Tremor & Cadence-Synced Limp Pendulum Sway
     const earlyBreath = Math.sin(time * FINISHER_CONFIG.earlyBreathFreq);
     const lateBreath = Math.sin(time * FINISHER_CONFIG.lateBreathFreq);
 
@@ -1723,55 +1747,32 @@ export class MikuRig implements BossRigAdapter {
     const chestBreathLift =
       earlyBreath * 0.008 * earlyWeight + lateBreath * 0.014 * limpness;
     const shoulderBreathHeave =
-      earlyBreath * 0.065 * earlyWeight + lateBreath * 0.04 * limpness;
+      earlyBreath * 0.055 * earlyWeight + lateBreath * 0.035 * limpness;
 
-    const throttleTrembleScale = isSurge
-      ? FINISHER_CONFIG.surgeShudderMultiplier
-      : isSavor
-        ? FINISHER_CONFIG.savorSwayMultiplier
-        : 1.0;
-
-    const trembleEnvelope =
-      (0.35 + earlyResistance * 0.65) * earlyWeight * throttleTrembleScale;
-    const surgeShudder = isSurge
-      ? Math.sin(time * 34.0) * 0.018 * (1 - limpness * 0.55)
-      : 0;
+    const surgeShudder =
+      isSurge && !isTauntStunned
+        ? Math.sin(time * 34.0) * 0.018 * (1 - limpness * 0.7)
+        : 0;
     const savorDreamySway = isSavor
       ? Math.sin(time * FINISHER_CONFIG.savorSwayFreq) * 0.032
       : Math.sin(time * 1.4) * 0.012;
 
-    const leftForearmTremble =
-      Math.sin(time * FINISHER_CONFIG.trembleFreq) * 0.048 * trembleEnvelope;
-    const rightForearmTremble =
-      Math.sin(time * FINISHER_CONFIG.trembleSecondaryFreq + 1.3) *
-      0.048 *
-      trembleEnvelope;
-    const wristRollTremble =
-      Math.cos(time * (FINISHER_CONFIG.trembleFreq + 4.5)) *
-      0.036 *
-      trembleEnvelope;
+    const leftTremor = resistance.tremorOffset;
+    const rightTremor = resistance.tremorSecondaryOffset;
+    const pendulumPrimary = resistance.limpSwayOffset;
+    const pendulumSecondary = resistance.limpElbowSwayOffset;
+    const pendulumCross = resistance.limpCrossSwayOffset;
 
-    const pendulumPrimary =
-      Math.sin(time * FINISHER_CONFIG.pendulumFreq) *
-      FINISHER_CONFIG.pendulumAmp *
-      limpness;
-    const pendulumSecondary =
-      Math.sin(time * FINISHER_CONFIG.pendulumFreq - 0.85) *
-      FINISHER_CONFIG.pendulumAmp *
-      0.95 *
-      limpness;
-    const pendulumCross =
-      Math.cos(time * FINISHER_CONFIG.pendulumFreq * 0.72) * 0.045 * limpness;
-
-    // 3. Apply Coupled -> <- Press-and-Ease Pose to Skeleton
+    // 3. Apply Coupled -> <- Press-and-Ease Pose to Skeleton (headAnchor decoupled from spine resistance)
     this.harmonicHalo.visible = false;
     this.phaseAuraRings.visible = false;
 
     this.bodyPivot.position.y = st.bodyY + chestBreathLift;
     this.bodyPivot.rotation.set(0, 0, savorDreamySway * 0.35);
 
+    const spineResistDelta = resistance.spineResistanceOffset;
     this.torsoGroup.rotation.set(
-      st.torsoX + chestBreathPitch + surgeShudder * 0.5,
+      st.torsoX + spineResistDelta + chestBreathPitch + surgeShudder * 0.5,
       0,
       st.torsoZ + savorDreamySway + surgeShudder,
     );
@@ -1788,12 +1789,13 @@ export class MikuRig implements BossRigAdapter {
       savorDreamySway * 0.65 +
       headAnim.roll * headAnim.bossYieldScale +
       headAnim.bossTremor;
-    this.headGroup.rotation.set(bossHeadPitch, bossHeadYaw, bossHeadRoll);
-
-    this.headGroup.position.set(
-      0,
-      0.515 - Math.sin(bossHeadPitch) * headAnim.bossFaceNormalOffset,
-      0.008 + Math.cos(bossHeadPitch) * headAnim.bossFaceNormalOffset,
+    this.applyDecoupledHeadTransform(
+      this.headGroup,
+      bossHeadPitch,
+      spineResistDelta,
+      bossHeadYaw,
+      bossHeadRoll,
+      headAnim.bossFaceNormalOffset,
     );
 
     this.leftLegPivot.rotation.set(st.leftHipX, 0, -0.08);
@@ -1802,27 +1804,36 @@ export class MikuRig implements BossRigAdapter {
     this.rightKneePivot.rotation.x = st.rightKneeX;
 
     this.leftShoulderPivot.rotation.set(
-      st.leftShoulderX - shoulderBreathHeave + pendulumPrimary + surgeShudder,
+      st.leftShoulderX -
+        shoulderBreathHeave * (0.4 + 0.6 * resistance.pushStrength) +
+        leftTremor * 0.55 +
+        pendulumPrimary +
+        surgeShudder,
       0,
-      st.leftShoulderZ + pendulumCross + leftForearmTremble * 0.45,
+      st.leftShoulderZ + pendulumCross - leftTremor * 0.45,
     );
     this.rightShoulderPivot.rotation.set(
-      st.rightShoulderX - shoulderBreathHeave - pendulumPrimary - surgeShudder,
+      st.rightShoulderX -
+        shoulderBreathHeave * (0.4 + 0.6 * resistance.pushStrength) +
+        rightTremor * 0.55 -
+        pendulumPrimary -
+        surgeShudder,
       0,
-      st.rightShoulderZ - pendulumCross - rightForearmTremble * 0.45,
+      st.rightShoulderZ - pendulumCross + rightTremor * 0.45,
     );
     this.leftElbowPivot.rotation.set(
-      st.leftElbowX + leftForearmTremble + pendulumSecondary,
+      st.leftElbowX + leftTremor + pendulumSecondary,
       0,
-      wristRollTremble + pendulumCross * 0.7,
+      st.leftElbowZ + leftTremor * 0.35 + pendulumCross * 0.7,
     );
     this.rightElbowPivot.rotation.set(
-      st.rightElbowX + rightForearmTremble - pendulumSecondary,
+      st.rightElbowX + rightTremor - pendulumSecondary,
       0,
-      -wristRollTremble - pendulumCross * 0.7,
+      st.rightElbowZ - rightTremor * 0.35 - pendulumCross * 0.7,
     );
 
-    this.necktiePivot.rotation.x = -st.torsoX * 0.45 + chestBreathPitch * 0.5;
+    this.necktiePivot.rotation.x =
+      -(st.torsoX + spineResistDelta) * 0.45 + chestBreathPitch * 0.5;
 
     // 4. Short Pleated Skirt Billow
     const skirtSpeed = isSurge ? 4.4 : isSavor ? 1.45 : 2.5;
@@ -1834,52 +1845,66 @@ export class MikuRig implements BossRigAdapter {
         st.skirtBasePitch + Math.sin(time * skirtSpeed + sp.angle * 2.0) * skirtAmp;
     }
 
-    // 5. Progressive Twin-Tail Droop (Buoyant flared resistance 0->50% -> Heavy limp droop 50->100%)
+    // 5. Miku Silhouette Fatigue: High A-Frame Twin-Tails Lose Perkiness & Droop Downward Alongside Arms
     const hairSpeed = isSurge ? 4.8 : isSavor ? 1.55 : 2.6;
     const hairAmp = isSurge ? 0.11 : isSavor ? 0.05 : 0.07;
     const isDip = poseId === FINISHER_POSE_IDS.BALLROOM_DIP;
     const isReins = poseId === FINISHER_POSE_IDS.HAIR_REINS;
+    const tailDroopBlend = Math.max(fatigue, resistance.tauntSlack * 0.7);
 
     for (let i = 0; i < this.twinTails.length; i++) {
       const tt = this.twinTails[i];
       if (!tt) continue;
       const phase = tt.side * 0.9;
-      const w1 = Math.sin(time * hairSpeed + phase) * hairAmp;
-      const w2 = Math.sin(time * hairSpeed + phase - 0.85) * hairAmp * 1.2;
-      const w3 = Math.sin(time * hairSpeed + phase - 1.65) * hairAmp * 1.35;
+      const w1 = Math.sin(time * hairSpeed + phase) * hairAmp * (1 - limpness * 0.35);
+      const w2 =
+        Math.sin(time * hairSpeed + phase - 0.85) * hairAmp * 1.2 * (1 - limpness * 0.3);
+      const w3 =
+        Math.sin(time * hairSpeed + phase - 1.65) * hairAmp * 1.35 * (1 - limpness * 0.25);
 
-      // Twin-tails lose buoyant A-frame lift and droop heavily downward as drain passes 50%
       const flareZ =
         tt.side *
         THREE.MathUtils.lerp(
-          isDip ? 0.62 : 0.54,
-          isDip ? 0.34 : 0.24,
-          limpness,
+          isDip ? rCfg.mikuDipTailFlareStage1 : rCfg.mikuTailFlareStage1,
+          isDip ? rCfg.mikuDipTailFlareStage3 : rCfg.mikuTailFlareStage3,
+          tailDroopBlend,
         );
       // In Pose [3] Twin-Tail Reins, the left twin-tail angles slightly forward toward Mage's hand
       const reinsPullX = isReins && tt.side === -1 ? -0.42 : 0;
-      const baseSeg1X = (isDip ? 0.55 : 0.24) + limpness * 0.18 + reinsPullX;
-      const baseSeg2X = (isDip ? 0.35 : 0.34) + limpness * 0.22;
-      const baseSeg3X = (isDip ? 0.22 : 0.42) + limpness * 0.24;
+      const baseSeg1X =
+        (isDip ? 0.55 : 0.22) + tailDroopBlend * rCfg.mikuTailSeg1DroopRad + reinsPullX;
+      const baseSeg2X =
+        (isDip ? 0.35 : 0.3) + tailDroopBlend * rCfg.mikuTailSeg2DroopRad;
+      const baseSeg3X =
+        (isDip ? 0.22 : 0.38) + tailDroopBlend * rCfg.mikuTailSeg3DroopRad;
+      const baseSeg4X =
+        0.22 + tailDroopBlend * rCfg.mikuTailSeg4DroopRad;
+      const tailPendulum = pendulumPrimary * 0.65 * tt.side;
 
       tt.seg1.rotation.z = THREE.MathUtils.lerp(
         tt.seg1.rotation.z,
-        flareZ + w1 * 0.5,
+        flareZ + w1 * 0.5 + pendulumCross * 0.5,
         lerpAlpha,
       );
       tt.seg1.rotation.x = THREE.MathUtils.lerp(
         tt.seg1.rotation.x,
-        baseSeg1X + w1,
+        baseSeg1X + w1 + tailPendulum,
         lerpAlpha,
       );
       tt.seg2.rotation.z = THREE.MathUtils.lerp(
         tt.seg2.rotation.z,
-        tt.side * THREE.MathUtils.lerp(0.14, 0.04, limpness) + w2 * 0.4,
+        tt.side *
+          THREE.MathUtils.lerp(
+            rCfg.mikuTailSeg2FlareStage1,
+            rCfg.mikuTailSeg2FlareStage3,
+            tailDroopBlend,
+          ) +
+          w2 * 0.4,
         lerpAlpha,
       );
       tt.seg2.rotation.x = THREE.MathUtils.lerp(
         tt.seg2.rotation.x,
-        baseSeg2X + w2,
+        baseSeg2X + w2 + pendulumSecondary * 0.5,
         lerpAlpha,
       );
       tt.seg3.rotation.x = THREE.MathUtils.lerp(
@@ -1889,7 +1914,7 @@ export class MikuRig implements BossRigAdapter {
       );
       tt.seg4.rotation.x = THREE.MathUtils.lerp(
         tt.seg4.rotation.x,
-        0.24 + limpness * 0.2 + w3,
+        baseSeg4X + w3,
         lerpAlpha,
       );
     }
@@ -1915,6 +1940,7 @@ export class MikuRig implements BossRigAdapter {
    */
   public applyVictoryCollapsePose(time: number): void {
     this.finisherPoseState.initialized = false;
+    this.resetResistanceState();
     this.applyDrainBleach(1.0);
     this.harmonicHalo.visible = false;
     this.phaseAuraRings.visible = false;
@@ -2017,6 +2043,7 @@ export class MikuRig implements BossRigAdapter {
     const depletion = 1 - clampedCharge;
 
     this.finisherPoseState.initialized = false;
+    this.resetResistanceState();
     this.applyDrainBleach(depletion);
 
     if (clampedCharge <= cfg.captiveLowChargeThreshold) {
@@ -2130,6 +2157,7 @@ export class MikuRig implements BossRigAdapter {
 
     this.staggerBlend = 0;
     this.finisherPoseState.initialized = false;
+    this.resetResistanceState();
     this.hitFlashTimer = 0;
     this.castAnimTimer = 0;
     this.accessoryFlickTimer = 0;

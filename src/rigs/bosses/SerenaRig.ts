@@ -8,6 +8,7 @@ import {
   DRAIN_THROTTLE_MODES,
   FINISHER_CONFIG,
   FINISHER_POSE_IDS,
+  FINISHER_RESISTANCE_CONFIG,
   GAME_STATES,
   PALETTE,
   SERENA_CONFIG,
@@ -20,10 +21,10 @@ import {
 } from '../../config/gameConfig';
 import { ToonAssets } from '../../engine/ToonAssets';
 import {
+  BossBase,
   applyMaterialBleach,
   computeFinisherHeadChoreography,
   restoreDrainableMaterials,
-  type BossRigAdapter,
   type FinisherHeadChoreography,
   type MaterialBleachMetadata,
 } from './BossBase';
@@ -55,7 +56,9 @@ interface SerenaFinisherPoseCache {
   rightShoulderX: number;
   rightShoulderZ: number;
   leftElbowX: number;
+  leftElbowZ: number;
   rightElbowX: number;
+  rightElbowZ: number;
   tail1X: number;
   tail1Y: number;
   tail1Z: number;
@@ -74,7 +77,7 @@ interface SerenaFinisherPoseCache {
  * fin-sleeves, ornate coral-and-pearl tiara, 512x512 CanvasTexture anime face,
  * zero-gap lip alignment across finisher poses [1-4], and Abyssal Thrall / Collapse dioramas.
  */
-export class SerenaRig implements BossRigAdapter {
+export class SerenaRig extends BossBase {
   public readonly id = SERENA_CONFIG.id;
   public readonly displayName = SERENA_CONFIG.displayName;
   public readonly title = SERENA_CONFIG.title;
@@ -156,11 +159,13 @@ export class SerenaRig implements BossRigAdapter {
     headX: -0.38,
     headZ: 0,
     leftShoulderX: -0.34,
-    leftShoulderZ: 0.24,
+    leftShoulderZ: -0.24,
     rightShoulderX: -0.34,
-    rightShoulderZ: -0.24,
+    rightShoulderZ: 0.24,
     leftElbowX: -0.68,
+    leftElbowZ: 0,
     rightElbowX: -0.68,
+    rightElbowZ: 0,
     tail1X: 0.45,
     tail1Y: 0.2,
     tail1Z: 0.25,
@@ -173,6 +178,7 @@ export class SerenaRig implements BossRigAdapter {
   };
 
   constructor(parent: THREE.Object3D) {
+    super();
     this.parent = parent;
     this.root.name = 'SerenaVoiceOfTheDeep';
 
@@ -1397,6 +1403,7 @@ export class SerenaRig implements BossRigAdapter {
     time: number,
     dt = 1 / 60,
     throttleMode: DrainThrottleMode = DRAIN_THROTTLE_MODES.FLOW,
+    isTauntStunned = false,
     headChoreography?: FinisherHeadChoreography,
   ): void {
     this.applyDrainBleach(drainProgress);
@@ -1411,16 +1418,22 @@ export class SerenaRig implements BossRigAdapter {
         -safeDt / (FINISHER_CONFIG.poseTransitionDurationSec * 0.35),
       );
 
-    const half = FINISHER_CONFIG.limpThreshold;
-    const earlyResistance = 1 - THREE.MathUtils.clamp(drainProgress / half, 0, 1);
-    const limpness = THREE.MathUtils.clamp(
-      (drainProgress - half) / (1 - half),
-      0,
-      1,
+    // Shared 3-stage resistance-to-limp curves (Stage 1: 0-35%, Stage 2: 35-75%, Stage 3: 75-100%)
+    const resistance = this.computeResistanceState(
+      drainProgress,
+      time,
+      throttleMode,
+      isTauntStunned,
+      safeDt,
     );
+    const armTargets = this.computeResistanceArmTargets(poseId, resistance);
+    const limpness = resistance.limpFactor;
+    const earlyWeight = 1 - limpness;
+    const fatigue = THREE.MathUtils.clamp(drainProgress, 0, 1);
 
     const isSurge = throttleMode === DRAIN_THROTTLE_MODES.SURGE;
     const isSavor = throttleMode === DRAIN_THROTTLE_MODES.SAVOR;
+    const rCfg = FINISHER_RESISTANCE_CONFIG;
 
     // 1. Target Pose Geometry (matching Marina's lip elevation & Pose [2] ~45° dip exactly)
     let targetBodyY = THREE.MathUtils.lerp(0.48, 0.45, limpness);
@@ -1429,66 +1442,64 @@ export class SerenaRig implements BossRigAdapter {
     let targetHeadX = -0.38;
     let targetHeadZ = 0;
 
-    // Tail curls smoothly backward & sideways along the mosaic plane (never clipping below y = 0)
-    let targetTail1X = 1.05;
-    let targetTail1Y = 0.36;
-    let targetTail1Z = 0.22;
-    let targetTail2X = 0.42;
-    let targetTail2Y = 0.48;
-    let targetTail3X = 0.12;
-    let targetTail3Y = 0.56;
-    let targetTail4X = 0.05;
-    let targetTail4Y = 0.52;
+    // Tail curls behind/beside her in Stage 1, then uncurls gradually and hangs lower as her Tidal Core drains
+    const yawRelax = THREE.MathUtils.lerp(1.0, rCfg.serenaTailYawRelaxScale, fatigue);
+    const rollRelax = THREE.MathUtils.lerp(1.0, rCfg.serenaTailRollRelaxScale, fatigue);
+    let targetTail1X = 1.05 + rCfg.serenaTailUncurlSeg1X * fatigue;
+    let targetTail1Y = 0.36 * yawRelax;
+    let targetTail1Z = 0.22 * rollRelax;
+    let targetTail2X = 0.42 + rCfg.serenaTailUncurlSeg2X * fatigue;
+    let targetTail2Y = 0.48 * yawRelax;
+    let targetTail3X = 0.12 + rCfg.serenaTailUncurlSeg3X * fatigue;
+    let targetTail3Y = 0.56 * yawRelax;
+    let targetTail4X = 0.05 + rCfg.serenaTailUncurlSeg4X * fatigue;
+    let targetTail4Y = 0.52 * yawRelax;
 
     if (poseId === FINISHER_POSE_IDS.BALLROOM_DIP) {
-      // Pose [2]: Tidal Ballroom Dip (~45° backward spine dip with floating S-curved tail)
+      // Pose [2]: Tidal Ballroom Dip (~45° backward spine dip with floating S-curved tail uncurling lower)
       targetBodyY = THREE.MathUtils.lerp(0.68, 0.64, limpness);
       targetTorsoX = -FINISHER_CONFIG.dipBossSpineAngleRad - limpness * 0.06;
       targetHeadX = -0.18 - limpness * 0.04;
-      targetTail1X = 0.42;
-      targetTail1Y = -0.22;
-      targetTail1Z = -0.18;
-      targetTail2X = 0.52;
-      targetTail2Y = -0.38;
-      targetTail3X = 0.36;
-      targetTail3Y = -0.44;
-      targetTail4X = 0.22;
-      targetTail4Y = -0.36;
+      targetTail1X = 0.42 + rCfg.serenaDipTailUncurlSeg1X * fatigue;
+      targetTail1Y = -0.22 * yawRelax;
+      targetTail1Z = -0.18 * rollRelax;
+      targetTail2X = 0.52 + rCfg.serenaDipTailUncurlSeg2X * fatigue;
+      targetTail2Y = -0.38 * yawRelax;
+      targetTail3X = 0.36 + rCfg.serenaDipTailUncurlSeg3X * fatigue;
+      targetTail3Y = -0.44 * yawRelax;
+      targetTail4X = 0.22 + rCfg.serenaDipTailUncurlSeg4X * fatigue;
+      targetTail4Y = -0.36 * yawRelax;
     } else if (poseId === FINISHER_POSE_IDS.HAIR_REINS) {
-      // Pose [3]: Aquamarine-Hair Reins (tail coiled tightly beside the Dark Mage)
+      // Pose [3]: Aquamarine-Hair Reins (tail uncurls gradually lower behind her)
       targetBodyY = THREE.MathUtils.lerp(0.49, 0.46, limpness);
       targetTorsoX = THREE.MathUtils.lerp(0.16, 0.3, limpness);
       targetHeadX = -0.44;
       targetHeadZ = 0.05;
-      targetTail1X = 1.08;
-      targetTail1Y = -0.42;
-      targetTail1Z = -0.24;
-      targetTail2X = 0.38;
-      targetTail2Y = -0.54;
-      targetTail3X = 0.1;
-      targetTail3Y = -0.62;
-      targetTail4X = 0.04;
-      targetTail4Y = -0.5;
+      targetTail1X = 1.08 + rCfg.serenaTailUncurlSeg1X * fatigue;
+      targetTail1Y = -0.42 * yawRelax;
+      targetTail1Z = -0.24 * rollRelax;
+      targetTail2X = 0.38 + rCfg.serenaTailUncurlSeg2X * fatigue;
+      targetTail2Y = -0.54 * yawRelax;
+      targetTail3X = 0.1 + rCfg.serenaTailUncurlSeg3X * fatigue;
+      targetTail3Y = -0.62 * yawRelax;
+      targetTail4X = 0.04 + rCfg.serenaTailUncurlSeg4X * fatigue;
+      targetTail4Y = -0.5 * yawRelax;
     } else if (poseId === FINISHER_POSE_IDS.STAFF_LEAN) {
-      // Pose [4]: Staff-Prop Lean (sweeping mermaid side-coil)
+      // Pose [4]: Staff-Prop Lean (sweeping mermaid side-coil uncurling lower behind her)
       targetBodyY = THREE.MathUtils.lerp(0.48, 0.45, limpness);
       targetTorsoX = THREE.MathUtils.lerp(0.15, 0.29, limpness);
       targetTorsoZ = 0.04;
       targetHeadX = -0.39;
-      targetTail1X = 1.02;
-      targetTail1Y = 0.48;
-      targetTail1Z = 0.26;
-      targetTail2X = 0.4;
-      targetTail2Y = 0.52;
-      targetTail3X = 0.12;
-      targetTail3Y = 0.58;
-      targetTail4X = 0.06;
-      targetTail4Y = 0.46;
+      targetTail1X = 1.02 + rCfg.serenaTailUncurlSeg1X * fatigue;
+      targetTail1Y = 0.48 * yawRelax;
+      targetTail1Z = 0.26 * rollRelax;
+      targetTail2X = 0.4 + rCfg.serenaTailUncurlSeg2X * fatigue;
+      targetTail2Y = 0.52 * yawRelax;
+      targetTail3X = 0.12 + rCfg.serenaTailUncurlSeg3X * fatigue;
+      targetTail3Y = 0.58 * yawRelax;
+      targetTail4X = 0.06 + rCfg.serenaTailUncurlSeg4X * fatigue;
+      targetTail4Y = 0.46 * yawRelax;
     }
-
-    const targetShoulderX = THREE.MathUtils.lerp(-0.34, 0.12, limpness);
-    const targetShoulderZ = THREE.MathUtils.lerp(0.24, 0.06, limpness);
-    const targetElbowX = THREE.MathUtils.lerp(-0.68, -0.05, limpness);
 
     const st = this.finisherPoseState;
     if (!st.initialized) {
@@ -1503,7 +1514,9 @@ export class SerenaRig implements BossRigAdapter {
       st.rightShoulderX = this.rightShoulderPivot.rotation.x;
       st.rightShoulderZ = this.rightShoulderPivot.rotation.z;
       st.leftElbowX = this.leftElbowPivot.rotation.x;
+      st.leftElbowZ = this.leftElbowPivot.rotation.z;
       st.rightElbowX = this.rightElbowPivot.rotation.x;
+      st.rightElbowZ = this.rightElbowPivot.rotation.z;
       st.tail1X = this.tailSeg1.rotation.x;
       st.tail1Y = this.tailSeg1.rotation.y;
       st.tail1Z = this.tailSeg1.rotation.z;
@@ -1522,28 +1535,42 @@ export class SerenaRig implements BossRigAdapter {
     st.headZ = THREE.MathUtils.lerp(st.headZ, targetHeadZ, lerpAlpha);
     st.leftShoulderX = THREE.MathUtils.lerp(
       st.leftShoulderX,
-      targetShoulderX,
+      armTargets.leftShoulderX,
       lerpAlpha,
     );
     st.leftShoulderZ = THREE.MathUtils.lerp(
       st.leftShoulderZ,
-      targetShoulderZ,
+      armTargets.leftShoulderZ,
       lerpAlpha,
     );
     st.rightShoulderX = THREE.MathUtils.lerp(
       st.rightShoulderX,
-      targetShoulderX,
+      armTargets.rightShoulderX,
       lerpAlpha,
     );
     st.rightShoulderZ = THREE.MathUtils.lerp(
       st.rightShoulderZ,
-      -targetShoulderZ,
+      armTargets.rightShoulderZ,
       lerpAlpha,
     );
-    st.leftElbowX = THREE.MathUtils.lerp(st.leftElbowX, targetElbowX, lerpAlpha);
+    st.leftElbowX = THREE.MathUtils.lerp(
+      st.leftElbowX,
+      armTargets.leftElbowX,
+      lerpAlpha,
+    );
+    st.leftElbowZ = THREE.MathUtils.lerp(
+      st.leftElbowZ,
+      armTargets.leftElbowZ,
+      lerpAlpha,
+    );
     st.rightElbowX = THREE.MathUtils.lerp(
       st.rightElbowX,
-      targetElbowX,
+      armTargets.rightElbowX,
+      lerpAlpha,
+    );
+    st.rightElbowZ = THREE.MathUtils.lerp(
+      st.rightElbowZ,
+      armTargets.rightElbowZ,
       lerpAlpha,
     );
     st.tail1X = THREE.MathUtils.lerp(st.tail1X, targetTail1X, lerpAlpha);
@@ -1556,8 +1583,7 @@ export class SerenaRig implements BossRigAdapter {
     st.tail4X = THREE.MathUtils.lerp(st.tail4X, targetTail4X, lerpAlpha);
     st.tail4Y = THREE.MathUtils.lerp(st.tail4Y, targetTail4Y, lerpAlpha);
 
-    // 2. Reactive Breathing, Resistance Flicks (0->50%) & Exhausted Limpness (50->100%)
-    const earlyWeight = 1 - limpness;
+    // 2. Reactive Breathing, Struggle Tremor & Cadence-Synced Limp Pendulum Sway
     const earlyBreath = Math.sin(time * FINISHER_CONFIG.earlyBreathFreq);
     const lateBreath = Math.sin(time * FINISHER_CONFIG.lateBreathFreq);
 
@@ -1566,53 +1592,32 @@ export class SerenaRig implements BossRigAdapter {
     const chestBreathLift =
       earlyBreath * 0.008 * earlyWeight + lateBreath * 0.014 * limpness;
     const shoulderBreathHeave =
-      earlyBreath * 0.065 * earlyWeight + lateBreath * 0.04 * limpness;
+      earlyBreath * 0.055 * earlyWeight + lateBreath * 0.035 * limpness;
 
-    const throttleTrembleScale = isSurge
-      ? FINISHER_CONFIG.surgeShudderMultiplier
-      : isSavor
-        ? FINISHER_CONFIG.savorSwayMultiplier
-        : 1.0;
-
-    const trembleEnvelope =
-      (0.35 + earlyResistance * 0.65) * earlyWeight * throttleTrembleScale;
-    const surgeShudder = isSurge
-      ? Math.sin(time * 34.0) * 0.018 * (1 - limpness * 0.55)
-      : 0;
+    const surgeShudder =
+      isSurge && !isTauntStunned
+        ? Math.sin(time * 34.0) * 0.018 * (1 - limpness * 0.7)
+        : 0;
     const savorDreamySway = isSavor
       ? Math.sin(time * FINISHER_CONFIG.savorSwayFreq) * 0.032
       : Math.sin(time * 1.4) * 0.012;
 
-    const leftForearmTremble =
-      Math.sin(time * FINISHER_CONFIG.trembleFreq) * 0.048 * trembleEnvelope;
-    const rightForearmTremble =
-      Math.sin(time * FINISHER_CONFIG.trembleSecondaryFreq + 1.3) *
-      0.048 *
-      trembleEnvelope;
+    const leftTremor = resistance.tremorOffset;
+    const rightTremor = resistance.tremorSecondaryOffset;
+    const pendulumPrimary = resistance.limpSwayOffset;
+    const pendulumSecondary = resistance.limpElbowSwayOffset;
+    const pendulumCross = resistance.limpCrossSwayOffset;
 
-    const pendulumPrimary =
-      Math.sin(time * FINISHER_CONFIG.pendulumFreq) *
-      FINISHER_CONFIG.pendulumAmp *
-      limpness;
-    const pendulumSecondary =
-      Math.sin(time * FINISHER_CONFIG.pendulumFreq - 0.85) *
-      FINISHER_CONFIG.pendulumAmp *
-      0.95 *
-      limpness;
-    const pendulumCross =
-      Math.cos(time * FINISHER_CONFIG.pendulumFreq * 0.72) *
-      0.045 *
-      limpness;
-
-    // 3. Apply Pose + Coupled -> <- Lip-Pivot Head Choreography
+    // 3. Apply Pose + Coupled -> <- Lip-Pivot Head Choreography (headAnchor decoupled from spine resistance)
     this.sirenHalo.visible = false;
     this.phaseAuraRings.visible = false;
 
     this.bodyPivot.position.y = st.bodyY + chestBreathLift;
     this.bodyPivot.rotation.set(0, 0, savorDreamySway * 0.35);
 
+    const spineResistDelta = resistance.spineResistanceOffset;
     this.torsoGroup.rotation.set(
-      st.torsoX + chestBreathPitch + surgeShudder * 0.5,
+      st.torsoX + spineResistDelta + chestBreathPitch + surgeShudder * 0.5,
       0,
       st.torsoZ + savorDreamySway + surgeShudder,
     );
@@ -1629,17 +1634,18 @@ export class SerenaRig implements BossRigAdapter {
       savorDreamySway * 0.65 +
       headAnim.roll * headAnim.bossYieldScale +
       headAnim.bossTremor;
-    this.headGroup.rotation.set(bossHeadPitch, bossHeadYaw, bossHeadRoll);
-
-    this.headGroup.position.set(
-      0,
-      0.515 - Math.sin(bossHeadPitch) * headAnim.bossFaceNormalOffset,
-      0.008 + Math.cos(bossHeadPitch) * headAnim.bossFaceNormalOffset,
+    this.applyDecoupledHeadTransform(
+      this.headGroup,
+      bossHeadPitch,
+      spineResistDelta,
+      bossHeadYaw,
+      bossHeadRoll,
+      headAnim.bossFaceNormalOffset,
     );
 
-    // Tail reactivity: active resisting tail flicks (0->50%) -> serene drifting tip (50->100%)
+    // Tail reactivity: active resisting tail flicks (Stage 1-2) -> uncurled drifting tip (Stage 3)
     const tailResistFlick =
-      Math.sin(time * (isSurge ? 7.8 : 4.6)) * 0.14 * earlyWeight;
+      Math.sin(time * (isSurge ? 7.8 : 4.6)) * 0.14 * resistance.pushStrength;
     const tailLimpDrift = Math.sin(time * 1.45) * 0.045 * limpness;
     const tailFlex = tailResistFlick + tailLimpDrift;
 
@@ -1648,31 +1654,40 @@ export class SerenaRig implements BossRigAdapter {
     this.tailSeg3.rotation.set(st.tail3X, st.tail3Y + tailFlex * 1.0, 0);
     this.tailSeg4.rotation.set(st.tail4X, st.tail4Y + tailFlex * 1.25, 0);
     this.caudalFinPivot.rotation.set(
-      Math.sin(time * (isSurge ? 8.2 : 2.6)) * (0.24 * earlyWeight + 0.06),
+      Math.sin(time * (isSurge ? 8.2 : 2.6)) *
+        (0.24 * resistance.pushStrength + 0.05),
       0,
       0,
     );
 
-    // Arms
+    // Arms (3-Stage Push -> Chest Slide -> Limp Surrender)
     this.leftShoulderPivot.rotation.set(
-      st.leftShoulderX - shoulderBreathHeave + pendulumPrimary + surgeShudder,
+      st.leftShoulderX -
+        shoulderBreathHeave * (0.4 + 0.6 * resistance.pushStrength) +
+        leftTremor * 0.55 +
+        pendulumPrimary +
+        surgeShudder,
       0,
-      st.leftShoulderZ + pendulumCross + leftForearmTremble * 0.45,
+      st.leftShoulderZ + pendulumCross - leftTremor * 0.45,
     );
     this.rightShoulderPivot.rotation.set(
-      st.rightShoulderX - shoulderBreathHeave - pendulumPrimary - surgeShudder,
+      st.rightShoulderX -
+        shoulderBreathHeave * (0.4 + 0.6 * resistance.pushStrength) +
+        rightTremor * 0.55 -
+        pendulumPrimary -
+        surgeShudder,
       0,
-      st.rightShoulderZ - pendulumCross - rightForearmTremble * 0.45,
+      st.rightShoulderZ - pendulumCross + rightTremor * 0.45,
     );
     this.leftElbowPivot.rotation.set(
-      st.leftElbowX + leftForearmTremble + pendulumSecondary,
+      st.leftElbowX + leftTremor + pendulumSecondary,
       0,
-      pendulumCross * 0.7,
+      st.leftElbowZ + leftTremor * 0.35 + pendulumCross * 0.7,
     );
     this.rightElbowPivot.rotation.set(
-      st.rightElbowX + rightForearmTremble - pendulumSecondary,
+      st.rightElbowX + rightTremor - pendulumSecondary,
       0,
-      -pendulumCross * 0.7,
+      st.rightElbowZ - rightTremor * 0.35 - pendulumCross * 0.7,
     );
 
     // Flowing Aquamarine Hair Cascade
@@ -1732,6 +1747,7 @@ export class SerenaRig implements BossRigAdapter {
    */
   public applyVictoryCollapsePose(time: number): void {
     this.finisherPoseState.initialized = false;
+    this.resetResistanceState();
     this.applyDrainBleach(1.0);
     this.sirenHalo.visible = false;
     this.phaseAuraRings.visible = false;
@@ -1825,6 +1841,7 @@ export class SerenaRig implements BossRigAdapter {
 
     this.staggerBlend = 0;
     this.finisherPoseState.initialized = false;
+    this.resetResistanceState();
     this.hitFlashTimer = 0;
     this.castAnimTimer = 0;
     this.accessoryFlickTimer = 0;
@@ -1863,6 +1880,7 @@ export class SerenaRig implements BossRigAdapter {
     const depletion = 1 - clampedCharge;
 
     this.finisherPoseState.initialized = false;
+    this.resetResistanceState();
     this.applyDrainBleach(depletion);
 
     // Facial expression tracks her Tidal Core recharge level

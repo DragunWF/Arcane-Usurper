@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import {
   DRAIN_THROTTLE_MODES,
   FINISHER_CONFIG,
+  FINISHER_POSE_IDS,
+  FINISHER_RESISTANCE_CONFIG,
   PALETTE,
   type BossExpression,
   type BossPhase,
@@ -158,6 +160,47 @@ export function computeFinisherHeadChoreography(
 }
 
 /**
+ * Shared 3-stage finisher resistance-to-limp kinematics computed on `BossBase`
+ * so Marina, Serena, and Miku share identical progressive fatigue physics (DRY & LSP).
+ */
+export interface FinisherResistanceState {
+  /** Active bracing push strength: 1.0 (Stage 1) -> 0.0 (Stage 3 / taunt-stunned). */
+  readonly pushStrength: number;
+  /** Downward hand/elbow slide along the Dark Mage's chest/ribs: 0.0 (Stage 1) -> 1.0 (Stage 3). */
+  readonly slideFactor: number;
+  /** Limp surrender factor: 0.0 (Stage 1) -> 1.0 (Stage 3 / ENDLESS_SAVOR / taunt-stunned). */
+  readonly limpFactor: number;
+  /** High-frequency strain tremor in Stage 1 -> weak intermittent shoves in Stage 2 -> 0 in Stage 3 / stunned. */
+  readonly tremorOffset: number;
+  /** Out-of-phase secondary tremor for asymmetric left/right arm strain. */
+  readonly tremorSecondaryOffset: number;
+  /** Passive pendulum shoulder sway in Stage 3 / ENDLESS_SAVOR synced to Dark Mage's -> <- cadence. */
+  readonly limpSwayOffset: number;
+  /** Phase-lagged passive pendulum elbow sway for dead-weight forearm follow-through. */
+  readonly limpElbowSwayOffset: number;
+  /** Gentle lateral cross-sway for passive shoulder/wrist drift in Stage 3. */
+  readonly limpCrossSwayOffset: number;
+  /** Upper-spine resistance pitch offset (backward arch in Stage 1 -> soften in Stage 2/3). */
+  readonly spineResistanceOffset: number;
+  /** Smoothed taunt-stun slack factor in [0, 1]. */
+  readonly tauntSlack: number;
+}
+
+/**
+ * Pose-adapted target joint angles for a sovereign's arms across Stages 1–3.
+ */
+export interface FinisherArmTargets {
+  readonly leftShoulderX: number;
+  readonly leftShoulderZ: number;
+  readonly rightShoulderX: number;
+  readonly rightShoulderZ: number;
+  readonly leftElbowX: number;
+  readonly leftElbowZ: number;
+  readonly rightElbowX: number;
+  readonly rightElbowZ: number;
+}
+
+/**
  * Standardized Boss Rig contract honored by every sovereign boss (Marina, Miku, Mermaid).
  * Guarantees Liskov Substitution across FinisherSystem, DioramaSystem, and RenderSyncSystem
  * with zero boss-specific branching.
@@ -198,6 +241,7 @@ export interface BossRigAdapter {
     time: number,
     dt?: number,
     throttleMode?: DrainThrottleMode,
+    isTauntStunned?: boolean,
     headChoreography?: FinisherHeadChoreography,
   ): void;
   applyVictoryCollapsePose(time: number): void;
@@ -205,6 +249,393 @@ export interface BossRigAdapter {
   applyDrainBleach(drainProgress: number): void;
   resetForEncounter(encoreTier: number): void;
   dispose(): void;
+}
+
+/**
+ * Abstract base class for sovereign boss rigs providing shared DRY finisher resistance
+ * curves, clip-free pose-adapted arm targets, and spine-decoupled headAnchor stabilization.
+ */
+export abstract class BossBase implements BossRigAdapter {
+  public abstract readonly id: string;
+  public abstract readonly displayName: string;
+  public abstract readonly title: string;
+  public abstract readonly root: THREE.Group;
+  public abstract readonly headAnchor: THREE.Object3D;
+  public abstract readonly headAccessory: THREE.Object3D;
+  public readonly waistWrapRadius?: number;
+  public abstract readonly drainableMaterials: THREE.MeshToonMaterial[];
+  public abstract readonly originalColors: THREE.Color[];
+
+  private tauntSlackBlend = 0;
+
+  public abstract setExpression(
+    expression: BossExpression,
+    spiralPhase?: number,
+  ): void;
+  public abstract setPhaseVisuals(phase: BossPhase): void;
+  public abstract setAscendHeight(extraY: number): void;
+  public abstract triggerHitFlash(): void;
+  public abstract triggerCastFlourish(): void;
+  public abstract triggerAccessoryFlick(): void;
+  public abstract getLeftHandWorldPosition(outVec: THREE.Vector3): THREE.Vector3;
+  public abstract getRightHandWorldPosition(
+    outVec: THREE.Vector3,
+  ): THREE.Vector3;
+  public abstract updateCombatPose(
+    dt: number,
+    state: GameState,
+    elapsed: number,
+    staggerProgressOverride?: number | null,
+  ): void;
+  public abstract applyFinisherPose(
+    poseId: FinisherPoseId,
+    drainProgress: number,
+    time: number,
+    dt?: number,
+    throttleMode?: DrainThrottleMode,
+    isTauntStunned?: boolean,
+    headChoreography?: FinisherHeadChoreography,
+  ): void;
+  public abstract applyVictoryCollapsePose(time: number): void;
+  public abstract applyPuppetMasterPose(time: number): void;
+  public abstract applyDrainBleach(drainProgress: number): void;
+  public abstract resetForEncounter(encoreTier: number): void;
+  public abstract dispose(): void;
+
+  /**
+   * Resets transient finisher resistance smoothing when leaving finisher states.
+   */
+  protected resetResistanceState(): void {
+    this.tauntSlackBlend = 0;
+  }
+
+  /**
+   * Computes 3-stage resistance-to-limp curves across drain progress (0.0 -> 1.0),
+   * active drain throttle (SAVOR / FLOW / SURGE), and [F] taunt-stun state.
+   */
+  protected computeResistanceState(
+    drainProgress: number,
+    time: number,
+    throttle: DrainThrottleMode = DRAIN_THROTTLE_MODES.FLOW,
+    isTauntStunned = false,
+    dt = 1 / 60,
+  ): FinisherResistanceState {
+    const cfg = FINISHER_RESISTANCE_CONFIG;
+    const d = THREE.MathUtils.clamp(drainProgress, 0, 1);
+    const safeDt = Math.max(0.001, Math.min(dt, 0.05));
+
+    // Smoothly collapse resistance to 0 during [F] taunt stun, then recover smoothly if still draining
+    const targetSlack = isTauntStunned ? 1.0 : 0.0;
+    const slackAlpha =
+      1 - Math.exp(-safeDt * cfg.tauntStunSlackBlendRate);
+    this.tauntSlackBlend = THREE.MathUtils.lerp(
+      this.tauntSlackBlend,
+      targetSlack,
+      slackAlpha,
+    );
+    const slack = this.tauntSlackBlend;
+
+    // 3-Stage Piecewise Curves:
+    // Stage 1 (0% -> 35%): Active Push
+    // Stage 2 (35% -> 75%): Fading Grip & Downward Slide
+    // Stage 3 (75% -> 100% & ENDLESS_SAVOR): Limp Surrender
+    let rawPush = 1.0;
+    let rawSlide = 0.0;
+    let rawLimp = 0.0;
+
+    if (d <= cfg.stage1End) {
+      const t1 = THREE.MathUtils.smoothstep(d, 0, cfg.stage1End);
+      rawPush = THREE.MathUtils.lerp(1.0, cfg.stage1PushEnd, t1);
+      rawSlide = THREE.MathUtils.lerp(0.0, cfg.stage1SlideEnd, t1);
+      rawLimp = 0.0;
+    } else if (d <= cfg.stage2End) {
+      const t2 = THREE.MathUtils.smoothstep(d, cfg.stage1End, cfg.stage2End);
+      rawPush = THREE.MathUtils.lerp(cfg.stage1PushEnd, cfg.stage2PushEnd, t2);
+      rawSlide = THREE.MathUtils.lerp(cfg.stage1SlideEnd, cfg.stage2SlideEnd, t2);
+      rawLimp = THREE.MathUtils.lerp(0.0, cfg.stage2LimpEnd, t2 * t2);
+    } else {
+      const t3 = THREE.MathUtils.smoothstep(d, cfg.stage2End, 1.0);
+      rawPush = THREE.MathUtils.lerp(cfg.stage2PushEnd, 0.0, t3);
+      rawSlide = THREE.MathUtils.lerp(cfg.stage2SlideEnd, 1.0, t3);
+      rawLimp = THREE.MathUtils.lerp(cfg.stage2LimpEnd, 1.0, t3);
+    }
+
+    const pushStrength = rawPush * (1 - slack);
+    const slideFactor = THREE.MathUtils.lerp(rawSlide, 1.0, slack * 0.85);
+    const limpFactor = Math.max(rawLimp, slack);
+
+    // Throttle-modulated struggle tremors (Stage 1 high-freq strain -> Stage 2 intermittent shoves -> Stage 3 zero)
+    const isSurge = throttle === DRAIN_THROTTLE_MODES.SURGE;
+    const isSavor = throttle === DRAIN_THROTTLE_MODES.SAVOR;
+    const throttleMult = isSurge
+      ? cfg.surgeTremorAmpMultiplier
+      : isSavor
+        ? cfg.savorTremorAmpMultiplier
+        : 1.0;
+
+    const stage1Weight =
+      1 - THREE.MathUtils.smoothstep(d, cfg.stage1End * 0.75, cfg.stage1End + 0.12);
+    const stage2Weight =
+      THREE.MathUtils.smoothstep(d, cfg.stage1End * 0.7, cfg.stage1End + 0.05) *
+      (1 - THREE.MathUtils.smoothstep(d, cfg.stage2End - 0.08, cfg.stage2End + 0.04));
+    const stage3ZeroGate =
+      1 - THREE.MathUtils.smoothstep(d, cfg.stage2End - 0.04, cfg.stage2End + 0.04);
+
+    const hf1 = Math.sin(time * cfg.baseTremorFreqHz * Math.PI * 2);
+    const hf2 = Math.sin(time * cfg.secondaryTremorFreqHz * Math.PI * 2 + 1.35);
+
+    // Intermittent weak shoves in Stage 2 (cubed positive sine pulses)
+    const shoveWave1 = Math.pow(
+      Math.max(0, Math.sin(time * cfg.stage2ShoveFreqHz * Math.PI * 2)),
+      3,
+    );
+    const shoveWave2 = Math.pow(
+      Math.max(0, Math.sin(time * cfg.stage2ShoveFreqHz * Math.PI * 2 + 0.55)),
+      3,
+    );
+    const shove1 =
+      shoveWave1 * (0.65 + 0.35 * Math.sin(time * cfg.baseTremorFreqHz * Math.PI));
+    const shove2 =
+      shoveWave2 *
+      (0.65 + 0.35 * Math.sin(time * cfg.secondaryTremorFreqHz * Math.PI + 0.9));
+
+    const tremorAmp =
+      cfg.baseTremorAmpRad * throttleMult * (1 - slack) * stage3ZeroGate;
+    const tremorOffset =
+      (hf1 * stage1Weight + shove1 * cfg.stage2ShoveScale * stage2Weight) *
+      tremorAmp;
+    const tremorSecondaryOffset =
+      (hf2 * stage1Weight + shove2 * cfg.stage2ShoveScale * stage2Weight) *
+      tremorAmp;
+
+    // Passive pendulum arm sway in Stage 3 / ENDLESS_SAVOR synced to Dark Mage's -> <- kiss cadence
+    const cadenceHz = isSurge
+      ? FINISHER_CONFIG.surgePulseHz
+      : isSavor
+        ? FINISHER_CONFIG.savorPulseHz
+        : cfg.limpPendulumFreqHz;
+    const cadencePhase = time * cadenceHz * Math.PI * 2;
+    const limpSwayOffset =
+      Math.sin(cadencePhase - cfg.limpPendulumPhaseLagRad) *
+      cfg.limpPendulumAmpRad *
+      limpFactor;
+    const limpElbowSwayOffset =
+      Math.sin(cadencePhase - cfg.limpPendulumElbowPhaseLagRad) *
+      cfg.limpPendulumAmpRad *
+      cfg.limpPendulumElbowRatio *
+      limpFactor;
+    const limpCrossSwayOffset =
+      Math.cos(cadencePhase * 0.5) * cfg.limpPendulumCrossAmpRad * limpFactor;
+
+    // Upper spine resistance: subtle backward arch in Stage 1 -> softens forward into embrace in Stage 2/3
+    const spineMid = THREE.MathUtils.lerp(
+      cfg.stage1SpineArchRad,
+      cfg.stage2SpineSoftenRad,
+      THREE.MathUtils.clamp(slideFactor / Math.max(0.01, cfg.stage2SlideEnd), 0, 1),
+    );
+    const spineResistanceOffset = THREE.MathUtils.lerp(
+      spineMid,
+      cfg.stage3SpineSlumpRad,
+      limpFactor,
+    );
+
+    return {
+      pushStrength,
+      slideFactor,
+      limpFactor,
+      tremorOffset,
+      tremorSecondaryOffset,
+      limpSwayOffset,
+      limpElbowSwayOffset,
+      limpCrossSwayOffset,
+      spineResistanceOffset,
+      tauntSlack: slack,
+    };
+  }
+
+  /**
+   * Resolves clip-free, pose-adapted 3-stage arm targets for Poses [1-4] using
+   * `FINISHER_RESISTANCE_CONFIG.chestPushSurfaceOffset` so palms brace cleanly on the
+   * outer surface of the Dark Mage's chest/shoulders before sliding down to hang limp.
+   */
+  protected computeResistanceArmTargets(
+    poseId: FinisherPoseId,
+    resistance: FinisherResistanceState,
+  ): FinisherArmTargets {
+    const cfg = FINISHER_RESISTANCE_CONFIG;
+    const clearanceBias =
+      (cfg.chestPushSurfaceOffset - cfg.chestPushReferenceOffset) *
+      cfg.chestPushClearancePitchGain;
+    const t12 = THREE.MathUtils.clamp(
+      resistance.slideFactor / Math.max(0.01, cfg.stage2SlideEnd),
+      0,
+      1,
+    );
+    const t3 = resistance.limpFactor;
+
+    const blend3 = (s1: number, s2: number, s3: number): number =>
+      THREE.MathUtils.lerp(THREE.MathUtils.lerp(s1, s2, t12), s3, t3);
+
+    if (poseId === FINISHER_POSE_IDS.BALLROOM_DIP) {
+      // Pose [2]: Inner (Right) hand braces against Dark Mage's shoulder;
+      // Outer (Left) arm reaches back for balance; both droop limp toward the floor at 100%.
+      return {
+        leftShoulderX: blend3(
+          cfg.dipOuterStage1ShoulderX,
+          cfg.dipOuterStage2ShoulderX,
+          cfg.dipOuterStage3ShoulderX,
+        ),
+        leftShoulderZ: blend3(
+          cfg.dipOuterStage1ShoulderZ,
+          cfg.dipOuterStage2ShoulderZ,
+          cfg.dipOuterStage3ShoulderZ,
+        ),
+        rightShoulderX: blend3(
+          cfg.dipInnerStage1ShoulderX + clearanceBias,
+          cfg.dipInnerStage2ShoulderX,
+          cfg.dipInnerStage3ShoulderX,
+        ),
+        rightShoulderZ: blend3(
+          cfg.dipInnerStage1ShoulderZ,
+          cfg.dipInnerStage2ShoulderZ,
+          cfg.dipInnerStage3ShoulderZ,
+        ),
+        leftElbowX: blend3(
+          cfg.dipOuterStage1ElbowX,
+          cfg.dipOuterStage2ElbowX,
+          cfg.dipOuterStage3ElbowX,
+        ),
+        leftElbowZ: blend3(
+          cfg.dipOuterStage1ElbowZ,
+          cfg.dipOuterStage2ElbowZ,
+          cfg.dipOuterStage3ElbowZ,
+        ),
+        rightElbowX: blend3(
+          cfg.dipInnerStage1ElbowX,
+          cfg.dipInnerStage2ElbowX,
+          cfg.dipInnerStage3ElbowX,
+        ),
+        rightElbowZ: blend3(
+          cfg.dipInnerStage1ElbowZ,
+          cfg.dipInnerStage2ElbowZ,
+          cfg.dipInnerStage3ElbowZ,
+        ),
+      };
+    }
+
+    if (poseId === FINISHER_POSE_IDS.STAFF_LEAN) {
+      // Pose [4]: Left hand pushes against Dark Mage's cloak, Right hand pushes against his forearm,
+      // then both slip off to hang dead-weight at her sides.
+      return {
+        leftShoulderX: blend3(
+          cfg.staffLeftStage1ShoulderX + clearanceBias,
+          cfg.staffLeftStage2ShoulderX,
+          cfg.uprightStage3ShoulderX,
+        ),
+        leftShoulderZ: blend3(
+          cfg.staffLeftStage1ShoulderZ,
+          cfg.staffLeftStage2ShoulderZ,
+          -cfg.uprightStage3ShoulderZ,
+        ),
+        rightShoulderX: blend3(
+          cfg.staffRightStage1ShoulderX + clearanceBias,
+          cfg.staffRightStage2ShoulderX,
+          cfg.uprightStage3ShoulderX,
+        ),
+        rightShoulderZ: blend3(
+          cfg.staffRightStage1ShoulderZ,
+          cfg.staffRightStage2ShoulderZ,
+          cfg.uprightStage3ShoulderZ,
+        ),
+        leftElbowX: blend3(
+          cfg.staffLeftStage1ElbowX,
+          cfg.staffLeftStage2ElbowX,
+          cfg.uprightStage3ElbowX,
+        ),
+        leftElbowZ: blend3(
+          cfg.staffLeftStage1ElbowZ,
+          cfg.staffLeftStage2ElbowZ,
+          cfg.uprightStage3ElbowZ,
+        ),
+        rightElbowX: blend3(
+          cfg.staffRightStage1ElbowX,
+          cfg.staffRightStage2ElbowX,
+          cfg.uprightStage3ElbowX,
+        ),
+        rightElbowZ: blend3(
+          cfg.staffRightStage1ElbowZ,
+          cfg.staffRightStage2ElbowZ,
+          cfg.uprightStage3ElbowZ,
+        ),
+      };
+    }
+
+    // Poses [1] Chin-Lift Tilt & [3] Hair/Twin-Tail Reins:
+    // Both elbows flare outward while palms brace against Dark Mage's upper chest/shoulders,
+    // then elbows drop inward as hands slide down his ribs/cloak to hang limp at her sides.
+    const shX = blend3(
+      cfg.uprightStage1ShoulderX + clearanceBias,
+      cfg.uprightStage2ShoulderX,
+      cfg.uprightStage3ShoulderX,
+    );
+    const shZ = blend3(
+      cfg.uprightStage1ShoulderZ,
+      cfg.uprightStage2ShoulderZ,
+      cfg.uprightStage3ShoulderZ,
+    );
+    const elX = blend3(
+      cfg.uprightStage1ElbowX,
+      cfg.uprightStage2ElbowX,
+      cfg.uprightStage3ElbowX,
+    );
+    const elZ = blend3(
+      cfg.uprightStage1ElbowZ,
+      cfg.uprightStage2ElbowZ,
+      cfg.uprightStage3ElbowZ,
+    );
+
+    return {
+      leftShoulderX: shX,
+      leftShoulderZ: -shZ,
+      rightShoulderX: shX,
+      rightShoulderZ: shZ,
+      leftElbowX: elX,
+      leftElbowZ: elZ,
+      rightElbowX: elX,
+      rightElbowZ: -elZ,
+    };
+  }
+
+  /**
+   * Positions and orients `headGroup` inside `torsoGroup` while mathematically cancelling
+   * `spineDeltaX` so `headAnchor` stays 100% decoupled from spine/arm resistance offsets
+   * (preserving exact zero-gap lip-to-lip contact across all 4 poses).
+   */
+  protected applyDecoupledHeadTransform(
+    headGroup: THREE.Group,
+    baseHeadPitch: number,
+    spineDeltaX: number,
+    headYaw: number,
+    headRoll: number,
+    faceNormalOffset: number,
+  ): void {
+    const baseY = FINISHER_RESISTANCE_CONFIG.spineResistanceHeadBaseY;
+    const baseZ = FINISHER_RESISTANCE_CONFIG.spineResistanceHeadBaseZ;
+    const cosD = Math.cos(spineDeltaX);
+    const sinD = Math.sin(spineDeltaX);
+
+    // Rotate (0, baseY, baseZ) by -spineDeltaX around X to keep world head pivot invariant
+    const compY = baseY * cosD + baseZ * sinD;
+    const compZ = -baseY * sinD + baseZ * cosD;
+    const compPitch = baseHeadPitch - spineDeltaX;
+
+    headGroup.rotation.set(compPitch, headYaw, headRoll);
+    headGroup.position.set(
+      0,
+      compY - Math.sin(compPitch) * faceNormalOffset,
+      compZ + Math.cos(compPitch) * faceNormalOffset,
+    );
+  }
 }
 
 export interface MaterialBleachMetadata {
