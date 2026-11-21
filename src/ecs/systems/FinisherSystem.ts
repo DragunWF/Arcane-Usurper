@@ -9,12 +9,13 @@ import {
   MIKU_CONFIG,
   PALETTE,
   SERENA_CONFIG,
+  SIPHON_AUDIO_CONFIG,
   SIPHON_GALLERY_CONFIG,
   type DrainThrottleMode,
   type FinisherPoseId,
   type GameState,
 } from '../../config/gameConfig';
-import type { IAudioTrigger } from '../../engine/SoundEngine';
+import type { IAudioTrigger, SiphonRealmId } from '../../engine/SoundEngine';
 import type { IVfxSpawner } from '../../engine/VfxFactory';
 import type { DarkMageRig } from '../../rigs/DarkMageRig';
 import {
@@ -75,6 +76,10 @@ export class FinisherSystem implements ISystem {
   private lobbyCharge: number = SIPHON_GALLERY_CONFIG.defaultCoreCharge;
   private lobbyDepleted = false;
   private lobbyChargeSyncAccum = 0;
+  private siphonAudioActive = false;
+  private siphonAudioRealm: SiphonRealmId = 1;
+  private lastChimeDrainProgress = 0;
+  private climaxAudioFired = false;
   private lobbyAnchor: LobbySiphonAnchorConfig = {
     targetId: 'marina',
     daisPos: SIPHON_GALLERY_CONFIG.marinaDaisPos,
@@ -199,6 +204,49 @@ export class FinisherSystem implements ISystem {
       this.lobbyDepleted = false;
     }
     this.lobbyChargeSyncAccum = 0;
+    const realm: SiphonRealmId =
+      this.lobbyAnchor.targetId === 'miku'
+        ? 3
+        : this.lobbyAnchor.targetId === 'serena'
+          ? 2
+          : 1;
+    this.startSiphonAudio(
+      realm,
+      this.lobbyDepleted ? 1.0 : 1.0 - this.lobbyCharge,
+    );
+  }
+
+  public startSiphonAudio(
+    realm: SiphonRealmId,
+    initialDrainProgress = 0,
+  ): void {
+    const clampedDrain = THREE.MathUtils.clamp(initialDrainProgress, 0, 1);
+    this.siphonAudioActive = true;
+    this.siphonAudioRealm = realm;
+    this.lastChimeDrainProgress = clampedDrain;
+    this.climaxAudioFired = clampedDrain >= 1.0;
+    this.audio.startSiphonLoop(realm);
+  }
+
+  public stopSiphonAudio(): void {
+    if (this.siphonAudioActive) {
+      this.siphonAudioActive = false;
+    }
+    this.audio.stopSiphonLoop();
+  }
+
+  private resolveActiveRealm(
+    state: GameState,
+    activeRig: BossRigAdapter,
+  ): SiphonRealmId {
+    if (state === GAME_STATES.LOBBY_SIPHON) {
+      if (this.lobbyAnchor.targetId === 'miku') return 3;
+      if (this.lobbyAnchor.targetId === 'serena') return 2;
+      return 1;
+    }
+    if (activeRig.id === MIKU_CONFIG.id) return 3;
+    if (activeRig.id === SERENA_CONFIG.id) return 2;
+    return 1;
   }
 
   private getActiveBossRig(state: GameState): BossRigAdapter {
@@ -247,6 +295,7 @@ export class FinisherSystem implements ISystem {
   public hideVisuals(): void {
     this.fxGroup.visible = false;
     this.mageRig.setStaffPlanted(false);
+    this.stopSiphonAudio();
   }
 
   public resetState(): void {
@@ -255,8 +304,11 @@ export class FinisherSystem implements ISystem {
     this.spiralRefreshAccum = 0;
     this.spiralPhase = 0;
     this.currentSeparation = FINISHER_CONFIG.defaultRootSeparation;
+    this.lastChimeDrainProgress = 0;
+    this.climaxAudioFired = false;
     this.fxGroup.visible = false;
     this.mageRig.setStaffPlanted(false);
+    this.stopSiphonAudio();
     this.audio.setSiphonThrottle(DRAIN_THROTTLE_MODES.FLOW);
   }
 
@@ -322,6 +374,9 @@ export class FinisherSystem implements ISystem {
     const isLobbySiphon = state === GAME_STATES.LOBBY_SIPHON;
     if (!isFinisher && !isEndlessSavor && !isLobbySiphon) {
       this.fxGroup.visible = false;
+      if (this.siphonAudioActive) {
+        this.stopSiphonAudio();
+      }
       return;
     }
 
@@ -330,8 +385,20 @@ export class FinisherSystem implements ISystem {
     if (!player || !boss) return;
 
     const activeRig = this.getActiveBossRig(state);
+    const activeRealm = this.resolveActiveRealm(state, activeRig);
     const sb = boss.siphonableBoss;
     const intent = player.playerIntent;
+
+    if (!this.siphonAudioActive || this.siphonAudioRealm !== activeRealm) {
+      const startDrain = isEndlessSavor
+        ? 1.0
+        : isLobbySiphon
+          ? this.lobbyDepleted
+            ? 1.0
+            : 1.0 - this.lobbyCharge
+          : sb.siphonProgress;
+      this.startSiphonAudio(activeRealm, startDrain);
+    }
 
     // 1. Handle [1-4] Dominance Pose Switching
     if (intent.requestedPose !== null && intent.requestedPose !== sb.finisherPose) {
@@ -377,6 +444,10 @@ export class FinisherSystem implements ISystem {
         if (this.lobbyCharge <= 0) {
           this.lobbyCharge = 0;
           this.lobbyDepleted = true;
+          if (!this.climaxAudioFired) {
+            this.climaxAudioFired = true;
+            this.audio.playSiphonClimax(activeRealm);
+          }
           const store = useGameStore.getState();
           if (this.lobbyAnchor.targetId === 'miku') {
             store.setMikuCoreCharge(0);
@@ -448,6 +519,30 @@ export class FinisherSystem implements ISystem {
       sb.siphonProgress,
       throttle,
     );
+    const isTauntStunned = sb.tauntDizzyTimer > 0;
+
+    // Sync procedural siphon audio stream, kiss-cadence breath/contact/parting, & elemental micro-chimes
+    this.audio.updateSiphonLoop({
+      drainProgress: sb.siphonProgress,
+      throttle,
+      kissPressPhase: headChoreography.pulse,
+      isEndlessSavor: sb.isEndlessSavor,
+      isTauntStunned,
+      dt,
+    });
+    if (
+      !sb.isEndlessSavor &&
+      sb.siphonProgress - this.lastChimeDrainProgress >=
+        SIPHON_AUDIO_CONFIG.chimeStepPercent
+    ) {
+      const stepsAdvanced = Math.floor(
+        (sb.siphonProgress - this.lastChimeDrainProgress) /
+          SIPHON_AUDIO_CONFIG.chimeStepPercent,
+      );
+      this.lastChimeDrainProgress +=
+        stepsAdvanced * SIPHON_AUDIO_CONFIG.chimeStepPercent;
+      this.audio.playSiphonMicroChime(activeRealm, sb.siphonProgress);
+    }
 
     let bx = boss.transform.position.x;
     let by = 0;
@@ -470,7 +565,6 @@ export class FinisherSystem implements ISystem {
     const dirX = Math.sin(bossYaw);
     const dirZ = Math.cos(bossYaw);
 
-    const isTauntStunned = sb.tauntDizzyTimer > 0;
     activeRig.applyFinisherPose(
       sb.finisherPose,
       sb.siphonProgress,
@@ -639,13 +733,19 @@ export class FinisherSystem implements ISystem {
 
     // 9. Trigger 100% Siphon Climax -> Victory Floor Collapse Diorama (never fires in Endless Savor or Lobby Siphon)
     if (isFinisher && sb.siphonProgress >= 1.0) {
+      if (!this.climaxAudioFired) {
+        this.climaxAudioFired = true;
+        this.audio.playSiphonClimax(activeRealm);
+      }
       this.fxGroup.visible = false;
       this.mageRig.setStaffPlanted(false);
+      this.stopSiphonAudio();
       this.callbacks.onSiphonClimax();
     }
   }
 
   public dispose(): void {
+    this.stopSiphonAudio();
     this.mageRig.setStaffPlanted(false);
     this.scene.remove(this.fxGroup);
     [this.voidRibbon, this.frostRibbon, this.staffAloftRibbon].forEach((r) => {

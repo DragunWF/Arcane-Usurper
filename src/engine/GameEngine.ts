@@ -1294,6 +1294,7 @@ export class GameEngine implements IGameController {
     this.sound.setMode(AUDIO_MODES.SIPHON);
 
     const store = useGameStore.getState();
+    this.finisherSystem.startSiphonAudio(store.activeRealm, 0);
     store.setGameState(GAME_STATES.SIPHON_FINISHER);
     store.setCanExecuteFinisher(false);
     store.setFinisherPose(FINISHER_POSE_IDS.UPRIGHT_EMBRACE);
@@ -1428,6 +1429,7 @@ export class GameEngine implements IGameController {
     const remainingCharge = this.finisherSystem.getLobbyCharge();
     this.finisherSystem.hideVisuals();
     this.finisherSystem.resetState();
+    this.sound.stopSiphonLoop();
     this.inputSystem.resetTransientInputs();
 
     const store = useGameStore.getState();

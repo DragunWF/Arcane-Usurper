@@ -4,9 +4,21 @@ import {
   CHAMBER_CONFIG,
   DIORAMA_CONFIG,
   DRAIN_THROTTLE_MODES,
+  SIPHON_AUDIO_CONFIG,
   type AudioMode,
   type DrainThrottleMode,
 } from '../config/gameConfig';
+
+export type SiphonRealmId = 1 | 2 | 3;
+
+export interface SiphonAudioUpdateState {
+  readonly drainProgress: number;
+  readonly throttle: DrainThrottleMode;
+  readonly kissPressPhase: number;
+  readonly isEndlessSavor: boolean;
+  readonly isTauntStunned: boolean;
+  readonly dt: number;
+}
 
 /**
  * Narrow service interface exposed to ECS systems (ISP & DIP).
@@ -24,6 +36,11 @@ export interface IAudioTrigger {
   setSfxVolume(volume: number): void;
   setMode(mode: AudioMode): void;
   setSiphonThrottle(mode: DrainThrottleMode): void;
+  startSiphonLoop(realm: SiphonRealmId): void;
+  updateSiphonLoop(state: SiphonAudioUpdateState): void;
+  playSiphonMicroChime(realm: SiphonRealmId, drainProgress: number): void;
+  playSiphonClimax(realm: SiphonRealmId): void;
+  stopSiphonLoop(): void;
   playVoidBolt(): void;
   playShadowBlink(): void;
   playUmbralPulse(): void;
@@ -62,6 +79,26 @@ interface ActiveLaserNodes {
   env: GainNode;
 }
 
+interface ActiveSiphonNodes {
+  realm: SiphonRealmId;
+  masterGain: GainNode;
+  droneOsc1: OscillatorNode;
+  droneOsc2: OscillatorNode;
+  overtoneGain: GainNode;
+  etherFilter: BiquadFilterNode;
+  etherGain: GainNode;
+  noiseSource: AudioBufferSourceNode | null;
+  shimmerFilter: BiquadFilterNode | null;
+  shimmerGain: GainNode | null;
+  breathFilter: BiquadFilterNode | null;
+  breathGain: GainNode | null;
+  prevKissPressPhase: number;
+  contactArmed: boolean;
+  partingArmed: boolean;
+  heartbeatTimer: number;
+  chimeStepIdx: number;
+}
+
 interface WindowWithWebkitAudio extends Window {
   webkitAudioContext?: typeof AudioContext;
 }
@@ -76,6 +113,7 @@ export class SoundEngine implements IAudioTrigger {
   private musicGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
+  private pinkNoiseBuffer: AudioBuffer | null = null;
 
   // Ambient Wintry Wind Nodes
   private windSource: AudioBufferSourceNode | null = null;
@@ -83,8 +121,9 @@ export class SoundEngine implements IAudioTrigger {
   private windFilter: BiquadFilterNode | null = null;
   private windLfo: OscillatorNode | null = null;
 
-  // Active Laser Loop Tracking
+  // Active Continuous SFX Loops
   private activeLaserNodes: ActiveLaserNodes | null = null;
+  private activeSiphonNodes: ActiveSiphonNodes | null = null;
 
   // Dynamic Sequencer & Split Channel Gain State
   private _mode: AudioMode = AUDIO_MODES.SILENT;
@@ -148,6 +187,7 @@ export class SoundEngine implements IAudioTrigger {
         this.masterGain.connect(this.ctx.destination);
 
         this.buildNoiseBuffer();
+        this.buildPinkNoiseBuffer();
         this.startWintryWindBed();
         this.startSequencerLoop();
 
@@ -181,6 +221,36 @@ export class SoundEngine implements IAudioTrigger {
       data[i] = Math.random() * 2 - 1;
     }
     this.noiseBuffer = buffer;
+  }
+
+  /**
+   * Generates a warm, non-harsh looping pink-noise buffer via Paul Kellet's 7-stage filter
+   * for intimate breath envelopes and filtered ether-siphon shimmer.
+   */
+  private buildPinkNoiseBuffer(): void {
+    if (!this.ctx) return;
+    const length = this.ctx.sampleRate * SIPHON_AUDIO_CONFIG.pinkNoiseDurationSec;
+    const buffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    let b0 = 0;
+    let b1 = 0;
+    let b2 = 0;
+    let b3 = 0;
+    let b4 = 0;
+    let b5 = 0;
+    let b6 = 0;
+    for (let i = 0; i < length; i++) {
+      const white = Math.random() * 2 - 1;
+      b0 = 0.99886 * b0 + white * 0.0555179;
+      b1 = 0.99332 * b1 + white * 0.0750759;
+      b2 = 0.969 * b2 + white * 0.153852;
+      b3 = 0.8665 * b3 + white * 0.3104856;
+      b4 = 0.55 * b4 + white * 0.5329522;
+      b5 = -0.7616 * b5 - white * 0.016898;
+      data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
+      b6 = white * 0.115926;
+    }
+    this.pinkNoiseBuffer = buffer;
   }
 
   private startWintryWindBed(): void {
@@ -2070,6 +2140,587 @@ export class SoundEngine implements IAudioTrigger {
     }
   }
 
+  // =========================================================================
+  // DYNAMIC PROCEDURAL SIPHON & KISS-CADENCE SYNTHESIZER (routed through sfxGain)
+  // =========================================================================
+
+  /**
+   * Starts the continuous procedural ether-siphon loop for the active sovereign realm,
+   * cleaning up any prior siphon loop and playing a soft lip-contact entry seal.
+   */
+  public startSiphonLoop(realm: SiphonRealmId): void {
+    this.stopSiphonLoop();
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+
+    const ctx = this.ctx;
+    const sfxGain = this.sfxGain;
+    const cfg = SIPHON_AUDIO_CONFIG;
+    const now = ctx.currentTime;
+
+    // 1. Entry Lip-Contact Seal (soft bandpass breath swell + gentle harmonic chime)
+    if (this.pinkNoiseBuffer) {
+      const sealSrc = ctx.createBufferSource();
+      sealSrc.buffer = this.pinkNoiseBuffer;
+      const sealFilter = ctx.createBiquadFilter();
+      sealFilter.type = 'bandpass';
+      sealFilter.frequency.setValueAtTime(cfg.sealWhooshStartHz, now);
+      sealFilter.frequency.exponentialRampToValueAtTime(
+        cfg.sealWhooshEndHz,
+        now + cfg.sealWhooshDurationSec,
+      );
+      sealFilter.Q.value = cfg.sealWhooshQ;
+
+      const sealEnv = ctx.createGain();
+      sealEnv.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+      sealEnv.gain.linearRampToValueAtTime(
+        cfg.sealWhooshGain,
+        now + cfg.sealWhooshDurationSec * 0.35,
+      );
+      sealEnv.gain.exponentialRampToValueAtTime(
+        AUDIO_CONFIG.minGainFloor,
+        now + cfg.sealWhooshDurationSec,
+      );
+
+      sealSrc.connect(sealFilter);
+      sealFilter.connect(sealEnv);
+      sealEnv.connect(sfxGain);
+      sealSrc.start(now);
+      sealSrc.stop(now + cfg.sealWhooshDurationSec + 0.03);
+    }
+
+    cfg.sealChimeFreqsHz.forEach((freq, idx) => {
+      const start = now + idx * cfg.sealChimeStepSec;
+      this.playTone(
+        start,
+        'sine',
+        freq,
+        freq * 1.006,
+        cfg.sealChimeGain * (1 - idx * 0.16),
+        0.012,
+        cfg.sealChimeDurationSec,
+      );
+    });
+
+    // 2. Continuous Dual-Oscillator Ether Drone + Split Pink-Noise Shimmer & Breath Branches
+    const masterGain = ctx.createGain();
+    masterGain.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    masterGain.gain.setTargetAtTime(1.0, now, cfg.rampTimeConstantSec);
+    masterGain.connect(sfxGain);
+
+    const droneOsc1 = ctx.createOscillator();
+    droneOsc1.type = 'triangle';
+    droneOsc1.frequency.setValueAtTime(cfg.baseDroneHz, now);
+
+    const droneOsc2 = ctx.createOscillator();
+    droneOsc2.type = 'sine';
+    droneOsc2.frequency.setValueAtTime(
+      cfg.baseDroneHz * cfg.harmonicOvertoneRatio,
+      now,
+    );
+
+    const overtoneGain = ctx.createGain();
+    overtoneGain.gain.setValueAtTime(cfg.droneOvertoneGainScale, now);
+
+    const etherFilter = ctx.createBiquadFilter();
+    etherFilter.type = 'lowpass';
+    etherFilter.frequency.setValueAtTime(cfg.flowFilterHz, now);
+    etherFilter.Q.value = cfg.etherFilterQ;
+
+    const etherGain = ctx.createGain();
+    etherGain.gain.setValueAtTime(cfg.flowGain, now);
+
+    droneOsc1.connect(etherFilter);
+    droneOsc2.connect(overtoneGain);
+    overtoneGain.connect(etherFilter);
+    etherFilter.connect(etherGain);
+    etherGain.connect(masterGain);
+
+    droneOsc1.start(now);
+    droneOsc2.start(now);
+
+    let noiseSource: AudioBufferSourceNode | null = null;
+    let shimmerFilter: BiquadFilterNode | null = null;
+    let shimmerGain: GainNode | null = null;
+    let breathFilter: BiquadFilterNode | null = null;
+    let breathGain: GainNode | null = null;
+
+    if (this.pinkNoiseBuffer) {
+      noiseSource = ctx.createBufferSource();
+      noiseSource.buffer = this.pinkNoiseBuffer;
+      noiseSource.loop = true;
+
+      // Branch A: Filtered Ether Shimmer
+      shimmerFilter = ctx.createBiquadFilter();
+      shimmerFilter.type = 'bandpass';
+      shimmerFilter.frequency.setValueAtTime(
+        cfg.flowFilterHz * cfg.etherShimmerFreqRatio,
+        now,
+      );
+      shimmerFilter.Q.value = cfg.etherShimmerQ;
+
+      shimmerGain = ctx.createGain();
+      shimmerGain.gain.setValueAtTime(
+        cfg.flowGain * cfg.etherShimmerGainScale,
+        now,
+      );
+
+      noiseSource.connect(shimmerFilter);
+      shimmerFilter.connect(shimmerGain);
+      shimmerGain.connect(masterGain);
+
+      // Branch B: Subtle Intimate Bandpass Breath
+      breathFilter = ctx.createBiquadFilter();
+      breathFilter.type = 'bandpass';
+      breathFilter.frequency.setValueAtTime(cfg.breathCenterHz, now);
+      breathFilter.Q.value = cfg.breathQ;
+
+      breathGain = ctx.createGain();
+      breathGain.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+
+      noiseSource.connect(breathFilter);
+      breathFilter.connect(breathGain);
+      breathGain.connect(masterGain);
+
+      noiseSource.start(now);
+    }
+
+    this.activeSiphonNodes = {
+      realm,
+      masterGain,
+      droneOsc1,
+      droneOsc2,
+      overtoneGain,
+      etherFilter,
+      etherGain,
+      noiseSource,
+      shimmerFilter,
+      shimmerGain,
+      breathFilter,
+      breathGain,
+      prevKissPressPhase: 0,
+      contactArmed: true,
+      partingArmed: false,
+      heartbeatTimer: 0,
+      chimeStepIdx: 0,
+    };
+  }
+
+  /**
+   * Modulates the continuous ether stream, kiss-cadence breath/contact/parting transients,
+   * and fading Stage 1 & 2 resistance heartbeat at 60 FPS with click-free exponential ramping.
+   */
+  public updateSiphonLoop(state: SiphonAudioUpdateState): void {
+    if (
+      !this.canPlaySfx() ||
+      !this.ctx ||
+      !this.sfxGain ||
+      !this.activeSiphonNodes
+    ) {
+      return;
+    }
+
+    const ctx = this.ctx;
+    const nodes = this.activeSiphonNodes;
+    const cfg = SIPHON_AUDIO_CONFIG;
+    const now = ctx.currentTime;
+    const drain = Math.max(0, Math.min(1, state.drainProgress));
+    const phase = Math.max(0, Math.min(1, state.kissPressPhase));
+    const safeDt = Math.max(0.001, Math.min(state.dt, 0.05));
+
+    const isSurge = state.throttle === DRAIN_THROTTLE_MODES.SURGE;
+    const isSavor = state.throttle === DRAIN_THROTTLE_MODES.SAVOR;
+
+    // 1. Continuous Ether Drone Pitch Bend, Filter Cutoff & Gain Ramp
+    const semitones = state.isEndlessSavor
+      ? cfg.endlessSavorPitchShiftSemitones
+      : drain * cfg.maxDrainPitchShiftSemitones;
+    const pitchMult = Math.pow(2, semitones / 12);
+    const targetDroneHz = cfg.baseDroneHz * pitchMult;
+
+    const targetFilterHz = state.isEndlessSavor
+      ? cfg.endlessSavorFilterHz
+      : isSurge
+        ? cfg.surgeFilterHz
+        : isSavor
+          ? cfg.savorFilterHz
+          : cfg.flowFilterHz;
+
+    const baseTargetGain = state.isEndlessSavor
+      ? cfg.endlessSavorGain
+      : isSurge
+        ? cfg.surgeGain
+        : isSavor
+          ? cfg.savorGain
+          : cfg.flowGain;
+    const targetEtherGain = state.isTauntStunned
+      ? baseTargetGain * cfg.tauntStunGainScale
+      : baseTargetGain;
+
+    nodes.droneOsc1.frequency.setTargetAtTime(
+      targetDroneHz,
+      now,
+      cfg.rampTimeConstantSec,
+    );
+    nodes.droneOsc2.frequency.setTargetAtTime(
+      targetDroneHz * cfg.harmonicOvertoneRatio,
+      now,
+      cfg.rampTimeConstantSec,
+    );
+    nodes.etherFilter.frequency.setTargetAtTime(
+      targetFilterHz,
+      now,
+      cfg.rampTimeConstantSec,
+    );
+    nodes.etherGain.gain.setTargetAtTime(
+      Math.max(AUDIO_CONFIG.minGainFloor, targetEtherGain),
+      now,
+      cfg.rampTimeConstantSec,
+    );
+
+    if (nodes.shimmerFilter && nodes.shimmerGain) {
+      nodes.shimmerFilter.frequency.setTargetAtTime(
+        targetFilterHz * cfg.etherShimmerFreqRatio,
+        now,
+        cfg.rampTimeConstantSec,
+      );
+      nodes.shimmerGain.gain.setTargetAtTime(
+        Math.max(
+          AUDIO_CONFIG.minGainFloor,
+          targetEtherGain * cfg.etherShimmerGainScale,
+        ),
+        now,
+        cfg.rampTimeConstantSec,
+      );
+    }
+
+    // 2. Soft Intimate Breath Envelope Synced to -> <- Kiss Cadence
+    if (nodes.breathGain) {
+      const breathThrottleScale = state.isEndlessSavor
+        ? cfg.breathEndlessSavorScale
+        : isSurge
+          ? cfg.breathSurgeScale
+          : isSavor
+            ? cfg.breathSavorScale
+            : 1.0;
+      const breathEnvelope = Math.sin(phase * Math.PI);
+      const targetBreathGain = Math.max(
+        AUDIO_CONFIG.minGainFloor,
+        breathEnvelope * cfg.breathMaxGain * breathThrottleScale,
+      );
+      nodes.breathGain.gain.setTargetAtTime(
+        targetBreathGain,
+        now,
+        cfg.rampTimeConstantSec * 0.7,
+      );
+    }
+
+    // 3. Muted 65Hz -> 42Hz Contact Sub-Pulse at Peak Press & Subtle 15ms Parting Tick on Ease
+    if (nodes.contactArmed && phase >= cfg.contactPeakTriggerThreshold) {
+      nodes.contactArmed = false;
+      nodes.partingArmed = true;
+      const pulseGain =
+        cfg.contactPulseGain *
+        (state.isEndlessSavor ? cfg.contactPulseEndlessScale : 1.0);
+      this.playTone(
+        now,
+        'sine',
+        cfg.contactPulseStartHz,
+        cfg.contactPulseEndHz,
+        pulseGain,
+        0.012,
+        cfg.contactPulseDurationSec,
+      );
+    } else if (phase < cfg.contactRearmThreshold) {
+      nodes.contactArmed = true;
+    }
+
+    if (
+      nodes.partingArmed &&
+      phase < nodes.prevKissPressPhase &&
+      phase <= cfg.partingTriggerThreshold
+    ) {
+      nodes.partingArmed = false;
+      this.playSiphonPartingTick(now);
+    }
+    nodes.prevKissPressPhase = phase;
+
+    // 4. Fading Double-Pulse Resistance Heartbeat (Stages 1 & 2 Only; silent >= 75% or taunt-stunned)
+    if (
+      !state.isEndlessSavor &&
+      !state.isTauntStunned &&
+      drain < cfg.heartbeatCutoffDrain
+    ) {
+      const progressRatio = drain / Math.max(0.01, cfg.heartbeatCutoffDrain);
+      const interval =
+        cfg.heartbeatStage1IntervalSec +
+        (cfg.heartbeatStage2IntervalSec - cfg.heartbeatStage1IntervalSec) *
+          progressRatio;
+      const fadeGain = cfg.heartbeatGain * (1 - progressRatio);
+
+      nodes.heartbeatTimer += safeDt;
+      if (nodes.heartbeatTimer >= interval && fadeGain > AUDIO_CONFIG.minGainFloor) {
+        nodes.heartbeatTimer = 0;
+        this.playSiphonHeartbeatDoublePulse(now, fadeGain);
+      }
+    } else {
+      nodes.heartbeatTimer = 0;
+    }
+  }
+
+  private playSiphonPartingTick(time: number): void {
+    if (!this.ctx || !this.sfxGain || !this.pinkNoiseBuffer) return;
+    const cfg = SIPHON_AUDIO_CONFIG;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.pinkNoiseBuffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(cfg.partingTickHz, time);
+    filter.Q.value = cfg.partingTickQ;
+
+    const env = this.ctx.createGain();
+    env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, time);
+    env.gain.linearRampToValueAtTime(cfg.partingTickGain, time + 0.003);
+    env.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      time + cfg.partingTickDurationSec,
+    );
+
+    src.connect(filter);
+    filter.connect(env);
+    env.connect(this.sfxGain);
+    src.start(time);
+    src.stop(time + cfg.partingTickDurationSec + 0.01);
+  }
+
+  private playSiphonHeartbeatDoublePulse(time: number, peakGain: number): void {
+    const cfg = SIPHON_AUDIO_CONFIG;
+    this.playTone(
+      time,
+      'sine',
+      cfg.heartbeatFirstFreqStartHz,
+      cfg.heartbeatFirstFreqEndHz,
+      peakGain,
+      0.012,
+      cfg.heartbeatPulseDurationSec,
+    );
+    this.playTone(
+      time + cfg.heartbeatSecondBeatDelaySec,
+      'sine',
+      cfg.heartbeatSecondFreqStartHz,
+      cfg.heartbeatSecondFreqEndHz,
+      peakGain * cfg.heartbeatSecondBeatGainScale,
+      0.012,
+      cfg.heartbeatPulseDurationSec,
+    );
+  }
+
+  /**
+   * Plays a boss-specific elemental micro-chime every ~4.5% core drained:
+   * - Realm 1 (Marina): delicate glass/ice-crystal bell pings
+   * - Realm 2 (Serena): resonant upward water-droplet sweep
+   * - Realm 3 (Miku): dual-oscillator synth fifth/ninth with depletion pitch-droop
+   */
+  public playSiphonMicroChime(realm: SiphonRealmId, drainProgress: number): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const sfxGain = this.sfxGain;
+    const cfg = SIPHON_AUDIO_CONFIG;
+    const now = ctx.currentTime;
+    const drain = Math.max(0, Math.min(1, drainProgress));
+    const stepIdx = this.activeSiphonNodes
+      ? this.activeSiphonNodes.chimeStepIdx++
+      : Math.floor(drain / cfg.chimeStepPercent);
+
+    if (realm === 1) {
+      // Marina — Cryo Core glass/ice-crystal bell ping
+      const freqs = cfg.marinaChimeFreqsHz;
+      const baseFreq = freqs[stepIdx % freqs.length] ?? freqs[0];
+      const pitchShift = 1 + drain * 0.08;
+      this.playTone(
+        now,
+        'sine',
+        baseFreq * pitchShift,
+        baseFreq * pitchShift * 1.004,
+        cfg.marinaChimeGain,
+        0.005,
+        cfg.marinaChimeDurationSec,
+      );
+      this.playTone(
+        now + 0.01,
+        'triangle',
+        baseFreq * pitchShift * 1.5,
+        baseFreq * pitchShift * 1.5,
+        cfg.marinaChimeGain * 0.28,
+        0.005,
+        cfg.marinaChimeDurationSec * 0.65,
+      );
+      return;
+    }
+
+    if (realm === 2) {
+      // Serena — Tidal Core resonant upward water-droplet blip
+      const pitchShift = 0.92 + drain * 0.22;
+      const osc = ctx.createOscillator();
+      const filter = ctx.createBiquadFilter();
+      const env = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(cfg.serenaDropletStartHz * pitchShift, now);
+      osc.frequency.exponentialRampToValueAtTime(
+        cfg.serenaDropletEndHz * pitchShift,
+        now + cfg.serenaDropletDurationSec,
+      );
+
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(
+        cfg.serenaDropletStartHz * pitchShift * 1.3,
+        now,
+      );
+      filter.frequency.exponentialRampToValueAtTime(
+        cfg.serenaDropletEndHz * pitchShift,
+        now + cfg.serenaDropletDurationSec,
+      );
+      filter.Q.value = cfg.serenaDropletQ;
+
+      env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+      env.gain.linearRampToValueAtTime(cfg.serenaDropletGain, now + 0.008);
+      env.gain.exponentialRampToValueAtTime(
+        AUDIO_CONFIG.minGainFloor,
+        now + cfg.serenaDropletDurationSec,
+      );
+
+      osc.connect(filter);
+      filter.connect(env);
+      env.connect(sfxGain);
+      osc.start(now);
+      osc.stop(now + cfg.serenaDropletDurationSec + 0.02);
+      return;
+    }
+
+    // Realm 3 (Miku) — Harmonic Core dual-oscillator synth fifth/ninth with depletion droop
+    const chord = cfg.mikuChordFreqsHz;
+    const f1 = chord[stepIdx % chord.length] ?? chord[0];
+    const f2 = chord[(stepIdx + 1) % chord.length] ?? chord[1];
+    const droopCents = drain * cfg.mikuMaxDepletionDroopCents;
+
+    [f1, f2].forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const env = ctx.createGain();
+      osc.type = idx === 0 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(freq, now);
+      osc.detune.setValueAtTime(droopCents * 0.4, now);
+      osc.detune.linearRampToValueAtTime(
+        droopCents,
+        now + cfg.mikuChimeDurationSec,
+      );
+
+      env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+      env.gain.linearRampToValueAtTime(
+        cfg.mikuChimeGain * (idx === 0 ? 1.0 : 0.72),
+        now + 0.01,
+      );
+      env.gain.exponentialRampToValueAtTime(
+        AUDIO_CONFIG.minGainFloor,
+        now + cfg.mikuChimeDurationSec,
+      );
+
+      osc.connect(env);
+      env.connect(sfxGain);
+      osc.start(now);
+      osc.stop(now + cfg.mikuChimeDurationSec + 0.02);
+    });
+  }
+
+  /**
+   * Plays the warm 100% core-depletion climax: deep sub-drop + descending crystalline chord swell.
+   */
+  public playSiphonClimax(realm: SiphonRealmId): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = SIPHON_AUDIO_CONFIG;
+    const now = this.ctx.currentTime;
+
+    this.playTone(
+      now,
+      'sine',
+      cfg.climaxSubDropStartHz,
+      cfg.climaxSubDropEndHz,
+      cfg.climaxSubDropGain,
+      0.025,
+      cfg.climaxChordDurationSec,
+    );
+
+    const chord =
+      realm === 3
+        ? cfg.climaxChordMikuHz
+        : realm === 2
+          ? cfg.climaxChordSerenaHz
+          : cfg.climaxChordMarinaHz;
+
+    chord.forEach((freq, idx) => {
+      const start = now + idx * cfg.climaxChordStepSec;
+      this.playTone(
+        start,
+        idx % 2 === 0 ? 'triangle' : 'sine',
+        freq,
+        freq * 0.992,
+        cfg.climaxChordGain * (1 - idx * 0.14),
+        0.02,
+        cfg.climaxChordDurationSec,
+      );
+    });
+  }
+
+  /**
+   * Smoothly ramps down and disconnects all active siphon loop oscillators & noise nodes
+   * so zero audio leaks persist after leaving the finisher.
+   */
+  public stopSiphonLoop(): void {
+    const nodes = this.activeSiphonNodes;
+    if (!nodes) return;
+    this.activeSiphonNodes = null;
+
+    const cfg = SIPHON_AUDIO_CONFIG;
+    if (!this.ctx) return;
+
+    const now = this.ctx.currentTime;
+    try {
+      nodes.masterGain.gain.cancelScheduledValues(now);
+      nodes.masterGain.gain.setTargetAtTime(
+        AUDIO_CONFIG.minGainFloor,
+        now,
+        cfg.stopFadeOutSec * 0.35,
+      );
+      const stopAt = now + cfg.stopCleanupDelaySec;
+      nodes.droneOsc1.onended = () => {
+        try {
+          nodes.droneOsc1.disconnect();
+          nodes.droneOsc2.disconnect();
+          nodes.overtoneGain.disconnect();
+          nodes.etherFilter.disconnect();
+          nodes.etherGain.disconnect();
+          nodes.noiseSource?.disconnect();
+          nodes.shimmerFilter?.disconnect();
+          nodes.shimmerGain?.disconnect();
+          nodes.breathFilter?.disconnect();
+          nodes.breathGain?.disconnect();
+          nodes.masterGain.disconnect();
+        } catch {
+          // Nodes may already be disconnected
+        }
+      };
+      nodes.droneOsc1.stop(stopAt);
+      nodes.droneOsc2.stop(stopAt);
+      nodes.noiseSource?.stop(stopAt);
+    } catch {
+      try {
+        nodes.masterGain.disconnect();
+      } catch {
+        // Ignore already-disconnected graph
+      }
+    }
+  }
+
   /**
    * Stops the sequencer timer, ambient wind bed, and releases the Web Audio context.
    */
@@ -2079,6 +2730,7 @@ export class SoundEngine implements IAudioTrigger {
       this.schedulerId = null;
     }
     this.stopLaserLoop();
+    this.stopSiphonLoop();
 
     try {
       this.windSource?.stop();
@@ -2100,6 +2752,7 @@ export class SoundEngine implements IAudioTrigger {
     this.musicGain = null;
     this.sfxGain = null;
     this.noiseBuffer = null;
+    this.pinkNoiseBuffer = null;
     this._isUnlocked = false;
   }
 }
