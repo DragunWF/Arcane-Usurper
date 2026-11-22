@@ -3943,7 +3943,15 @@ export class MageTowerLevel {
     time: number,
     tetherTension = 0,
   ): void {
+    const cfg = SIPHON_GALLERY_CONFIG;
     const clamped = THREE.MathUtils.clamp(charge, 0, 1);
+    const thicknessScale = this.computeTetherTensionVisuals(
+      clamped,
+      time,
+      tetherTension,
+      this.yenneferTetherMat,
+    );
+
     if (
       this._captiveYenneferRig &&
       this.yenneferCaptiveUnlocked &&
@@ -3952,64 +3960,60 @@ export class MageTowerLevel {
       this.yenneferLeftTetherMesh &&
       this.yenneferRightTetherMesh
     ) {
-      this._captiveYenneferRig.root.updateMatrixWorld(true);
+      this.root.updateMatrixWorld(true);
       this._captiveYenneferRig.getLeftHandWorldPosition(this.scratchWristL);
       this._captiveYenneferRig.getRightHandWorldPosition(this.scratchWristR);
       this.yenneferLeftConduitTip.getWorldPosition(this.scratchTipL);
       this.yenneferRightConduitTip.getWorldPosition(this.scratchTipR);
 
-      const tensionScale = 1 + tetherTension * 0.45;
-      const alignTether = (
-        mesh: THREE.Mesh,
-        a: THREE.Vector3,
-        b: THREE.Vector3,
-      ) => {
-        this.scratchMid.addVectors(a, b).multiplyScalar(0.5);
-        this.scratchDir.subVectors(b, a);
-        const len = Math.max(0.05, this.scratchDir.length());
-        this.scratchDir.divideScalar(len);
-        this.scratchQuat.setFromUnitVectors(this.upAxis, this.scratchDir);
-        mesh.position.copy(this.scratchMid);
-        mesh.quaternion.copy(this.scratchQuat);
-        mesh.scale.set(tensionScale, len, tensionScale);
-      };
-      alignTether(
+      this.alignTetherCylinder(
         this.yenneferLeftTetherMesh,
         this.scratchWristL,
         this.scratchTipL,
+        thicknessScale,
       );
-      alignTether(
+      this.alignTetherCylinder(
         this.yenneferRightTetherMesh,
         this.scratchWristR,
         this.scratchTipR,
+        thicknessScale,
       );
     }
 
-    if (this.yenneferTetherMat) {
-      const pulse = 0.72 + 0.24 * Math.sin(time * 5.2) + tetherTension * 0.2;
-      this.yenneferTetherMat.opacity = Math.min(1, pulse);
-    }
-
-    const litSegments = Math.round(clamped * this.yenneferDaisRuneSegments.length);
-    for (let i = 0; i < this.yenneferDaisRuneSegments.length; i++) {
-      const mat = this.yenneferDaisRuneSegments[i];
-      if (!mat) continue;
-      const isLit = i < litSegments;
-      mat.color.setHex(isLit ? PALETTE.yenneferLilac : PALETTE.drainedAshSilver);
-      mat.opacity = isLit ? 0.88 : 0.22;
+    const segCount = this.yenneferDaisRuneSegments.length;
+    for (let i = 0; i < segCount; i++) {
+      const segMat = this.yenneferDaisRuneSegments[i];
+      if (!segMat) continue;
+      const segThreshold = (i + 1) / segCount;
+      const prevThreshold = i / segCount;
+      const segFill = THREE.MathUtils.clamp(
+        (clamped - prevThreshold) / Math.max(0.001, segThreshold - prevThreshold),
+        0,
+        1,
+      );
+      segMat.color
+        .setHex(PALETTE.drainedAshSilver)
+        .lerp(this.scratchTetherPulseColor, segFill);
+      segMat.opacity = this.yenneferCaptiveUnlocked
+        ? 0.22 + segFill * 0.74
+        : 0.14;
     }
 
     if (this.yenneferReservoirCoreMesh && this.yenneferReservoirCoreMat) {
-      const fill = Math.max(
-        SIPHON_GALLERY_CONFIG.reservoirMinFillScale,
-        clamped,
-      );
+      const fill = Math.max(cfg.reservoirMinFillScale, clamped);
       this.yenneferReservoirCoreMesh.scale.set(1, fill, 1);
-      this.yenneferReservoirCoreMat.emissiveIntensity = 0.15 + clamped * 0.85;
+      this.yenneferReservoirCoreMat.color
+        .setHex(PALETTE.drainedAshSilver)
+        .lerp(this.scratchTetherPulseColor, clamped);
+      this.yenneferReservoirCoreMat.emissive
+        .setHex(PALETTE.drainedAshSilver)
+        .lerp(this.scratchTetherBaseColor, clamped);
+      this.yenneferReservoirCoreMat.emissiveIntensity =
+        0.15 + clamped * (0.85 + 0.14 * Math.sin(time * 3.4));
     }
     if (this.yenneferReservoirLight && this.yenneferCaptiveUnlocked) {
       this.yenneferReservoirLight.intensity =
-        SIPHON_GALLERY_CONFIG.reservoirLightIntensity * (0.2 + clamped * 0.8);
+        cfg.reservoirLightIntensity * (0.14 + clamped * 0.86);
     }
   }
 

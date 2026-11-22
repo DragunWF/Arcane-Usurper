@@ -11,6 +11,7 @@ import {
   PALETTE,
   SIPHON_GALLERY_CONFIG,
   SPECIAL_SCENARIO_CONFIG,
+  WOLF_AND_RAVEN_CONFIG,
   type BossExpression,
   type BossPhase,
   type DrainThrottleMode,
@@ -92,6 +93,8 @@ export class YenneferRig extends BossBase {
 
   private readonly hairLocks: SCurveHairLock[] = [];
   private readonly coatPanels: CoatSkirtPanel[] = [];
+  private readonly mantleUpperFeathers: THREE.Mesh[] = [];
+  private readonly mantleLowerFeathers: THREE.Mesh[] = [];
   private readonly auraRing: THREE.Mesh;
   private readonly maelstromGroup = new THREE.Group();
   private readonly maelstromOuterMat: THREE.MeshBasicMaterial;
@@ -113,6 +116,7 @@ export class YenneferRig extends BossBase {
   private hitFlashTimer = 0;
   private castFlourishTimer = 0;
   private accessoryFlickTimer = 0;
+  private tauntReactTimer = 0;
   private ascendHeight = 0;
   private captiveFaceTimer = 0;
 
@@ -396,8 +400,9 @@ export class YenneferRig extends BossBase {
         Math.cos(ang) * 0.13,
       );
       upperFeather.rotation.y = ang;
-      upperFeather.rotation.x = -0.34;
+      upperFeather.rotation.x = WOLF_AND_RAVEN_CONFIG.yenneferMantleUpperRestPitchRad;
       this.torsoGroup.add(upperFeather);
+      this.mantleUpperFeathers.push(upperFeather);
 
       // Lower draped feather mantle tier flaring over the clavicles
       const lowerFeather = new THREE.Mesh(featherGeo, i % 2 === 0 ? featherSlateMat : featherDarkMat);
@@ -408,8 +413,9 @@ export class YenneferRig extends BossBase {
         Math.cos(ang) * 0.165,
       );
       lowerFeather.rotation.y = ang;
-      lowerFeather.rotation.x = -0.82;
+      lowerFeather.rotation.x = WOLF_AND_RAVEN_CONFIG.yenneferMantleRestPitchRad;
       this.torsoGroup.add(lowerFeather);
+      this.mantleLowerFeathers.push(lowerFeather);
     }
 
     // Silver-buckled Corset Waist Belt
@@ -864,21 +870,103 @@ export class YenneferRig extends BossBase {
     const eyeY = 278;
     const eyeXs = [174, 338];
 
-    // Subtle Sorceress Rose Blush
-    const blushAlpha =
-      expression === BOSS_EXPRESSIONS.SIPHON_KISS ||
-      expression === BOSS_EXPRESSIONS.DRAINED_FAINT
-        ? 0.34
-        : expression === BOSS_EXPRESSIONS.STAGGER
-          ? 0.25
-          : 0.14;
-    ctx.fillStyle = `rgba(244, 63, 94, ${blushAlpha})`;
+    // Subtle Sorceress Rose Blush — deepens into a breathless flush as her core approaches 0%
+    const isTauntGlare =
+      expression === BOSS_EXPRESSIONS.DRAINED_FAINT &&
+      this.tauntReactTimer > 0 &&
+      bleach < WOLF_AND_RAVEN_CONFIG.yenneferTauntGlareThreshold;
+    const isTauntBreathlessFlush =
+      expression === BOSS_EXPRESSIONS.DRAINED_FAINT &&
+      this.tauntReactTimer > 0 &&
+      bleach >= WOLF_AND_RAVEN_CONFIG.yenneferTauntGlareThreshold;
+
+    const blushAlpha = isTauntBreathlessFlush
+      ? 0.44 + Math.min(0.14, (bleach - 0.55) * 0.32)
+      : expression === BOSS_EXPRESSIONS.SIPHON_KISS
+        ? 0.26 + bleach * 0.24
+        : expression === BOSS_EXPRESSIONS.DRAINED_FAINT
+          ? isTauntGlare
+            ? 0.22
+            : 0.38
+          : expression === BOSS_EXPRESSIONS.STAGGER
+            ? 0.25
+            : 0.14;
+    ctx.fillStyle = `rgba(244, 63, 94, ${blushAlpha.toFixed(3)})`;
     ctx.beginPath();
-    ctx.ellipse(150, 326, 38, 17, 0, 0, Math.PI * 2);
-    ctx.ellipse(362, 326, 38, 17, 0, 0, Math.PI * 2);
+    ctx.ellipse(150, 326, isTauntBreathlessFlush ? 46 : 38, isTauntBreathlessFlush ? 21 : 17, 0, 0, Math.PI * 2);
+    ctx.ellipse(362, 326, isTauntBreathlessFlush ? 46 : 38, isTauntBreathlessFlush ? 21 : 17, 0, 0, Math.PI * 2);
+    if (isTauntBreathlessFlush) {
+      ctx.ellipse(256, 322, 62, 11, 0, 0, Math.PI * 2);
+    }
     ctx.fill();
 
-    if (expression === BOSS_EXPRESSIONS.DRAINED_FAINT) {
+    if (isTauntGlare) {
+      // [F] Early-Drain Taunt: Haughty narrowed-eye violet glare
+      for (let e = 0; e < eyeXs.length; e++) {
+        const cx = eyeXs[e]!;
+        ctx.fillStyle = PALETTE.hex.pureWhite;
+        ctx.beginPath();
+        ctx.ellipse(cx, eyeY + 3, 44, 18, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = irisHex;
+        ctx.beginPath();
+        ctx.ellipse(cx, eyeY + 3, 24, 16, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = PALETTE.hex.yenneferRaven;
+        ctx.beginPath();
+        ctx.arc(cx, eyeY + 3, 9, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = PALETTE.hex.pureWhite;
+        ctx.beginPath();
+        ctx.arc(cx - 9, eyeY - 2, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Sharp narrowed upper lid & fierce winged lash
+        ctx.strokeStyle = PALETTE.hex.yenneferRaven;
+        ctx.lineWidth = 12;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(cx - 48, eyeY - 12);
+        ctx.quadraticCurveTo(cx, eyeY - 18, cx + 48, eyeY - 8);
+        ctx.stroke();
+      }
+    } else if (isTauntBreathlessFlush && bleach < 0.88) {
+      // [F] Mid-to-Late Taunt: Breathless flushed half-closed misty gaze
+      for (let e = 0; e < eyeXs.length; e++) {
+        const cx = eyeXs[e]!;
+        ctx.fillStyle = PALETTE.hex.pureWhite;
+        ctx.beginPath();
+        ctx.ellipse(cx, eyeY + 5, 42, 20, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = irisHex;
+        ctx.beginPath();
+        ctx.ellipse(cx, eyeY + 6, 25, 17, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = lowerIrisHex;
+        ctx.beginPath();
+        ctx.ellipse(cx, eyeY + 14, 15, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = PALETTE.hex.pureWhite;
+        ctx.beginPath();
+        ctx.arc(cx - 10, eyeY + 2, 6.5, 0, Math.PI * 2);
+        ctx.arc(cx + 10, eyeY + 11, 3.8, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = PALETTE.hex.yenneferRaven;
+        ctx.lineWidth = 10;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(cx - 46, eyeY - 2);
+        ctx.quadraticCurveTo(cx, eyeY - 14, cx + 46, eyeY - 2);
+        ctx.stroke();
+      }
+    } else if (expression === BOSS_EXPRESSIONS.DRAINED_FAINT) {
       // Spinning @_@ dizzy spirals (bleaching toward ash-silver)
       ctx.strokeStyle = irisHex;
       ctx.lineWidth = 6;
@@ -956,12 +1044,12 @@ export class YenneferRig extends BossBase {
     ctx.lineWidth = 6.5;
     ctx.lineCap = 'round';
     const browY = 224;
-    if (expression === BOSS_EXPRESSIONS.COMBAT) {
+    if (expression === BOSS_EXPRESSIONS.COMBAT || isTauntGlare) {
       ctx.beginPath();
-      ctx.moveTo(130, browY - 4);
-      ctx.quadraticCurveTo(174, browY - 14, 214, browY + 4);
-      ctx.moveTo(382, browY - 8);
-      ctx.quadraticCurveTo(338, browY - 18, 298, browY + 4);
+      ctx.moveTo(130, isTauntGlare ? browY + 2 : browY - 4);
+      ctx.quadraticCurveTo(174, browY - 12, 214, isTauntGlare ? browY + 14 : browY + 4);
+      ctx.moveTo(382, isTauntGlare ? browY + 2 : browY - 8);
+      ctx.quadraticCurveTo(338, browY - 12, 298, isTauntGlare ? browY + 14 : browY + 4);
       ctx.stroke();
     } else {
       ctx.beginPath();
@@ -1033,6 +1121,7 @@ export class YenneferRig extends BossBase {
 
   public triggerAccessoryFlick(): void {
     this.accessoryFlickTimer = 0.65;
+    this.tauntReactTimer = FINISHER_CONFIG.tauntDizzyDuration;
   }
 
   public setMaelstromCharge(intensity: number): void {
@@ -1061,10 +1150,22 @@ export class YenneferRig extends BossBase {
     return this.sovereignLipAnchor.getWorldPosition(outVec);
   }
 
+  private setMantleClearance(lowerPitch: number, upperPitch: number): void {
+    for (let i = 0; i < this.mantleLowerFeathers.length; i++) {
+      const f = this.mantleLowerFeathers[i];
+      if (f) f.rotation.x = lowerPitch;
+    }
+    for (let i = 0; i < this.mantleUpperFeathers.length; i++) {
+      const f = this.mantleUpperFeathers[i];
+      if (f) f.rotation.x = upperPitch;
+    }
+  }
+
   private animateRavenCurls(
     elapsed: number,
     swayAmp: number,
     basePitch: number,
+    midDroop = 0,
   ): void {
     for (let i = 0; i < this.hairLocks.length; i++) {
       const lock = this.hairLocks[i]!;
@@ -1072,7 +1173,7 @@ export class YenneferRig extends BossBase {
       const wave2 = Math.sin(elapsed * 2.7 + lock.phase - 0.9) * swayAmp * 1.35;
       lock.rootPivot.rotation.x = basePitch + wave1;
       lock.rootPivot.rotation.z = lock.spread * 0.16 + wave1 * 0.45;
-      lock.midPivot.rotation.x = 0.12 + wave2;
+      lock.midPivot.rotation.x = 0.12 + midDroop + wave2;
       lock.midPivot.rotation.z = wave2 * 0.35;
     }
   }
@@ -1146,6 +1247,10 @@ export class YenneferRig extends BossBase {
       const wave = Math.sin(elapsed * 2.8 + cp.angle * 2) * 0.05 * (1 - s);
       cp.pivot.rotation.x = wave - s * 0.38;
     }
+    this.setMantleClearance(
+      WOLF_AND_RAVEN_CONFIG.yenneferMantleRestPitchRad,
+      WOLF_AND_RAVEN_CONFIG.yenneferMantleUpperRestPitchRad,
+    );
     this.animateRavenCurls(elapsed, 0.09 * (1 - s * 0.65), 0.14);
 
     this.auraRing.visible = s < 0.85;
@@ -1187,13 +1292,29 @@ export class YenneferRig extends BossBase {
     const isDip = poseId === FINISHER_POSE_IDS.BALLROOM_DIP;
     const isSurge = throttleMode === DRAIN_THROTTLE_MODES.SURGE;
 
+    // Live core drain bleach (100% -> 60% -> 25% -> 0% ash-silver)
+    this.applyDrainBleach(drainProgress);
+
     this.auraRing.visible = false;
     this.accessoryFlickTimer = Math.max(0, this.accessoryFlickTimer - dt);
+    this.tauntReactTimer = isTauntStunned
+      ? Math.max(this.tauntReactTimer - dt, 0.05)
+      : Math.max(0, this.tauntReactTimer - dt);
     const flickRot =
       this.accessoryFlickTimer > 0
         ? Math.sin(this.accessoryFlickTimer * 28) * 0.45 * this.accessoryFlickTimer
         : 0;
     this.starMedallionGroup.rotation.z = flickRot;
+
+    // Tuck feathered shoulder mantle cleanly clear of Dark Mage's embracing arms in [1] & [2]
+    this.setMantleClearance(
+      isDip
+        ? WOLF_AND_RAVEN_CONFIG.yenneferMantleDipClearanceRad
+        : WOLF_AND_RAVEN_CONFIG.yenneferMantleEmbraceClearanceRad,
+      isDip
+        ? WOLF_AND_RAVEN_CONFIG.yenneferMantleUpperDipPitchRad
+        : WOLF_AND_RAVEN_CONFIG.yenneferMantleUpperRestPitchRad,
+    );
 
     const pullBackZ =
       -res.torsoPullBack * FINISHER_RESISTANCE_CONFIG.maxHipPullBackOffset;
@@ -1238,12 +1359,24 @@ export class YenneferRig extends BossBase {
     for (let i = 0; i < this.coatPanels.length; i++) {
       this.coatPanels[i]!.pivot.rotation.x = -0.38;
     }
-    this.animateRavenCurls(time, isSurge ? 0.11 : 0.045, isDip ? 0.44 : 0.12);
+    // Natural gravity drape for Yennefer's wavy raven curls during Ballroom Dip [2]
+    const totalHeadTiltX =
+      dipTorsoX + res.spineResistanceOffset + spinePullBack + headPitch;
+    const gravityCurlPitch = isDip
+      ? -totalHeadTiltX * WOLF_AND_RAVEN_CONFIG.yenneferDipCurlGravityRatio
+      : 0.14;
+    this.animateRavenCurls(
+      time,
+      isSurge ? 0.11 : 0.045,
+      gravityCurlPitch,
+      isDip ? WOLF_AND_RAVEN_CONFIG.yenneferDipCurlMidDroopRad : 0,
+    );
     this.root.updateMatrixWorld(true);
   }
 
   public applyBeamFinisherPose(drainProgress: number, time: number): void {
     const p = this.computeBeamShieldPose(drainProgress, time);
+    this.applyDrainBleach(drainProgress);
     this.auraRing.visible = false;
     this.bodyPivot.position.set(0, p.bodyY, 0);
     this.bodyPivot.rotation.set(0, 0, 0);
@@ -1426,6 +1559,7 @@ export class YenneferRig extends BossBase {
     this.hitFlashTimer = 0;
     this.castFlourishTimer = 0;
     this.accessoryFlickTimer = 0;
+    this.tauntReactTimer = 0;
     this.maelstromCharge = 0;
     this.riftArrivePulseTimer = 0;
     this.ascendHeight = 0;

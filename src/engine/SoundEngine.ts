@@ -7,6 +7,7 @@ import {
   SIPHON_AUDIO_CONFIG,
   SIPHON_BEAM_CONFIG,
   STOLEN_KISS_CONFIG,
+  WOLF_AND_RAVEN_AUDIO_CONFIG,
   type AudioMode,
   type DrainThrottleMode,
 } from '../config/gameConfig';
@@ -79,6 +80,13 @@ export interface IAudioTrigger {
   playChordBurst(): void;
   playBassDrop(): void;
   playCapacitorShatter(): void;
+  playIgniBurst(): void;
+  playQuenHit(): void;
+  playQuenShatter(): void;
+  playYrdenPulse(): void;
+  playChaosLightning(): void;
+  playSpatialRiftWarp(): void;
+  playAshDissolve(): void;
   dispose(): void;
 }
 
@@ -3153,6 +3161,336 @@ export class SoundEngine implements IAudioTrigger {
     chimeEnv.connect(this.sfxGain);
     chime.start(now);
     chime.stop(now + 0.38);
+  }
+
+  /**
+   * Geralt Igni Fire Burst: filtered noise whoosh with warm low-mid crackles and fire thump.
+   */
+  public playIgniBurst(): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = WOLF_AND_RAVEN_AUDIO_CONFIG;
+    const now = this.ctx.currentTime;
+
+    this.playNoiseBurst(
+      now,
+      'bandpass',
+      cfg.igniWhooshStartHz,
+      cfg.igniWhooshEndHz,
+      cfg.igniWhooshQ,
+      cfg.igniWhooshGain,
+      cfg.igniWhooshDurationSec,
+    );
+
+    const thump = this.ctx.createOscillator();
+    const thumpEnv = this.ctx.createGain();
+    thump.type = 'sine';
+    thump.frequency.setValueAtTime(cfg.igniThumpStartHz, now);
+    thump.frequency.exponentialRampToValueAtTime(
+      cfg.igniThumpEndHz,
+      now + cfg.igniThumpDurationSec,
+    );
+    thumpEnv.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    thumpEnv.gain.linearRampToValueAtTime(cfg.igniThumpGain, now + 0.018);
+    thumpEnv.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      now + cfg.igniThumpDurationSec,
+    );
+    thump.connect(thumpEnv);
+    thumpEnv.connect(this.sfxGain);
+    thump.start(now);
+    thump.stop(now + cfg.igniThumpDurationSec + 0.03);
+
+    for (let i = 0; i < cfg.igniCrackleCount; i++) {
+      const t = now + 0.03 + i * 0.068 + Math.random() * 0.025;
+      const hz = cfg.igniCrackleBaseHz + Math.random() * cfg.igniCrackleSpanHz;
+      this.playNoiseBurst(
+        t,
+        'bandpass',
+        hz,
+        hz * 0.65,
+        3.2,
+        cfg.igniCrackleGain * (1 - i * 0.12),
+        cfg.igniCrackleDurationSec,
+      );
+    }
+  }
+
+  /**
+   * Geralt Quen Barrier Hit: metallic-crystalline resonant ping on frontal block.
+   */
+  public playQuenHit(): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = WOLF_AND_RAVEN_AUDIO_CONFIG;
+    const now = this.ctx.currentTime;
+
+    for (let i = 0; i < cfg.quenHitRatios.length; i++) {
+      const ratio = cfg.quenHitRatios[i];
+      if (ratio === undefined) continue;
+      const osc = this.ctx.createOscillator();
+      const env = this.ctx.createGain();
+      osc.type = i === 0 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(cfg.quenHitBaseHz * ratio, now);
+      osc.frequency.exponentialRampToValueAtTime(
+        cfg.quenHitBaseHz * ratio * 0.96,
+        now + cfg.quenHitDurationSec,
+      );
+      const peak = cfg.quenHitGain / (1 + i * 0.75);
+      env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+      env.gain.linearRampToValueAtTime(peak, now + 0.008);
+      env.gain.exponentialRampToValueAtTime(
+        AUDIO_CONFIG.minGainFloor,
+        now + cfg.quenHitDurationSec * (1 - i * 0.12),
+      );
+      osc.connect(env);
+      env.connect(this.sfxGain);
+      osc.start(now);
+      osc.stop(now + cfg.quenHitDurationSec + 0.03);
+    }
+  }
+
+  /**
+   * Geralt Quen Barrier Shatter: high harmonic glass-chime burst when broken by 3rd hit or Umbral Pulse.
+   */
+  public playQuenShatter(): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = WOLF_AND_RAVEN_AUDIO_CONFIG;
+    const now = this.ctx.currentTime;
+
+    this.playNoiseBurst(
+      now,
+      'highpass',
+      cfg.quenShatterNoiseStartHz,
+      cfg.quenShatterNoiseEndHz,
+      1.6,
+      cfg.quenShatterNoiseGain,
+      0.28,
+    );
+
+    for (let i = 0; i < cfg.quenShatterFreqsHz.length; i++) {
+      const hz = cfg.quenShatterFreqsHz[i];
+      if (hz === undefined) continue;
+      const start = now + i * 0.022;
+      const osc = this.ctx.createOscillator();
+      const env = this.ctx.createGain();
+      osc.type = i % 2 === 0 ? 'sine' : 'triangle';
+      osc.frequency.setValueAtTime(hz, start);
+      osc.frequency.exponentialRampToValueAtTime(
+        hz * 0.92,
+        start + cfg.quenShatterDurationSec,
+      );
+      env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, start);
+      env.gain.linearRampToValueAtTime(
+        cfg.quenShatterGain * (1 - i * 0.12),
+        start + 0.008,
+      );
+      env.gain.exponentialRampToValueAtTime(
+        AUDIO_CONFIG.minGainFloor,
+        start + cfg.quenShatterDurationSec,
+      );
+      osc.connect(env);
+      env.connect(this.sfxGain);
+      osc.start(start);
+      osc.stop(start + cfg.quenShatterDurationSec + 0.03);
+    }
+  }
+
+  /**
+   * Geralt Yrden Trap Pulse: low eerie violet sub-hum when the runic snare activates.
+   */
+  public playYrdenPulse(): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = WOLF_AND_RAVEN_AUDIO_CONFIG;
+    const now = this.ctx.currentTime;
+    const dur = cfg.yrdenDurationSec;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(cfg.yrdenFilterStartHz, now);
+    filter.frequency.exponentialRampToValueAtTime(
+      cfg.yrdenFilterPeakHz,
+      now + dur * 0.35,
+    );
+    filter.frequency.exponentialRampToValueAtTime(
+      cfg.yrdenFilterStartHz,
+      now + dur,
+    );
+    filter.Q.value = 3.2;
+
+    const env = this.ctx.createGain();
+    env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    env.gain.linearRampToValueAtTime(cfg.yrdenGain, now + 0.14);
+    env.gain.exponentialRampToValueAtTime(AUDIO_CONFIG.minGainFloor, now + dur);
+
+    filter.connect(env);
+    env.connect(this.sfxGain);
+
+    const freqs = [cfg.yrdenBaseHz, cfg.yrdenDetuneHz, cfg.yrdenOvertoneHz];
+    for (let i = 0; i < freqs.length; i++) {
+      const hz = freqs[i];
+      if (hz === undefined) continue;
+      const osc = this.ctx.createOscillator();
+      osc.type = i === 2 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(hz, now);
+      osc.connect(filter);
+      osc.start(now);
+      osc.stop(now + dur + 0.04);
+    }
+  }
+
+  /**
+   * Yennefer Chaos Lightning: sharp electric crackle-snap with resonant thunder sub-punch.
+   */
+  public playChaosLightning(): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = WOLF_AND_RAVEN_AUDIO_CONFIG;
+    const now = this.ctx.currentTime;
+
+    for (let i = 0; i < cfg.lightningSnapCount; i++) {
+      const start = now + i * 0.032;
+      this.playNoiseBurst(
+        start,
+        'bandpass',
+        cfg.lightningSnapStartHz * (1 - i * 0.12),
+        cfg.lightningSnapEndHz,
+        2.6,
+        cfg.lightningSnapGain * (1 - i * 0.16),
+        cfg.lightningSnapDurationSec,
+      );
+    }
+
+    const zap = this.ctx.createOscillator();
+    const zapEnv = this.ctx.createGain();
+    zap.type = 'sawtooth';
+    zap.frequency.setValueAtTime(cfg.lightningZapStartHz, now);
+    zap.frequency.exponentialRampToValueAtTime(
+      cfg.lightningZapEndHz,
+      now + cfg.lightningZapDurationSec,
+    );
+    zapEnv.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    zapEnv.gain.linearRampToValueAtTime(cfg.lightningZapGain, now + 0.008);
+    zapEnv.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      now + cfg.lightningZapDurationSec,
+    );
+    zap.connect(zapEnv);
+    zapEnv.connect(this.sfxGain);
+    zap.start(now);
+    zap.stop(now + cfg.lightningZapDurationSec + 0.03);
+
+    const sub = this.ctx.createOscillator();
+    const subEnv = this.ctx.createGain();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(cfg.lightningSubStartHz, now);
+    sub.frequency.exponentialRampToValueAtTime(
+      cfg.lightningSubEndHz,
+      now + cfg.lightningSubDurationSec,
+    );
+    subEnv.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    subEnv.gain.linearRampToValueAtTime(cfg.lightningSubGain, now + 0.012);
+    subEnv.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      now + cfg.lightningSubDurationSec,
+    );
+    sub.connect(subEnv);
+    subEnv.connect(this.sfxGain);
+    sub.start(now);
+    sub.stop(now + cfg.lightningSubDurationSec + 0.03);
+  }
+
+  /**
+   * Yennefer Spatial Rift Warp: phase-swept sub-drop teleportation resonance.
+   */
+  public playSpatialRiftWarp(): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = WOLF_AND_RAVEN_AUDIO_CONFIG;
+    const now = this.ctx.currentTime;
+
+    const sub = this.ctx.createOscillator();
+    const subEnv = this.ctx.createGain();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(cfg.riftSubStartHz, now);
+    sub.frequency.exponentialRampToValueAtTime(
+      cfg.riftSubEndHz,
+      now + cfg.riftSubDurationSec,
+    );
+    subEnv.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    subEnv.gain.linearRampToValueAtTime(cfg.riftSubGain, now + 0.02);
+    subEnv.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      now + cfg.riftSubDurationSec,
+    );
+    sub.connect(subEnv);
+    subEnv.connect(this.sfxGain);
+    sub.start(now);
+    sub.stop(now + cfg.riftSubDurationSec + 0.04);
+
+    this.playNoiseBurst(
+      now,
+      'bandpass',
+      cfg.riftPhaseSweepStartHz,
+      cfg.riftPhaseSweepEndHz,
+      cfg.riftPhaseSweepQ,
+      cfg.riftPhaseSweepGain,
+      cfg.riftPhaseSweepDurationSec,
+    );
+    this.playNoiseBurst(
+      now + 0.05,
+      'bandpass',
+      cfg.riftPhaseSweepStartHz * 0.65,
+      cfg.riftPhaseSweepEndHz * 1.4,
+      cfg.riftPhaseSweepQ,
+      cfg.riftPhaseSweepGain * 0.72,
+      cfg.riftPhaseSweepDurationSec * 0.85,
+    );
+  }
+
+  /**
+   * Geralt Ash Dissolution: soft wind-swept pink-noise fade with faint ember crackles at 0 HP.
+   */
+  public playAshDissolve(): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const buf = this.pinkNoiseBuffer ?? this.noiseBuffer;
+    if (!buf) return;
+
+    const cfg = WOLF_AND_RAVEN_AUDIO_CONFIG;
+    const now = this.ctx.currentTime;
+    const dur = cfg.ashFadeDurationSec;
+
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(cfg.ashWindStartHz, now);
+    filter.frequency.exponentialRampToValueAtTime(
+      cfg.ashWindPeakHz,
+      now + dur * 0.35,
+    );
+    filter.frequency.exponentialRampToValueAtTime(cfg.ashWindEndHz, now + dur);
+    filter.Q.value = cfg.ashWindQ;
+
+    const env = this.ctx.createGain();
+    env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    env.gain.linearRampToValueAtTime(cfg.ashWindGain, now + 0.28);
+    env.gain.exponentialRampToValueAtTime(AUDIO_CONFIG.minGainFloor, now + dur);
+
+    src.connect(filter);
+    filter.connect(env);
+    env.connect(this.sfxGain);
+    src.start(now);
+    src.stop(now + dur + 0.05);
+
+    for (let i = 0; i < cfg.ashEmberCount; i++) {
+      const t = now + 0.18 + i * 0.28;
+      this.playNoiseBurst(
+        t,
+        'bandpass',
+        2600 + i * 320,
+        1400,
+        4.5,
+        cfg.ashEmberGain * (1 - i * 0.16),
+        0.045,
+      );
+    }
   }
 
   /**

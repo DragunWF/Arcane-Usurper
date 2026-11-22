@@ -3215,13 +3215,14 @@ export const SPECIAL_SCENARIO_CONFIG = Object.freeze({
   duoIntroDurationSec: 1.35,
   bossToBossMinSeparation: 2.35,
   maxSimultaneousBosses: 4,
-  guestPedestalPassiveRechargePerSec: 0.018,
+  guestPedestalPassiveRechargePerSec: 0.025,
   guestPedestalDefaultCoreCharge: 1.0,
   guestPedestalDefeatRechargeBonus: 1.0,
   disperseShockwaveRadius: 11.5,
   disperseShockwaveDuration: 0.65,
   disperseCameraShake: 0.28,
   yenneferDefeatedStorageKey: 'arcane_usurper_yennefer_defeated',
+  wolfAndRavenDefeatedStorageKey: 'arcane_usurper_wolf_and_raven_defeated',
   yenneferCoreChargeStorageKey: 'arcane_usurper_yennefer_core_charge',
 
   // Geralt & Yennefer baseline combat tuning (zero magic numbers)
@@ -3365,6 +3366,91 @@ export const WOLF_AND_RAVEN_CONFIG = Object.freeze({
   geraltVanquishedBannerText: 'GERALT VANQUISHED',
   geraltVanquishedSubtext: 'YENNEFER ENTERS SOLO CHAOS ENRAGE',
   vanquishedBannerMs: 3200,
+
+  // Yennefer Finisher Mantle Clearance, Dip Hair Gravity & [F] Taunt Threshold
+  yenneferMantleRestPitchRad: -0.82,
+  yenneferMantleEmbraceClearanceRad: -1.04,
+  yenneferMantleDipClearanceRad: -1.24,
+  yenneferMantleUpperRestPitchRad: -0.34,
+  yenneferMantleUpperDipPitchRad: -0.52,
+  yenneferDipCurlGravityRatio: 0.92,
+  yenneferDipCurlMidDroopRad: 0.28,
+  yenneferTauntGlareThreshold: 0.55,
+} as const);
+
+export const WOLF_AND_RAVEN_AUDIO_CONFIG = Object.freeze({
+  // Igni Fire Burst: filtered noise whoosh + warm low-mid crackles
+  igniWhooshStartHz: 980,
+  igniWhooshEndHz: 230,
+  igniWhooshQ: 1.4,
+  igniWhooshGain: 0.22,
+  igniWhooshDurationSec: 0.52,
+  igniCrackleCount: 5,
+  igniCrackleBaseHz: 780,
+  igniCrackleSpanHz: 920,
+  igniCrackleGain: 0.085,
+  igniCrackleDurationSec: 0.055,
+  igniThumpStartHz: 150,
+  igniThumpEndHz: 48,
+  igniThumpGain: 0.2,
+  igniThumpDurationSec: 0.28,
+
+  // Quen Barrier Hit (metallic-crystalline ping) & Shatter (harmonic glass-chime burst)
+  quenHitBaseHz: 880,
+  quenHitRatios: Object.freeze([1.0, 2.76, 4.07] as const),
+  quenHitGain: 0.14,
+  quenHitDurationSec: 0.28,
+  quenShatterFreqsHz: Object.freeze([1760, 2349.3, 3136, 3951, 4698.6] as const),
+  quenShatterGain: 0.13,
+  quenShatterDurationSec: 0.46,
+  quenShatterNoiseStartHz: 4600,
+  quenShatterNoiseEndHz: 1800,
+  quenShatterNoiseGain: 0.16,
+
+  // Yrden Trap Pulse: low eerie violet sub-hum
+  yrdenBaseHz: 68,
+  yrdenDetuneHz: 71.5,
+  yrdenOvertoneHz: 204,
+  yrdenGain: 0.17,
+  yrdenDurationSec: 0.95,
+  yrdenFilterStartHz: 220,
+  yrdenFilterPeakHz: 540,
+
+  // Yennefer Chaos Lightning: sharp electric crackle-snap + sub thunder crack
+  lightningSnapCount: 4,
+  lightningSnapStartHz: 4800,
+  lightningSnapEndHz: 1900,
+  lightningSnapGain: 0.16,
+  lightningSnapDurationSec: 0.055,
+  lightningZapStartHz: 1480,
+  lightningZapEndHz: 165,
+  lightningZapGain: 0.15,
+  lightningZapDurationSec: 0.18,
+  lightningSubStartHz: 135,
+  lightningSubEndHz: 36,
+  lightningSubGain: 0.24,
+  lightningSubDurationSec: 0.34,
+
+  // Yennefer Spatial Rift Warp: phase-swept sub-drop
+  riftSubStartHz: 245,
+  riftSubEndHz: 42,
+  riftSubGain: 0.23,
+  riftSubDurationSec: 0.42,
+  riftPhaseSweepStartHz: 1650,
+  riftPhaseSweepEndHz: 260,
+  riftPhaseSweepQ: 3.4,
+  riftPhaseSweepGain: 0.15,
+  riftPhaseSweepDurationSec: 0.46,
+
+  // Geralt Ash Dissolution: soft wind-swept noise fade at 0 HP
+  ashFadeDurationSec: 1.55,
+  ashWindStartHz: 1200,
+  ashWindPeakHz: 2400,
+  ashWindEndHz: 520,
+  ashWindQ: 1.25,
+  ashWindGain: 0.13,
+  ashEmberCount: 4,
+  ashEmberGain: 0.045,
 } as const);
 
 export const SPECIAL_SCENARIOS: readonly SpecialScenarioDefinition[] =

@@ -16,6 +16,7 @@ import {
   SIPHON_AUDIO_CONFIG,
   SIPHON_BEAM_CONFIG,
   SIPHON_GALLERY_CONFIG,
+  SPECIAL_SCENARIO_CONFIG,
   STOLEN_KISS_CONFIG,
   type DrainThrottleMode,
   type FinisherMode,
@@ -615,7 +616,13 @@ export class FinisherSystem implements ISystem {
     activeRig.setExpression(BOSS_EXPRESSIONS.DRAINED_FAINT, this.spiralPhase);
     activeRig.root.updateMatrixWorld(true);
     activeRig.headAccessory.getWorldPosition(this.scratchAccessoryPos);
-    if (activeRig.id === MIKU_CONFIG.id) {
+    if (activeRig.id === SPECIAL_SCENARIO_CONFIG.yenneferId) {
+      this.vfx.spawnTiaraFlickSparks(
+        this.scratchAccessoryPos,
+        PALETTE.yenneferVioletEye,
+        PALETTE.silverRune,
+      );
+    } else if (activeRig.id === MIKU_CONFIG.id) {
       this.vfx.spawnTiaraFlickSparks(
         this.scratchAccessoryPos,
         PALETTE.harmonicEmerald,
@@ -769,6 +776,7 @@ export class FinisherSystem implements ISystem {
     origin: THREE.Vector3,
     count: number,
     activeRealm: SiphonRealmId,
+    isYennefer = false,
   ): void {
     const rCfg = FINISHER_RESISTANCE_CONFIG;
     const poolLen = this.backlashSparkPool.length;
@@ -795,17 +803,21 @@ export class FinisherSystem implements ISystem {
       sp.life = sp.maxLife;
       sp.active = true;
 
-      const colorHex = isRealm3
+      const colorHex = isYennefer
         ? n % 2 === 0
-          ? PALETTE.harmonicEmerald
-          : PALETTE.harmonicMagenta
-        : isRealm2
+          ? PALETTE.yenneferVioletEye
+          : PALETTE.silverRune
+        : isRealm3
           ? n % 2 === 0
-            ? PALETTE.biolumCyan
-            : PALETTE.serenaHairTips
-          : n % 2 === 0
-            ? PALETTE.frostRunes
-            : PALETTE.iceHighlights;
+            ? PALETTE.harmonicEmerald
+            : PALETTE.harmonicMagenta
+          : isRealm2
+            ? n % 2 === 0
+              ? PALETTE.biolumCyan
+              : PALETTE.serenaHairTips
+            : n % 2 === 0
+              ? PALETTE.frostRunes
+              : PALETTE.iceHighlights;
       sp.mesh.material.color.setHex(colorHex);
       sp.mesh.material.opacity = 0.95;
 
@@ -1313,12 +1325,14 @@ export class FinisherSystem implements ISystem {
       );
       this.scratchSparkOrigin.lerp(this.scratchMageChest, 0.35);
 
+      const isYenneferRig = activeRig.id === SPECIAL_SCENARIO_CONFIG.yenneferId;
       const isSurgeThrottle = throttle === DRAIN_THROTTLE_MODES.SURGE;
       if (resistance?.shoveTriggered) {
         this.emitBacklashSparkBurst(
           this.scratchSparkOrigin,
           isSurgeThrottle ? rCfg.sparkSurgeBurstCount : rCfg.sparkBurstCount,
           activeRealm,
+          isYenneferRig,
         );
       }
       if (isSurgeThrottle) {
@@ -1329,6 +1343,7 @@ export class FinisherSystem implements ISystem {
             this.scratchSparkOrigin,
             rCfg.sparkBurstCount,
             activeRealm,
+            isYenneferRig,
           );
         }
       } else {
@@ -1340,21 +1355,26 @@ export class FinisherSystem implements ISystem {
     this.updateBacklashSparks(dt);
 
     // 7. Update Lip-to-Lip Energy Ribbons & Pose [2] Planted Staff Channeling Ribbon
+    const isYenneferRig = activeRig.id === SPECIAL_SCENARIO_CONFIG.yenneferId;
     const isMikuRig = activeRig.id === MIKU_CONFIG.id;
     const isSerenaRig = activeRig.id === SERENA_CONFIG.id;
     this.frostRibbon.line.material.color.setHex(
-      isMikuRig
-        ? PALETTE.harmonicEmerald
-        : isSerenaRig
-          ? PALETTE.biolumCyan
-          : PALETTE.frostRibbon,
+      isYenneferRig
+        ? PALETTE.yenneferLilac
+        : isMikuRig
+          ? PALETTE.harmonicEmerald
+          : isSerenaRig
+            ? PALETTE.biolumCyan
+            : PALETTE.frostRibbon,
     );
     this.staffAloftRibbon.line.material.color.setHex(
-      isMikuRig
-        ? PALETTE.harmonicMagenta
-        : isSerenaRig
-          ? PALETTE.serenaHairTips
-          : PALETTE.frostRibbon,
+      isYenneferRig
+        ? PALETTE.silverRune
+        : isMikuRig
+          ? PALETTE.harmonicMagenta
+          : isSerenaRig
+            ? PALETTE.serenaHairTips
+            : PALETTE.frostRibbon,
     );
 
     this.fxGroup.visible = true;
@@ -1600,6 +1620,7 @@ export class FinisherSystem implements ISystem {
 
     const orbCount = this.beamEssenceOrbs.length;
     const cycleRate = SIPHON_BEAM_CONFIG.essenceOrbSpeed / beamLen;
+    const isYennefer = activeRig.id === SPECIAL_SCENARIO_CONFIG.yenneferId;
     const isRealm3 = activeRealm === 3;
     const isRealm2 = activeRealm === 2;
 
@@ -1607,17 +1628,21 @@ export class FinisherSystem implements ISystem {
       const orb = this.beamEssenceOrbs[i];
       if (!orb) continue;
 
-      const orbHex = isRealm3
+      const orbHex = isYennefer
         ? i % 2 === 0
-          ? PALETTE.harmonicEmerald
-          : PALETTE.harmonicMagenta
-        : isRealm2
+          ? PALETTE.yenneferVioletEye
+          : PALETTE.silverRune
+        : isRealm3
           ? i % 2 === 0
-            ? PALETTE.biolumCyan
-            : PALETTE.serenaHairTips
-          : i % 2 === 0
-            ? PALETTE.frostRunes
-            : PALETTE.iceHighlights;
+            ? PALETTE.harmonicEmerald
+            : PALETTE.harmonicMagenta
+          : isRealm2
+            ? i % 2 === 0
+              ? PALETTE.biolumCyan
+              : PALETTE.serenaHairTips
+            : i % 2 === 0
+              ? PALETTE.frostRunes
+              : PALETTE.iceHighlights;
       orb.material.color.setHex(orbHex);
 
       // Stream from Boss chest (u = 0) BACK into the Dark Mage's staff crystal (u = 1)

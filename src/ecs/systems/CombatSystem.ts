@@ -431,7 +431,7 @@ export class CombatSystem implements ISystem {
                 this.vBurstPos,
                 WOLF_AND_RAVEN_CONFIG.quenShatterSparkCount,
               );
-              this.audio.playGuardBreak();
+              this.audio.playQuenShatter();
               this.callbacks.addCameraShake(
                 WOLF_AND_RAVEN_CONFIG.quenShatterCameraShake,
               );
@@ -578,7 +578,7 @@ export class CombatSystem implements ISystem {
                       this.vBurstPos,
                       WOLF_AND_RAVEN_CONFIG.quenShatterSparkCount,
                     );
-                    this.audio.playGuardBreak();
+                    this.audio.playQuenShatter();
                     this.callbacks.addCameraShake(
                       WOLF_AND_RAVEN_CONFIG.quenShatterCameraShake,
                     );
@@ -587,7 +587,7 @@ export class CombatSystem implements ISystem {
                       this.vBurstPos,
                       WOLF_AND_RAVEN_CONFIG.quenDeflectSparkCount,
                     );
-                    this.audio.playShieldClang();
+                    this.audio.playQuenHit();
                   }
                 }
               }
@@ -1148,7 +1148,7 @@ export class CombatSystem implements ISystem {
         ) {
           if (!hz.hasTriggered) {
             hz.hasTriggered = true;
-            this.audio.playChordBurst();
+            this.audio.playChaosLightning();
             this.callbacks.addCameraShake(
               WOLF_AND_RAVEN_CONFIG.lightningCameraShake,
             );

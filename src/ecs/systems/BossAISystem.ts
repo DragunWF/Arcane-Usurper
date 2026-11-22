@@ -392,6 +392,7 @@ export class BossAISystem implements ISystem {
           bp.quenHitsRemaining = 0;
           bp.quenTimer = 0;
           if (bp.bossId === SPECIAL_SCENARIO_CONFIG.geraltId) {
+            this.audio.playAshDissolve();
             (rig as GeraltRig).setQuenVisual(false, 0);
             (rig as GeraltRig).setAmberBladeTrail(0);
             (rig as GeraltRig).setIgniChannel(0);
@@ -707,7 +708,7 @@ export class BossAISystem implements ISystem {
 
     rig.triggerCastFlourish();
     rig.triggerRiftArrivePulse();
-    this.audio.playPortalWarp();
+    this.audio.playSpatialRiftWarp();
     bp.riftCooldown = bp.isSoloEnraged
       ? cfg.riftSoloCooldownSec
       : cfg.riftCooldownSec;
@@ -2628,7 +2629,7 @@ export class BossAISystem implements ISystem {
           bp.activePatternLaunched = true;
           geralt.setIgniChannel(0);
           geralt.triggerSignFlash('IGNI');
-          ctx.audio.playIceLance();
+          ctx.audio.playIgniBurst();
 
           const bPos = ctx.bossEntity.transform.position;
           const baseAngle = Math.atan2(
@@ -2699,7 +2700,7 @@ export class BossAISystem implements ISystem {
         const geralt = ctx.bossRig as GeraltRig;
         geralt.triggerCastFlourish();
         geralt.triggerSignFlash('YRDEN');
-        ctx.audio.playSummonGlyphChime();
+        ctx.audio.playYrdenPulse();
 
         const tx = ctx.playerPos.x;
         const tz = ctx.playerPos.z;

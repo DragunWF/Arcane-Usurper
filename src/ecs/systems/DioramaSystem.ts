@@ -369,10 +369,8 @@ export class DioramaSystem implements ISystem {
       boss?.bossPhase.bossId === SPECIAL_SCENARIO_CONFIG.yenneferId ||
       boss?.bossPhase.guestPedestalIndex === 0
     ) {
-      store.setYenneferDefeated(true);
-      store.setYenneferCoreCharge(
-        SPECIAL_SCENARIO_CONFIG.guestPedestalDefeatRechargeBonus,
-      );
+      store.setWolfAndRavenDefeated(true);
+      store.setYenneferCoreCharge(0);
     } else if (store.activeRealm === 3) {
       store.setMikuDefeated(true);
       store.setMikuCoreCharge(MIKU_CONFIG.defaultCoreCharge);

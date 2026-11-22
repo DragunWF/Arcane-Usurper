@@ -222,9 +222,12 @@ function readInitialYenneferDefeated(): boolean {
   try {
     return (
       typeof window !== 'undefined' &&
-      window.localStorage.getItem(
-        SPECIAL_SCENARIO_CONFIG.yenneferDefeatedStorageKey,
-      ) === 'true'
+      (window.localStorage.getItem(
+        SPECIAL_SCENARIO_CONFIG.wolfAndRavenDefeatedStorageKey,
+      ) === 'true' ||
+        window.localStorage.getItem(
+          SPECIAL_SCENARIO_CONFIG.yenneferDefeatedStorageKey,
+        ) === 'true')
     );
   } catch {
     return false;
@@ -234,9 +237,14 @@ function readInitialYenneferDefeated(): boolean {
 function persistYenneferDefeated(defeated: boolean): void {
   try {
     if (typeof window !== 'undefined') {
+      const value = defeated ? 'true' : 'false';
       window.localStorage.setItem(
         SPECIAL_SCENARIO_CONFIG.yenneferDefeatedStorageKey,
-        defeated ? 'true' : 'false',
+        value,
+      );
+      window.localStorage.setItem(
+        SPECIAL_SCENARIO_CONFIG.wolfAndRavenDefeatedStorageKey,
+        value,
       );
     }
   } catch {
@@ -341,6 +349,7 @@ export interface GameStoreState {
   serenaCoreCharge: number;
   mikuDefeated: boolean;
   mikuCoreCharge: number;
+  wolfAndRavenDefeated: boolean;
   yenneferDefeated: boolean;
   yenneferCoreCharge: number;
   lobbySiphonTarget: LobbySiphonTargetId;
@@ -438,6 +447,7 @@ export interface GameStoreState {
   setMikuDefeated: (val: boolean) => void;
   setMikuCoreCharge: (charge: number) => void;
   addMikuCoreCharge: (delta: number) => void;
+  setWolfAndRavenDefeated: (val: boolean) => void;
   setYenneferDefeated: (val: boolean) => void;
   setYenneferCoreCharge: (charge: number) => void;
   addYenneferCoreCharge: (delta: number) => void;
@@ -517,6 +527,7 @@ const INITIAL_STATE = {
   serenaCoreCharge: readInitialSerenaCoreCharge(),
   mikuDefeated: readInitialMikuDefeated(),
   mikuCoreCharge: readInitialMikuCoreCharge(),
+  wolfAndRavenDefeated: readInitialYenneferDefeated(),
   yenneferDefeated: readInitialYenneferDefeated(),
   yenneferCoreCharge: readInitialYenneferCoreCharge(),
   lobbySiphonTarget: 'marina' as LobbySiphonTargetId,
@@ -696,9 +707,13 @@ export const useGameStore = create<GameStoreState>((set) => ({
       persistMikuCoreCharge(clamped);
       return { mikuCoreCharge: clamped };
     }),
+  setWolfAndRavenDefeated: (wolfAndRavenDefeated) => {
+    persistYenneferDefeated(wolfAndRavenDefeated);
+    set({ wolfAndRavenDefeated, yenneferDefeated: wolfAndRavenDefeated });
+  },
   setYenneferDefeated: (yenneferDefeated) => {
     persistYenneferDefeated(yenneferDefeated);
-    set({ yenneferDefeated });
+    set({ yenneferDefeated, wolfAndRavenDefeated: yenneferDefeated });
   },
   setYenneferCoreCharge: (charge) => {
     const clamped = Math.max(0, Math.min(1, charge));
@@ -850,6 +865,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
       serenaCoreCharge: state.serenaCoreCharge,
       mikuDefeated: state.mikuDefeated,
       mikuCoreCharge: state.mikuCoreCharge,
+      wolfAndRavenDefeated: state.wolfAndRavenDefeated,
       yenneferDefeated: state.yenneferDefeated,
       yenneferCoreCharge: state.yenneferCoreCharge,
       audioMuted: state.audioMuted,
