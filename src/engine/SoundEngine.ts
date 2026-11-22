@@ -1,6 +1,7 @@
 import {
   AUDIO_CONFIG,
   AUDIO_MODES,
+  BG3_PARTY_AUDIO_CONFIG,
   CHAMBER_CONFIG,
   DIORAMA_CONFIG,
   DRAIN_THROTTLE_MODES,
@@ -87,6 +88,15 @@ export interface IAudioTrigger {
   playChaosLightning(): void;
   playSpatialRiftWarp(): void;
   playAshDissolve(): void;
+  playPsionicJumpSlam(): void;
+  playGreatswordCleave(): void;
+  playShadowStealthVeil(): void;
+  playDaggerVolleyFlick(): void;
+  playMagicMissileDart(boltIndex?: number): void;
+  playFireballDetonation(): void;
+  playArcaneWardShatter(): void;
+  playGuidingBoltBeam(): void;
+  playSharranEclipse(): void;
   dispose(): void;
 }
 
@@ -3490,6 +3500,388 @@ export class SoundEngine implements IAudioTrigger {
         cfg.ashEmberGain * (1 - i * 0.16),
         0.045,
       );
+    }
+  }
+
+  /**
+   * Lae'zel Psionic Jump Slam: heavy metallic-psionic impact thud + resonant astral ring.
+   */
+  public playPsionicJumpSlam(): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = BG3_PARTY_AUDIO_CONFIG;
+    const now = this.ctx.currentTime;
+
+    const thud = this.ctx.createOscillator();
+    const thudEnv = this.ctx.createGain();
+    thud.type = 'sine';
+    thud.frequency.setValueAtTime(cfg.psionicThudStartHz, now);
+    thud.frequency.exponentialRampToValueAtTime(
+      cfg.psionicThudEndHz,
+      now + cfg.psionicThudDurationSec,
+    );
+    thudEnv.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    thudEnv.gain.linearRampToValueAtTime(cfg.psionicThudGain, now + 0.014);
+    thudEnv.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      now + cfg.psionicThudDurationSec,
+    );
+    thud.connect(thudEnv);
+    thudEnv.connect(this.sfxGain);
+    thud.start(now);
+    thud.stop(now + cfg.psionicThudDurationSec + 0.03);
+
+    const ring = this.ctx.createOscillator();
+    const ringEnv = this.ctx.createGain();
+    ring.type = 'sawtooth';
+    ring.frequency.setValueAtTime(cfg.psionicRingStartHz, now);
+    ring.frequency.exponentialRampToValueAtTime(
+      cfg.psionicRingEndHz,
+      now + cfg.psionicThudDurationSec * 0.9,
+    );
+    ringEnv.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    ringEnv.gain.linearRampToValueAtTime(cfg.psionicRingGain, now + 0.01);
+    ringEnv.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      now + cfg.psionicThudDurationSec,
+    );
+    ring.connect(ringEnv);
+    ringEnv.connect(this.sfxGain);
+    ring.start(now);
+    ring.stop(now + cfg.psionicThudDurationSec + 0.03);
+
+    this.playNoiseBurst(
+      now,
+      'bandpass',
+      cfg.psionicNoiseStartHz,
+      cfg.psionicNoiseEndHz,
+      2.2,
+      cfg.psionicNoiseGain,
+      0.24,
+    );
+  }
+
+  /**
+   * Lae'zel Greatsword Cleave: wide astral silver blade whoosh + metallic edge shimmer.
+   */
+  public playGreatswordCleave(): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = BG3_PARTY_AUDIO_CONFIG;
+    const now = this.ctx.currentTime;
+
+    this.playNoiseBurst(
+      now,
+      'bandpass',
+      cfg.cleaveWhooshStartHz,
+      cfg.cleaveWhooshEndHz,
+      cfg.cleaveWhooshQ,
+      cfg.cleaveWhooshGain,
+      cfg.cleaveWhooshDurationSec,
+    );
+
+    const edge = this.ctx.createOscillator();
+    const edgeEnv = this.ctx.createGain();
+    edge.type = 'triangle';
+    edge.frequency.setValueAtTime(cfg.cleaveEdgeStartHz, now);
+    edge.frequency.exponentialRampToValueAtTime(
+      cfg.cleaveEdgeEndHz,
+      now + cfg.cleaveWhooshDurationSec * 0.85,
+    );
+    edgeEnv.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    edgeEnv.gain.linearRampToValueAtTime(cfg.cleaveEdgeGain, now + 0.012);
+    edgeEnv.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      now + cfg.cleaveWhooshDurationSec,
+    );
+    edge.connect(edgeEnv);
+    edgeEnv.connect(this.sfxGain);
+    edge.start(now);
+    edge.stop(now + cfg.cleaveWhooshDurationSec + 0.03);
+  }
+
+  /**
+   * Astarion Cunning Action: Hide: whispered shadow-veil filter sweep + low stealth sigh.
+   */
+  public playShadowStealthVeil(): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = BG3_PARTY_AUDIO_CONFIG;
+    const now = this.ctx.currentTime;
+
+    this.playNoiseBurst(
+      now,
+      'bandpass',
+      cfg.stealthVeilStartHz,
+      cfg.stealthVeilEndHz,
+      cfg.stealthVeilQ,
+      cfg.stealthVeilGain,
+      cfg.stealthVeilDurationSec,
+    );
+
+    const sigh = this.ctx.createOscillator();
+    const sighEnv = this.ctx.createGain();
+    sigh.type = 'sine';
+    sigh.frequency.setValueAtTime(cfg.stealthSighStartHz, now);
+    sigh.frequency.exponentialRampToValueAtTime(
+      cfg.stealthSighEndHz,
+      now + cfg.stealthVeilDurationSec,
+    );
+    sighEnv.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    sighEnv.gain.linearRampToValueAtTime(cfg.stealthSighGain, now + 0.03);
+    sighEnv.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      now + cfg.stealthVeilDurationSec,
+    );
+    sigh.connect(sighEnv);
+    sighEnv.connect(this.sfxGain);
+    sigh.start(now);
+    sigh.stop(now + cfg.stealthVeilDurationSec + 0.04);
+  }
+
+  /**
+   * Astarion Dagger Volley & Sneak Strike: crisp metallic triple-blade flicks.
+   */
+  public playDaggerVolleyFlick(): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = BG3_PARTY_AUDIO_CONFIG;
+    const now = this.ctx.currentTime;
+
+    for (let i = 0; i < cfg.daggerFlickCount; i++) {
+      const start = now + i * cfg.daggerFlickStepSec;
+      const hz = cfg.daggerFlickBaseHz + i * cfg.daggerFlickSpanHz;
+      this.playNoiseBurst(
+        start,
+        'highpass',
+        hz,
+        hz * 0.55,
+        2.4,
+        cfg.daggerFlickGain * (1 - i * 0.14),
+        cfg.daggerFlickDurationSec,
+      );
+
+      const ping = this.ctx.createOscillator();
+      const pingEnv = this.ctx.createGain();
+      ping.type = 'triangle';
+      ping.frequency.setValueAtTime(hz, start);
+      ping.frequency.exponentialRampToValueAtTime(
+        hz * 0.68,
+        start + cfg.daggerFlickDurationSec,
+      );
+      pingEnv.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, start);
+      pingEnv.gain.linearRampToValueAtTime(
+        cfg.daggerFlickGain * 0.75,
+        start + 0.006,
+      );
+      pingEnv.gain.exponentialRampToValueAtTime(
+        AUDIO_CONFIG.minGainFloor,
+        start + cfg.daggerFlickDurationSec,
+      );
+      ping.connect(pingEnv);
+      pingEnv.connect(this.sfxGain);
+      ping.start(start);
+      ping.stop(start + cfg.daggerFlickDurationSec + 0.02);
+    }
+  }
+
+  /**
+   * Gale Magic Missile Dart: sparkling arcane dart ping climbing across the 3-bolt volley.
+   */
+  public playMagicMissileDart(boltIndex = 0): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = BG3_PARTY_AUDIO_CONFIG;
+    const now = this.ctx.currentTime;
+    const baseHz = cfg.missileBaseHz + boltIndex * cfg.missileStepHz;
+
+    for (let h = 0; h < 2; h++) {
+      const osc = this.ctx.createOscillator();
+      const env = this.ctx.createGain();
+      osc.type = h === 0 ? 'sine' : 'triangle';
+      const mult = h === 0 ? 1.0 : cfg.missilePeakMult;
+      osc.frequency.setValueAtTime(baseHz * mult, now);
+      osc.frequency.exponentialRampToValueAtTime(
+        baseHz * mult * 1.18,
+        now + cfg.missileDurationSec,
+      );
+      env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+      env.gain.linearRampToValueAtTime(
+        cfg.missileGain / (1 + h * 0.8),
+        now + 0.008,
+      );
+      env.gain.exponentialRampToValueAtTime(
+        AUDIO_CONFIG.minGainFloor,
+        now + cfg.missileDurationSec,
+      );
+      osc.connect(env);
+      env.connect(this.sfxGain);
+      osc.start(now);
+      osc.stop(now + cfg.missileDurationSec + 0.03);
+    }
+  }
+
+  /**
+   * Gale Fireball Detonation: deep low-end explosion rumble + roaring flame blast.
+   */
+  public playFireballDetonation(): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = BG3_PARTY_AUDIO_CONFIG;
+    const now = this.ctx.currentTime;
+
+    const rumble = this.ctx.createOscillator();
+    const rumbleEnv = this.ctx.createGain();
+    rumble.type = 'sine';
+    rumble.frequency.setValueAtTime(cfg.fireballRumbleStartHz, now);
+    rumble.frequency.exponentialRampToValueAtTime(
+      cfg.fireballRumbleEndHz,
+      now + cfg.fireballRumbleDurationSec,
+    );
+    rumbleEnv.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    rumbleEnv.gain.linearRampToValueAtTime(cfg.fireballRumbleGain, now + 0.018);
+    rumbleEnv.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      now + cfg.fireballRumbleDurationSec,
+    );
+    rumble.connect(rumbleEnv);
+    rumbleEnv.connect(this.sfxGain);
+    rumble.start(now);
+    rumble.stop(now + cfg.fireballRumbleDurationSec + 0.04);
+
+    this.playNoiseBurst(
+      now,
+      'lowpass',
+      cfg.fireballRoarStartHz,
+      cfg.fireballRoarEndHz,
+      cfg.fireballRoarQ,
+      cfg.fireballRoarGain,
+      cfg.fireballRumbleDurationSec * 0.92,
+    );
+  }
+
+  /**
+   * Gale Arcane Ward Shatter: crystalline violet-cyan glass-chord burst.
+   */
+  public playArcaneWardShatter(): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = BG3_PARTY_AUDIO_CONFIG;
+    const now = this.ctx.currentTime;
+
+    this.playNoiseBurst(now, 'highpass', 4200, 1650, 1.8, 0.15, 0.26);
+
+    for (let i = 0; i < cfg.wardShatterFreqsHz.length; i++) {
+      const hz = cfg.wardShatterFreqsHz[i];
+      if (hz === undefined) continue;
+      const start = now + i * 0.02;
+      const osc = this.ctx.createOscillator();
+      const env = this.ctx.createGain();
+      osc.type = i % 2 === 0 ? 'sine' : 'triangle';
+      osc.frequency.setValueAtTime(hz, start);
+      osc.frequency.exponentialRampToValueAtTime(
+        hz * 0.94,
+        start + cfg.wardShatterDurationSec,
+      );
+      env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, start);
+      env.gain.linearRampToValueAtTime(
+        cfg.wardShatterGain * (1 - i * 0.12),
+        start + 0.007,
+      );
+      env.gain.exponentialRampToValueAtTime(
+        AUDIO_CONFIG.minGainFloor,
+        start + cfg.wardShatterDurationSec,
+      );
+      osc.connect(env);
+      env.connect(this.sfxGain);
+      osc.start(start);
+      osc.stop(start + cfg.wardShatterDurationSec + 0.03);
+    }
+  }
+
+  /**
+   * Shadowheart Guiding Bolt Beam: resonant radiant-bell fifths + sacred shimmer sweep.
+   */
+  public playGuidingBoltBeam(): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = BG3_PARTY_AUDIO_CONFIG;
+    const now = this.ctx.currentTime;
+
+    this.playNoiseBurst(
+      now,
+      'bandpass',
+      cfg.guidingBoltShimmerStartHz,
+      cfg.guidingBoltShimmerEndHz,
+      2.6,
+      cfg.guidingBoltShimmerGain,
+      cfg.guidingBoltBellDurationSec * 0.78,
+    );
+
+    for (let i = 0; i < cfg.guidingBoltBellFreqsHz.length; i++) {
+      const hz = cfg.guidingBoltBellFreqsHz[i];
+      if (hz === undefined) continue;
+      const osc = this.ctx.createOscillator();
+      const env = this.ctx.createGain();
+      osc.type = i === 0 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(hz, now);
+      osc.frequency.exponentialRampToValueAtTime(
+        hz * 0.985,
+        now + cfg.guidingBoltBellDurationSec,
+      );
+      env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+      env.gain.linearRampToValueAtTime(
+        cfg.guidingBoltBellGain / (1 + i * 0.55),
+        now + 0.012,
+      );
+      env.gain.exponentialRampToValueAtTime(
+        AUDIO_CONFIG.minGainFloor,
+        now + cfg.guidingBoltBellDurationSec,
+      );
+      osc.connect(env);
+      env.connect(this.sfxGain);
+      osc.start(now);
+      osc.stop(now + cfg.guidingBoltBellDurationSec + 0.04);
+    }
+  }
+
+  /**
+   * Shadowheart Sharran Eclipse: deep lunar sub-chime + dark-amethyst harmonic swell.
+   */
+  public playSharranEclipse(): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = BG3_PARTY_AUDIO_CONFIG;
+    const now = this.ctx.currentTime;
+    const dur = cfg.eclipseDurationSec;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(cfg.eclipseFilterStartHz, now);
+    filter.frequency.exponentialRampToValueAtTime(
+      cfg.eclipseFilterPeakHz,
+      now + dur * 0.42,
+    );
+    filter.frequency.exponentialRampToValueAtTime(
+      cfg.eclipseFilterStartHz,
+      now + dur,
+    );
+    filter.Q.value = 3.0;
+
+    const env = this.ctx.createGain();
+    env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    env.gain.linearRampToValueAtTime(cfg.eclipseGain, now + 0.08);
+    env.gain.exponentialRampToValueAtTime(AUDIO_CONFIG.minGainFloor, now + dur);
+
+    filter.connect(env);
+    env.connect(this.sfxGain);
+
+    const freqs = [
+      cfg.eclipseSubBaseHz,
+      cfg.eclipseSubFifthHz,
+      cfg.eclipseBellHz,
+    ];
+    for (let i = 0; i < freqs.length; i++) {
+      const hz = freqs[i];
+      if (hz === undefined) continue;
+      const osc = this.ctx.createOscillator();
+      osc.type = i === 2 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(hz, now);
+      osc.frequency.exponentialRampToValueAtTime(hz * 0.94, now + dur);
+      osc.connect(filter);
+      osc.start(now);
+      osc.stop(now + dur + 0.04);
     }
   }
 

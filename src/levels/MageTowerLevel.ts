@@ -4047,10 +4047,10 @@ export class MageTowerLevel {
   ): void {
     const cfg = SIPHON_GALLERY_CONFIG;
     if (target === 'shadowheart' && this._captiveShadowheartRig) {
+      const pedYaw = GUEST_PEDESTALS[1]!.facingYaw;
       this._captiveShadowheartRig.root.position.set(0, cfg.daisHeight, 0);
-      this._captiveShadowheartRig.resetUprightPosture(
-        GUEST_PEDESTALS[1]!.facingYaw,
-      );
+      this._captiveShadowheartRig.root.rotation.set(0, pedYaw, 0);
+      this._captiveShadowheartRig.resetUprightPosture(pedYaw);
     } else if (target === 'yennefer' && this._captiveYenneferRig) {
       this._captiveYenneferRig.root.position.set(0, cfg.daisHeight, 0);
       this._captiveYenneferRig.resetUprightPosture(
@@ -4249,6 +4249,7 @@ export class MageTowerLevel {
     const clamped = THREE.MathUtils.clamp(charge, 0, 1);
     if (this._captiveShadowheartRig && this.shadowheartCaptiveUnlocked) {
       this._captiveShadowheartRig.root.position.set(0, cfg.daisHeight, 0);
+      this._captiveShadowheartRig.root.rotation.set(0, ped.facingYaw, 0);
       this._captiveShadowheartRig.enforceVerticalYawOnly(ped.facingYaw);
       this._captiveShadowheartRig.applyCaptiveDaisPose(clamped, time, dt);
     }

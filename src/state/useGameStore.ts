@@ -3,6 +3,7 @@ import {
   AUDIO_CONFIG,
   AUDIO_MODES,
   BALDURS_GATE_PARTY_CONFIG,
+  BG3_PARTY_CONFIG,
   BOSS_CONFIG,
   BOSS_EXPRESSIONS,
   BOSS_PHASES,
@@ -293,8 +294,11 @@ function readInitialShadowheartDefeated(): boolean {
     return (
       typeof window !== 'undefined' &&
       (window.localStorage.getItem(
-        SPECIAL_SCENARIO_CONFIG.baldursGatePartyDefeatedStorageKey,
+        BG3_PARTY_CONFIG.bg3PartyDefeatedStorageKey,
       ) === 'true' ||
+        window.localStorage.getItem(
+          SPECIAL_SCENARIO_CONFIG.baldursGatePartyDefeatedStorageKey,
+        ) === 'true' ||
         window.localStorage.getItem(
           SPECIAL_SCENARIO_CONFIG.shadowheartDefeatedStorageKey,
         ) === 'true')
@@ -308,6 +312,10 @@ function persistShadowheartDefeated(defeated: boolean): void {
   try {
     if (typeof window !== 'undefined') {
       const value = defeated ? 'true' : 'false';
+      window.localStorage.setItem(
+        BG3_PARTY_CONFIG.bg3PartyDefeatedStorageKey,
+        value,
+      );
       window.localStorage.setItem(
         SPECIAL_SCENARIO_CONFIG.shadowheartDefeatedStorageKey,
         value,
@@ -430,6 +438,7 @@ export interface GameStoreState {
   yenneferDefeated: boolean;
   yenneferCoreCharge: number;
   baldursGatePartyDefeated: boolean;
+  bg3PartyDefeated: boolean;
   shadowheartDefeated: boolean;
   shadowheartCoreCharge: number;
   lobbySiphonTarget: LobbySiphonTargetId;
@@ -534,6 +543,7 @@ export interface GameStoreState {
   setYenneferCoreCharge: (charge: number) => void;
   addYenneferCoreCharge: (delta: number) => void;
   setBaldursGatePartyDefeated: (val: boolean) => void;
+  setBg3PartyDefeated: (val: boolean) => void;
   setShadowheartDefeated: (val: boolean) => void;
   setShadowheartCoreCharge: (charge: number) => void;
   addShadowheartCoreCharge: (delta: number) => void;
@@ -624,6 +634,7 @@ const INITIAL_STATE = {
   yenneferDefeated: readInitialYenneferDefeated(),
   yenneferCoreCharge: readInitialYenneferCoreCharge(),
   baldursGatePartyDefeated: readInitialShadowheartDefeated(),
+  bg3PartyDefeated: readInitialShadowheartDefeated(),
   shadowheartDefeated: readInitialShadowheartDefeated(),
   shadowheartCoreCharge: readInitialShadowheartCoreCharge(),
   lobbySiphonTarget: 'marina' as LobbySiphonTargetId,
@@ -831,13 +842,23 @@ export const useGameStore = create<GameStoreState>((set) => ({
     persistShadowheartDefeated(baldursGatePartyDefeated);
     set({
       baldursGatePartyDefeated,
+      bg3PartyDefeated: baldursGatePartyDefeated,
       shadowheartDefeated: baldursGatePartyDefeated,
+    });
+  },
+  setBg3PartyDefeated: (bg3PartyDefeated) => {
+    persistShadowheartDefeated(bg3PartyDefeated);
+    set({
+      bg3PartyDefeated,
+      baldursGatePartyDefeated: bg3PartyDefeated,
+      shadowheartDefeated: bg3PartyDefeated,
     });
   },
   setShadowheartDefeated: (shadowheartDefeated) => {
     persistShadowheartDefeated(shadowheartDefeated);
     set({
       shadowheartDefeated,
+      bg3PartyDefeated: shadowheartDefeated,
       baldursGatePartyDefeated: shadowheartDefeated,
     });
   },
@@ -1001,6 +1022,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
       yenneferDefeated: state.yenneferDefeated,
       yenneferCoreCharge: state.yenneferCoreCharge,
       baldursGatePartyDefeated: state.baldursGatePartyDefeated,
+      bg3PartyDefeated: state.bg3PartyDefeated,
       shadowheartDefeated: state.shadowheartDefeated,
       shadowheartCoreCharge: state.shadowheartCoreCharge,
       audioMuted: state.audioMuted,

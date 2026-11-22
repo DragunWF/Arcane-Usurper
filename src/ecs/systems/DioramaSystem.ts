@@ -372,6 +372,7 @@ export class DioramaSystem implements ISystem {
       boss?.bossPhase.bossId === BALDURS_GATE_PARTY_CONFIG.shadowheartId ||
       boss?.bossPhase.guestPedestalIndex === 1
     ) {
+      store.setBg3PartyDefeated(true);
       store.setBaldursGatePartyDefeated(true);
       store.setShadowheartCoreCharge(0);
     } else if (

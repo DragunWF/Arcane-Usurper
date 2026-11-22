@@ -487,7 +487,11 @@ export class BossAISystem implements ISystem {
           bp.activePatternId = null;
           this.clearBossOwnHazards(boss.id);
           if (hadQuen) {
-            this.audio.playQuenShatter();
+            if (bp.shieldIsOmnidirectional) {
+              this.audio.playArcaneWardShatter();
+            } else {
+              this.audio.playQuenShatter();
+            }
           }
           (
             rig as Partial<GeraltRig> & Partial<GaleRig>
@@ -3353,7 +3357,7 @@ export class BossAISystem implements ISystem {
           ctx.bossRig.setAscendHeight(0);
           laezel.setPsionicLeapAura?.(0);
           laezel.triggerGreatswordSlash?.(1);
-          ctx.audio.playBassDrop();
+          ctx.audio.playPsionicJumpSlam();
           ctx.addCameraShake(pCfg.psionicJumpCameraShake);
 
           // Crimson-amber expanding Psionic Slam shockwave ring
@@ -3444,7 +3448,7 @@ export class BossAISystem implements ISystem {
           bp.dashVelZ = (dz / dist) * pCfg.cleaveDashSpeed;
           bp.dashTimer = pCfg.cleaveDash1Sec;
           laezel.triggerGreatswordSlash?.(1);
-          ctx.audio.playLaserSlash();
+          ctx.audio.playGreatswordCleave();
 
           scratchOrigin.set(bPos.x, 1.08, bPos.z);
           const waveMesh = ctx.vfx.createCrescentBladeGroup(
@@ -3507,7 +3511,7 @@ export class BossAISystem implements ISystem {
           bp.dashVelZ = (dz / dist) * (pCfg.cleaveDashSpeed * 1.12);
           bp.dashTimer = pCfg.cleaveDash2Sec;
           laezel.triggerGreatswordSlash?.(2);
-          ctx.audio.playLaserSlash();
+          ctx.audio.playGreatswordCleave();
 
           for (const spread of [-0.16, 0.16] as const) {
             const sAng = ang + spread;
@@ -3596,7 +3600,7 @@ export class BossAISystem implements ISystem {
         }
         bp.stealthTargetPillarIdx = bestIdx;
         astarion.setShadowStealth?.(1.0);
-        ctx.audio.playShadowBlink();
+        ctx.audio.playShadowStealthVeil();
         bp.activePatternDuration =
           pCfg.hideDurationSec +
           pCfg.sneakTelegraphSec +
@@ -3640,7 +3644,7 @@ export class BossAISystem implements ISystem {
           bp.dashVelX = (dx / dist) * pCfg.sneakDashSpeed;
           bp.dashVelZ = (dz / dist) * pCfg.sneakDashSpeed;
           bp.dashTimer = pCfg.sneakDashDurationSec;
-          ctx.audio.playLaserSlash();
+          ctx.audio.playDaggerVolleyFlick();
 
           // Accompanying tight crimson sneak-slash crescent
           scratchOrigin.set(bPos.x, 1.02, bPos.z);
@@ -3722,7 +3726,7 @@ export class BossAISystem implements ISystem {
           bp.activePatternLaunched = true;
           (ctx.bossRig as Partial<AstarionRig>).setSneakTelegraph?.(0);
           (ctx.bossRig as Partial<AstarionRig>).triggerSneakStrike?.();
-          ctx.audio.playIceLance();
+          ctx.audio.playDaggerVolleyFlick();
 
           const bPos = ctx.bossEntity.transform.position;
           const baseAng = Math.atan2(
@@ -3830,7 +3834,7 @@ export class BossAISystem implements ISystem {
         if (bp.activePatternFireTimer <= 0) {
           const idx = bp.patternSubStage++;
           bp.activePatternFireTimer = pCfg.magicMissileIntervalSec;
-          ctx.audio.playVoidBolt();
+          ctx.audio.playMagicMissileDart(idx);
 
           const bPos = ctx.bossEntity.transform.position;
           const baseAng = Math.atan2(
@@ -4103,7 +4107,7 @@ export class BossAISystem implements ISystem {
         ) {
           bp.activePatternLaunched = true;
           sh.setEclipseCharge?.(0);
-          ctx.audio.playChordBurst();
+          ctx.audio.playSharranEclipse();
           ctx.addCameraShake(pCfg.eclipseCameraShake);
 
           const bPos = ctx.bossEntity.transform.position;

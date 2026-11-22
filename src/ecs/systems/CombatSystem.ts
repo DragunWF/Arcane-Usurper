@@ -458,7 +458,11 @@ export class CombatSystem implements ISystem {
                   ? BG3_PARTY_CONFIG.arcaneWardShatterSparkCount
                   : WOLF_AND_RAVEN_CONFIG.quenShatterSparkCount,
               );
-              this.audio.playQuenShatter();
+              if (isArcaneWard) {
+                this.audio.playArcaneWardShatter();
+              } else {
+                this.audio.playQuenShatter();
+              }
               this.callbacks.addCameraShake(
                 isArcaneWard
                   ? BG3_PARTY_CONFIG.arcaneWardShatterCameraShake
@@ -613,7 +617,11 @@ export class CombatSystem implements ISystem {
                         ? BG3_PARTY_CONFIG.arcaneWardShatterSparkCount
                         : WOLF_AND_RAVEN_CONFIG.quenShatterSparkCount,
                     );
-                    this.audio.playQuenShatter();
+                    if (isArcaneWard) {
+                this.audio.playArcaneWardShatter();
+              } else {
+                this.audio.playQuenShatter();
+              }
                     this.callbacks.addCameraShake(
                       isArcaneWard
                         ? BG3_PARTY_CONFIG.arcaneWardShatterCameraShake
@@ -1303,7 +1311,7 @@ export class CombatSystem implements ISystem {
         ) {
           if (!hz.hasTriggered) {
             hz.hasTriggered = true;
-            this.audio.playIgniBurst();
+            this.audio.playFireballDetonation();
             this.callbacks.addCameraShake(BG3_PARTY_CONFIG.fireballCameraShake);
             this.vBurstPos.set(
               transform.position.x,
@@ -1433,7 +1441,7 @@ export class CombatSystem implements ISystem {
         ) {
           if (!hz.hasTriggered) {
             hz.hasTriggered = true;
-            this.audio.playChaosLightning();
+            this.audio.playGuidingBoltBeam();
             this.callbacks.addCameraShake(
               BG3_PARTY_CONFIG.guidingBoltCameraShake,
             );

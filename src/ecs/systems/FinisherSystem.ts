@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {
+  BALDURS_GATE_PARTY_CONFIG,
   BOSS_CONFIG,
   BOSS_EXPRESSIONS,
   BOSS_PHASES,
@@ -633,7 +634,13 @@ export class FinisherSystem implements ISystem {
     activeRig.setExpression(BOSS_EXPRESSIONS.DRAINED_FAINT, this.spiralPhase);
     activeRig.root.updateMatrixWorld(true);
     activeRig.headAccessory.getWorldPosition(this.scratchAccessoryPos);
-    if (activeRig.id === SPECIAL_SCENARIO_CONFIG.yenneferId) {
+    if (activeRig.id === BALDURS_GATE_PARTY_CONFIG.shadowheartId) {
+      this.vfx.spawnTiaraFlickSparks(
+        this.scratchAccessoryPos,
+        PALETTE.bg3ShadowheartViolet,
+        PALETTE.sharranLunarSilver,
+      );
+    } else if (activeRig.id === SPECIAL_SCENARIO_CONFIG.yenneferId) {
       this.vfx.spawnTiaraFlickSparks(
         this.scratchAccessoryPos,
         PALETTE.yenneferVioletEye,
@@ -1349,14 +1356,16 @@ export class FinisherSystem implements ISystem {
       );
       this.scratchSparkOrigin.lerp(this.scratchMageChest, 0.35);
 
-      const isYenneferRig = activeRig.id === SPECIAL_SCENARIO_CONFIG.yenneferId;
+      const isVioletSilverRig =
+        activeRig.id === SPECIAL_SCENARIO_CONFIG.yenneferId ||
+        activeRig.id === BALDURS_GATE_PARTY_CONFIG.shadowheartId;
       const isSurgeThrottle = throttle === DRAIN_THROTTLE_MODES.SURGE;
       if (resistance?.shoveTriggered) {
         this.emitBacklashSparkBurst(
           this.scratchSparkOrigin,
           isSurgeThrottle ? rCfg.sparkSurgeBurstCount : rCfg.sparkBurstCount,
           activeRealm,
-          isYenneferRig,
+          isVioletSilverRig,
         );
       }
       if (isSurgeThrottle) {
@@ -1367,7 +1376,7 @@ export class FinisherSystem implements ISystem {
             this.scratchSparkOrigin,
             rCfg.sparkBurstCount,
             activeRealm,
-            isYenneferRig,
+            isVioletSilverRig,
           );
         }
       } else {
@@ -1379,26 +1388,32 @@ export class FinisherSystem implements ISystem {
     this.updateBacklashSparks(dt);
 
     // 7. Update Lip-to-Lip Energy Ribbons & Pose [2] Planted Staff Channeling Ribbon
+    const isShadowheartRig =
+      activeRig.id === BALDURS_GATE_PARTY_CONFIG.shadowheartId;
     const isYenneferRig = activeRig.id === SPECIAL_SCENARIO_CONFIG.yenneferId;
     const isMikuRig = activeRig.id === MIKU_CONFIG.id;
     const isSerenaRig = activeRig.id === SERENA_CONFIG.id;
     this.frostRibbon.line.material.color.setHex(
-      isYenneferRig
-        ? PALETTE.yenneferLilac
-        : isMikuRig
-          ? PALETTE.harmonicEmerald
-          : isSerenaRig
-            ? PALETTE.biolumCyan
-            : PALETTE.frostRibbon,
+      isShadowheartRig
+        ? PALETTE.bg3ShadowheartViolet
+        : isYenneferRig
+          ? PALETTE.yenneferLilac
+          : isMikuRig
+            ? PALETTE.harmonicEmerald
+            : isSerenaRig
+              ? PALETTE.biolumCyan
+              : PALETTE.frostRibbon,
     );
     this.staffAloftRibbon.line.material.color.setHex(
-      isYenneferRig
-        ? PALETTE.silverRune
-        : isMikuRig
-          ? PALETTE.harmonicMagenta
-          : isSerenaRig
-            ? PALETTE.serenaHairTips
-            : PALETTE.frostRibbon,
+      isShadowheartRig
+        ? PALETTE.sharranLunarSilver
+        : isYenneferRig
+          ? PALETTE.silverRune
+          : isMikuRig
+            ? PALETTE.harmonicMagenta
+            : isSerenaRig
+              ? PALETTE.serenaHairTips
+              : PALETTE.frostRibbon,
     );
 
     this.fxGroup.visible = true;
@@ -1510,7 +1525,9 @@ export class FinisherSystem implements ISystem {
       ) {
         this.lobbyChargeSyncAccum = 0;
         const store = useGameStore.getState();
-        if (this.lobbyAnchor.targetId === 'yennefer') {
+        if (this.lobbyAnchor.targetId === 'shadowheart') {
+          store.setShadowheartCoreCharge(this.lobbyCharge);
+        } else if (this.lobbyAnchor.targetId === 'yennefer') {
           store.setYenneferCoreCharge(this.lobbyCharge);
         } else if (this.lobbyAnchor.targetId === 'miku') {
           store.setMikuCoreCharge(this.lobbyCharge);
@@ -1644,7 +1661,9 @@ export class FinisherSystem implements ISystem {
 
     const orbCount = this.beamEssenceOrbs.length;
     const cycleRate = SIPHON_BEAM_CONFIG.essenceOrbSpeed / beamLen;
-    const isYennefer = activeRig.id === SPECIAL_SCENARIO_CONFIG.yenneferId;
+    const isVioletSilver =
+      activeRig.id === SPECIAL_SCENARIO_CONFIG.yenneferId ||
+      activeRig.id === BALDURS_GATE_PARTY_CONFIG.shadowheartId;
     const isRealm3 = activeRealm === 3;
     const isRealm2 = activeRealm === 2;
 
@@ -1652,7 +1671,7 @@ export class FinisherSystem implements ISystem {
       const orb = this.beamEssenceOrbs[i];
       if (!orb) continue;
 
-      const orbHex = isYennefer
+      const orbHex = isVioletSilver
         ? i % 2 === 0
           ? PALETTE.yenneferVioletEye
           : PALETTE.silverRune

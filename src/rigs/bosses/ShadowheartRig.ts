@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   ARENA_CONFIG,
   BALDURS_GATE_PARTY_CONFIG,
+  BG3_PARTY_CONFIG,
   BOSS_EXPRESSIONS,
   BOSS_PHASES,
   DRAIN_THROTTLE_MODES,
@@ -11,7 +12,6 @@ import {
   GAME_STATES,
   PALETTE,
   SIPHON_GALLERY_CONFIG,
-  WOLF_AND_RAVEN_CONFIG,
   type BossExpression,
   type BossPhase,
   type DrainThrottleMode,
@@ -89,6 +89,7 @@ export class ShadowheartRig extends BossBase {
 
   private readonly braidSegments: BraidSegment[] = [];
   private readonly sideLockPivots: THREE.Group[] = [];
+  private readonly pauldronPivots: THREE.Group[] = [];
   private readonly tassetPanels: TassetPanel[] = [];
   private readonly maceGroup = new THREE.Group();
   private readonly shieldGroup = new THREE.Group();
@@ -371,6 +372,7 @@ export class ShadowheartRig extends BossBase {
       pTrim.rotation.x = Math.PI / 2;
       pTrim.position.y = 0.008;
       pGroup.add(pTrim);
+      this.pauldronPivots.push(pGroup);
       this.torsoGroup.add(pGroup);
     }
 
@@ -841,11 +843,11 @@ export class ShadowheartRig extends BossBase {
     const isTauntGlare =
       expression === BOSS_EXPRESSIONS.DRAINED_FAINT &&
       this.tauntReactTimer > 0 &&
-      clampedBleach < WOLF_AND_RAVEN_CONFIG.yenneferTauntGlareThreshold;
+      clampedBleach < BG3_PARTY_CONFIG.shadowheartTauntGlareThreshold;
     const isTauntBreathlessFlush =
       expression === BOSS_EXPRESSIONS.DRAINED_FAINT &&
       this.tauntReactTimer > 0 &&
-      clampedBleach >= WOLF_AND_RAVEN_CONFIG.yenneferTauntGlareThreshold;
+      clampedBleach >= BG3_PARTY_CONFIG.shadowheartTauntGlareThreshold;
 
     // Rose blush intensifying during siphon & late-drain taunt
     const blushAlpha = isTauntBreathlessFlush
@@ -979,16 +981,24 @@ export class ShadowheartRig extends BossBase {
       }
     }
 
-    // Defined dark brows
+    // Defined dark brows (stern inward Sharran glare early on -> breathless arch near 0%)
     ctx.strokeStyle = PALETTE.hex.shadowheartHair;
-    ctx.lineWidth = 7;
+    ctx.lineWidth = isTauntGlare ? 8.2 : 7;
     ctx.lineCap = 'round';
     for (let e = 0; e < eyeXs.length; e++) {
       const cx = eyeXs[e]!;
       const dir = e === 0 ? 1 : -1;
       ctx.beginPath();
-      ctx.moveTo(cx - 34 * dir, eyeY - 46);
-      ctx.quadraticCurveTo(cx, eyeY - 54, cx + 34 * dir, eyeY - 42);
+      if (isTauntGlare) {
+        ctx.moveTo(cx - 38 * dir, eyeY - 50);
+        ctx.quadraticCurveTo(cx, eyeY - 46, cx + 34 * dir, eyeY - 34);
+      } else if (isTauntBreathlessFlush) {
+        ctx.moveTo(cx - 34 * dir, eyeY - 38);
+        ctx.quadraticCurveTo(cx, eyeY - 50, cx + 34 * dir, eyeY - 52);
+      } else {
+        ctx.moveTo(cx - 34 * dir, eyeY - 46);
+        ctx.quadraticCurveTo(cx, eyeY - 54, cx + 34 * dir, eyeY - 42);
+      }
       ctx.stroke();
     }
 
@@ -1027,18 +1037,38 @@ export class ShadowheartRig extends BossBase {
     elapsed: number,
     swayAmp: number,
     basePitch: number,
+    dipSegmentDroop = 0,
   ): void {
     for (let i = 0; i < this.braidSegments.length; i++) {
       const seg = this.braidSegments[i]!;
       const wave = Math.sin(elapsed * 2.5 - seg.index * 0.72) * swayAmp;
-      seg.pivot.rotation.x = i === 0 ? basePitch + wave * 0.6 : 0.08 + wave * 0.85;
-      seg.pivot.rotation.z = Math.cos(elapsed * 1.9 - seg.index * 0.65) * swayAmp * 0.9;
+      const gravityDroop = dipSegmentDroop * (1 - seg.index * 0.14);
+      seg.pivot.rotation.x =
+        i === 0
+          ? basePitch + wave * 0.6
+          : 0.08 + gravityDroop + wave * 0.85;
+      seg.pivot.rotation.z =
+        Math.cos(elapsed * 1.9 - seg.index * 0.65) * swayAmp * 0.9;
     }
     for (let i = 0; i < this.sideLockPivots.length; i++) {
       const lock = this.sideLockPivots[i]!;
       const side = i === 0 ? -1 : 1;
-      lock.rotation.x = Math.sin(elapsed * 2.2 + i) * swayAmp * 0.4;
-      lock.rotation.z = side * 0.05 + Math.cos(elapsed * 2.0 + i) * swayAmp * 0.35;
+      lock.rotation.x =
+        dipSegmentDroop * 0.65 + Math.sin(elapsed * 2.2 + i) * swayAmp * 0.4;
+      lock.rotation.z =
+        side * 0.05 + Math.cos(elapsed * 2.0 + i) * swayAmp * 0.35;
+    }
+  }
+
+  private resetPauldronClearance(): void {
+    for (let i = 0; i < this.pauldronPivots.length; i++) {
+      const p = this.pauldronPivots[i]!;
+      const side = i === 0 ? -1 : 1;
+      p.rotation.set(
+        BG3_PARTY_CONFIG.shadowheartPauldronRestPitchRad,
+        0,
+        -side * 0.42,
+      );
     }
   }
 
@@ -1117,6 +1147,7 @@ export class ShadowheartRig extends BossBase {
 
     this.maceGroup.visible = true;
     this.shieldGroup.visible = true;
+    this.resetPauldronClearance();
 
     this.bodyPivot.position.set(
       0,
@@ -1268,11 +1299,30 @@ export class ShadowheartRig extends BossBase {
       this.tassetPanels[i]!.pivot.rotation.x = -0.36;
     }
 
-    // Gravity-responsive braid drape during Ballroom Dip [2]
+    // Rotate Sharran shoulder pauldrons outward/backward so they clear the Dark Mage's arms cleanly
+    const pauldronPitch = isDip
+      ? BG3_PARTY_CONFIG.shadowheartPauldronDipClearanceRad
+      : BG3_PARTY_CONFIG.shadowheartPauldronEmbraceClearanceRad;
+    for (let i = 0; i < this.pauldronPivots.length; i++) {
+      const p = this.pauldronPivots[i]!;
+      const side = i === 0 ? -1 : 1;
+      p.rotation.set(
+        pauldronPitch,
+        -side * 0.14,
+        -side * (0.42 + BG3_PARTY_CONFIG.shadowheartPauldronOutwardFlareRad),
+      );
+    }
+
+    // Gravity-responsive 5-segment braid drape during Ballroom Dip [2]
     const totalHeadTiltX =
       dipTorsoX + res.spineResistanceOffset + spinePullBack + headPitch;
-    const braidPitch = isDip ? -totalHeadTiltX * 0.88 : 0.14;
-    this.animateBraid(time, isSurge ? 0.1 : 0.045, braidPitch);
+    const braidPitch = isDip
+      ? -totalHeadTiltX * BG3_PARTY_CONFIG.shadowheartDipBraidGravityRatio
+      : 0.14;
+    const dipDroop = isDip
+      ? BG3_PARTY_CONFIG.shadowheartDipBraidSegmentDroopRad
+      : 0;
+    this.animateBraid(time, isSurge ? 0.1 : 0.045, braidPitch, dipDroop);
     this.root.updateMatrixWorld(true);
   }
 
@@ -1377,6 +1427,7 @@ export class ShadowheartRig extends BossBase {
     this.headGroup.rotation.set(0, 0, 0);
     this.headAnchor.position.set(0, 0.141, 0.116);
     this.silverHairCuffGroup.rotation.set(0, 0, 0);
+    this.resetPauldronClearance();
     this.root.updateMatrixWorld(true);
   }
 
@@ -1384,6 +1435,7 @@ export class ShadowheartRig extends BossBase {
     const c = THREE.MathUtils.clamp(charge, 0, 1);
     this.resetResistanceState();
     this.resetBlindspotState();
+    this.resetPauldronClearance();
     this.root.rotation.x = 0;
     this.root.rotation.z = 0;
     this.auraRing.visible = false;
@@ -1496,6 +1548,7 @@ export class ShadowheartRig extends BossBase {
     this.eclipseChargeIntensity = 0;
     this.maceGroup.visible = true;
     this.shieldGroup.visible = true;
+    this.resetPauldronClearance();
     this.auraRing.visible = true;
     restoreDrainableMaterials(
       this.drainableMaterials,
