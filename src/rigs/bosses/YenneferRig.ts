@@ -1294,6 +1294,9 @@ export class YenneferRig extends BossBase {
 
     // Live core drain bleach (100% -> 60% -> 25% -> 0% ash-silver)
     this.applyDrainBleach(drainProgress);
+    // Guard against any root-axis pitch/roll bleed on East/West rotated pedestals
+    this.root.rotation.x = 0;
+    this.root.rotation.z = 0;
 
     this.auraRing.visible = false;
     this.accessoryFlickTimer = Math.max(0, this.accessoryFlickTimer - dt);
@@ -1377,11 +1380,15 @@ export class YenneferRig extends BossBase {
   public applyBeamFinisherPose(drainProgress: number, time: number): void {
     const p = this.computeBeamShieldPose(drainProgress, time);
     this.applyDrainBleach(drainProgress);
+    this.root.rotation.x = 0;
+    this.root.rotation.z = 0;
     this.auraRing.visible = false;
     this.bodyPivot.position.set(0, p.bodyY, 0);
     this.bodyPivot.rotation.set(0, 0, 0);
     this.torsoGroup.rotation.set(p.torsoX, 0, p.torsoZ);
+    this.headGroup.position.set(0, 0.515, 0.008);
     this.headGroup.rotation.set(p.headX, p.headY, p.headZ);
+    this.headAnchor.position.set(0, 0.141, 0.116);
     this.leftLegPivot.rotation.set(-0.78, 0, -0.08);
     this.rightLegPivot.rotation.set(-0.78, 0, 0.08);
     this.leftKneePivot.rotation.x = 1.56;
@@ -1454,10 +1461,37 @@ export class YenneferRig extends BossBase {
     this.rightElbowPivot.rotation.set(-0.34, 0, 0);
   }
 
+  public override resetUprightPosture(targetYaw: number): void {
+    super.resetUprightPosture(targetYaw);
+    this.accessoryFlickTimer = 0;
+    this.tauntReactTimer = 0;
+    this.bodyPivot.position.set(0, SIPHON_GALLERY_CONFIG.captiveKneelBodyY, 0);
+    this.bodyPivot.rotation.set(0, 0, 0);
+    this.torsoGroup.rotation.set(0, 0, 0);
+    this.headGroup.position.set(0, 0.515, 0.008);
+    this.headGroup.rotation.set(0, 0, 0);
+    this.headAnchor.position.set(0, 0.141, 0.116);
+    this.starMedallionGroup.rotation.set(0, 0, 0);
+    this.setMantleClearance(
+      WOLF_AND_RAVEN_CONFIG.yenneferMantleRestPitchRad,
+      WOLF_AND_RAVEN_CONFIG.yenneferMantleUpperRestPitchRad,
+    );
+    this.root.updateMatrixWorld(true);
+  }
+
   public applyCaptiveDaisPose(charge: number, time: number, dt: number): void {
     const c = THREE.MathUtils.clamp(charge, 0, 1);
+    this.resetResistanceState();
+    this.resetBlindspotState();
+    this.root.rotation.x = 0;
+    this.root.rotation.z = 0;
     this.auraRing.visible = false;
     this.applyDrainBleach(1 - c);
+    this.starMedallionGroup.rotation.set(0, 0, 0);
+    this.setMantleClearance(
+      WOLF_AND_RAVEN_CONFIG.yenneferMantleRestPitchRad,
+      WOLF_AND_RAVEN_CONFIG.yenneferMantleUpperRestPitchRad,
+    );
 
     const freq = THREE.MathUtils.lerp(
       SIPHON_GALLERY_CONFIG.captiveBreathFreqMin,
@@ -1480,6 +1514,7 @@ export class YenneferRig extends BossBase {
       0,
       0,
     );
+    this.headGroup.position.set(0, 0.515, 0.008);
     this.headGroup.rotation.set(
       THREE.MathUtils.lerp(
         SIPHON_GALLERY_CONFIG.captiveHeadDroopMax,
@@ -1489,6 +1524,7 @@ export class YenneferRig extends BossBase {
       Math.sin(time * 0.9) * 0.06,
       0,
     );
+    this.headAnchor.position.set(0, 0.141, 0.116);
     this.leftLegPivot.rotation.set(-0.8, 0, -0.08);
     this.rightLegPivot.rotation.set(-0.8, 0, 0.08);
     this.leftKneePivot.rotation.x = 1.56;

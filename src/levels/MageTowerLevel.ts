@@ -3525,10 +3525,12 @@ export class MageTowerLevel {
     }
 
     // --- Guest Pedestal 1: Yennefer of Vengerberg (Active after winning The Wolf & The Raven) ---
+    // Keep p1Group strictly world-aligned (rotation.y = 0) matching Marina/Serena/Miku so
+    // _captiveYenneferRig.root carries the sole vertical yaw (`guestPedestal1FacingYaw`) with zero double-rotation!
     const p1Pos = cfg.guestPedestal1Pos;
     const p1Group = new THREE.Group();
     p1Group.position.set(p1Pos.x, 0, p1Pos.z);
-    p1Group.rotation.y = cfg.guestPedestal1FacingYaw;
+    p1Group.rotation.set(0, 0, 0);
 
     const p1Dais = ToonAssets.createOutlinedMesh(
       this.trackGeo(
@@ -3556,6 +3558,11 @@ export class MageTowerLevel {
 
     this.yenneferActiveGroup = new THREE.Group();
     p1Group.add(this.yenneferActiveGroup);
+
+    // Oriented peripheral frame matching Yennefer's west-facing gallery orientation
+    const yenneferPeripherals = new THREE.Group();
+    yenneferPeripherals.rotation.set(0, cfg.guestPedestal1FacingYaw, 0);
+    this.yenneferActiveGroup.add(yenneferPeripherals);
 
     // 12-Segment Floor Rune Gauge around Guest Pedestal 1
     const segCount = cfg.runeSegmentCount;
@@ -3597,21 +3604,21 @@ export class MageTowerLevel {
     leftCond.position.set(-1.12, cfg.conduitHeight * 0.5, -0.2);
     const rightCond = new THREE.Mesh(conduitGeo, darkObsidianMat);
     rightCond.position.set(1.12, cfg.conduitHeight * 0.5, -0.2);
-    this.yenneferActiveGroup.add(leftCond, rightCond);
+    yenneferPeripherals.add(leftCond, rightCond);
 
     this.yenneferLeftConduitTip = new THREE.Mesh(conduitTipGeo, violetTrimMat);
     this.yenneferLeftConduitTip.position.set(-1.12, cfg.conduitTipY, -0.2);
     this.yenneferRightConduitTip = new THREE.Mesh(conduitTipGeo, violetTrimMat);
     this.yenneferRightConduitTip.position.set(1.12, cfg.conduitTipY, -0.2);
-    this.yenneferActiveGroup.add(
+    yenneferPeripherals.add(
       this.yenneferLeftConduitTip,
       this.yenneferRightConduitTip,
     );
 
-    // Captive Yennefer Rig seated atop Guest Pedestal 1
+    // Captive Yennefer Rig seated atop world-aligned Guest Pedestal 1 with explicit vertical yaw
     this._captiveYenneferRig = new YenneferRig(p1Group as unknown as THREE.Scene);
     this._captiveYenneferRig.root.position.set(0, cfg.daisHeight, 0);
-    this._captiveYenneferRig.root.rotation.set(0, 0, 0);
+    this._captiveYenneferRig.root.rotation.set(0, cfg.guestPedestal1FacingYaw, 0);
 
     // Wrist Energy Tether Meshes
     const tetherGeo = this.trackGeo(
@@ -3665,7 +3672,7 @@ export class MageTowerLevel {
     );
     this.yenneferReservoirLight.position.set(0, 1.45, 0);
     resGroup.add(this.yenneferReservoirLight);
-    this.yenneferActiveGroup.add(resGroup);
+    yenneferPeripherals.add(resGroup);
 
     this.root.add(p1Group);
     this._pillarColliders.push({
@@ -3862,6 +3869,29 @@ export class MageTowerLevel {
   }
 
   /**
+   * Explicitly restores a captive sovereign's pedestal anchor & upright orientation
+   * on exit from LOBBY_SIPHON / ENDLESS_SAVOR so zero residual tilt or yaw offset persists.
+   */
+  public resetCaptivePedestalTransform(
+    target: 'marina' | 'serena' | 'miku' | 'yennefer',
+  ): void {
+    const cfg = SIPHON_GALLERY_CONFIG;
+    if (target === 'yennefer' && this._captiveYenneferRig) {
+      this._captiveYenneferRig.root.position.set(0, cfg.daisHeight, 0);
+      this._captiveYenneferRig.resetUprightPosture(cfg.guestPedestal1FacingYaw);
+    } else if (target === 'serena' && this._captiveSerenaRig) {
+      this._captiveSerenaRig.root.position.set(0, cfg.daisHeight, 0);
+      this._captiveSerenaRig.resetUprightPosture(cfg.serenaFacingYaw);
+    } else if (target === 'miku' && this._captiveMikuRig) {
+      this._captiveMikuRig.root.position.set(0, cfg.daisHeight, 0);
+      this._captiveMikuRig.resetUprightPosture(cfg.mikuFacingYaw);
+    } else if (this._captiveMarinaRig) {
+      this._captiveMarinaRig.root.position.set(0, cfg.daisHeight, 0);
+      this._captiveMarinaRig.resetUprightPosture(cfg.marinaFacingYaw);
+    }
+  }
+
+  /**
    * Updates the bound Marina rig, pulsing wrist tether strands, 12-segment dais rune ring,
    * and vertical Cryo Core Reservoir Crystal smoothly from `charge` (0.0 -> 1.0).
    */
@@ -3870,10 +3900,13 @@ export class MageTowerLevel {
     time: number,
     dt: number,
   ): void {
+    const cfg = SIPHON_GALLERY_CONFIG;
     const clamped = THREE.MathUtils.clamp(charge, 0, 1);
 
-    // 1. Update Captive Marina kneeling posture, breathing & bleach/restoration
+    // 1. Enforce exact pedestal anchor & vertical-yaw-only upright orientation every frame
     if (this._captiveMarinaRig && this.marinaCaptiveUnlocked) {
+      this._captiveMarinaRig.root.position.set(0, cfg.daisHeight, 0);
+      this._captiveMarinaRig.enforceVerticalYawOnly(cfg.marinaFacingYaw);
       this._captiveMarinaRig.applyCaptiveDaisPose(clamped, time, dt);
     }
 
@@ -3891,9 +3924,12 @@ export class MageTowerLevel {
     time: number,
     dt: number,
   ): void {
+    const cfg = SIPHON_GALLERY_CONFIG;
     const clamped = THREE.MathUtils.clamp(charge, 0, 1);
 
     if (this._captiveSerenaRig && this.serenaCaptiveUnlocked) {
+      this._captiveSerenaRig.root.position.set(0, cfg.daisHeight, 0);
+      this._captiveSerenaRig.enforceVerticalYawOnly(cfg.serenaFacingYaw);
       this._captiveSerenaRig.applyCaptiveDaisPose(clamped, time, dt);
     }
 
@@ -3910,9 +3946,12 @@ export class MageTowerLevel {
     time: number,
     dt: number,
   ): void {
+    const cfg = SIPHON_GALLERY_CONFIG;
     const clamped = THREE.MathUtils.clamp(charge, 0, 1);
 
     if (this._captiveMikuRig && this.mikuCaptiveUnlocked) {
+      this._captiveMikuRig.root.position.set(0, cfg.daisHeight, 0);
+      this._captiveMikuRig.enforceVerticalYawOnly(cfg.mikuFacingYaw);
       this._captiveMikuRig.applyCaptiveDaisPose(clamped, time, dt);
     }
 
@@ -3928,8 +3967,11 @@ export class MageTowerLevel {
     time: number,
     dt: number,
   ): void {
+    const cfg = SIPHON_GALLERY_CONFIG;
     const clamped = THREE.MathUtils.clamp(charge, 0, 1);
     if (this._captiveYenneferRig && this.yenneferCaptiveUnlocked) {
+      this._captiveYenneferRig.root.position.set(0, cfg.daisHeight, 0);
+      this._captiveYenneferRig.enforceVerticalYawOnly(cfg.guestPedestal1FacingYaw);
       this._captiveYenneferRig.applyCaptiveDaisPose(clamped, time, dt);
     }
     this.updateYenneferLobbySiphonBackdrop(clamped, time);

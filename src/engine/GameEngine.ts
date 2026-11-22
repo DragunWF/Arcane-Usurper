@@ -2176,6 +2176,11 @@ export class GameEngine implements IGameController {
     this.mageRig.root.position.set(standX, 0, standZ);
     this.mageRig.root.rotation.set(0, playerYaw, 0);
 
+    // Explicitly restore pedestal anchor & upright orientation (pelvis/spine/root yaw) on exit
+    this.sceneManager.mageTowerLevel.resetCaptivePedestalTransform(
+      this.activeLobbySiphonTarget,
+    );
+
     // Restore the active captive sovereign cleanly to her bound dais posture at remaining charge
     if (isYennefer) {
       this.sceneManager.mageTowerLevel.updateYenneferCaptiveState(

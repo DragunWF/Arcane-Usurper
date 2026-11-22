@@ -992,6 +992,8 @@ export class FinisherSystem implements ISystem {
     // 0. Handle Finisher Release ([X]) for Siphon Gallery (LOBBY_SIPHON) & Arena (ENDLESS_SAVOR / completed SIPHON_FINISHER)
     if (intent.releaseRequested) {
       if (isLobbySiphon) {
+        activeRig.root.position.set(0, this.lobbyAnchor.daisHeight, 0);
+        activeRig.resetUprightPosture(this.lobbyAnchor.facingYaw);
         this.hideVisuals();
         this.callbacks.onLobbyRelease?.();
         return;
@@ -1189,12 +1191,13 @@ export class FinisherSystem implements ISystem {
       by = this.lobbyAnchor.daisHeight;
       bz = this.lobbyAnchor.daisPos.z;
       bossYaw = this.lobbyAnchor.facingYaw;
-      // Captive sovereign stays mounted on her dais local origin (0, daisHeight, 0)
+      // Captive sovereign stays mounted on her world-aligned dais local origin (0, daisHeight, 0)
+      // strictly restricted to vertical yaw (rotation.x = 0, rotation.z = 0)
       activeRig.root.position.set(0, by, 0);
-      activeRig.root.rotation.set(0, bossYaw, 0);
+      activeRig.enforceVerticalYawOnly(bossYaw);
     } else {
       activeRig.root.position.set(bx, 0, bz);
-      activeRig.root.rotation.y = bossYaw;
+      activeRig.enforceVerticalYawOnly(bossYaw);
     }
 
     const dirX = Math.sin(bossYaw);
@@ -1511,12 +1514,12 @@ export class FinisherSystem implements ISystem {
       by = this.lobbyAnchor.daisHeight;
       bz = this.lobbyAnchor.daisPos.z;
       bossYaw = this.lobbyAnchor.facingYaw;
-      // Captive sovereign stays mounted on her alcove dais local origin (0, daisHeight, 0)
+      // Captive sovereign stays mounted on her world-aligned alcove dais local origin (0, daisHeight, 0)
       activeRig.root.position.set(0, by, 0);
-      activeRig.root.rotation.set(0, bossYaw, 0);
+      activeRig.enforceVerticalYawOnly(bossYaw);
     } else {
       activeRig.root.position.set(bx, 0, bz);
-      activeRig.root.rotation.set(0, bossYaw, 0);
+      activeRig.enforceVerticalYawOnly(bossYaw);
     }
 
     const dirX = Math.sin(bossYaw);

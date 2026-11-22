@@ -318,6 +318,10 @@ export interface BossRigAdapter {
   /** Lethal stagger-collapse & ash/ember dissolution animation (0 -> 1 over ashDissolveDurationSec) for non-siphonable bosses. */
   applyAshDissolve(progress: number): void;
   resetAshDissolve(): void;
+  /** Strictly restricts root orientation to vertical yaw (rotation.x = 0, rotation.z = 0). */
+  enforceVerticalYawOnly(targetYaw: number): void;
+  /** Resets root orientation & skeletal pelvis/spine tilts cleanly upright after finisher/diorama exit. */
+  resetUprightPosture(targetYaw: number): void;
   resetForEncounter(encoreTier: number): void;
   dispose(): void;
 }
@@ -458,6 +462,17 @@ export abstract class BossBase implements BossRigAdapter {
       mat.transparent = false;
       mat.opacity = 1.0;
     }
+  }
+
+  public enforceVerticalYawOnly(targetYaw: number): void {
+    this.root.rotation.set(0, targetYaw, 0);
+  }
+
+  public resetUprightPosture(targetYaw: number): void {
+    this.root.rotation.set(0, targetYaw, 0);
+    this.root.scale.set(1, 1, 1);
+    this.resetResistanceState();
+    this.resetBlindspotState();
   }
 
   public getLastResistanceState(): FinisherResistanceState | null {
