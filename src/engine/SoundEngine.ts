@@ -6,6 +6,7 @@ import {
   DRAIN_THROTTLE_MODES,
   SIPHON_AUDIO_CONFIG,
   SIPHON_BEAM_CONFIG,
+  STOLEN_KISS_CONFIG,
   type AudioMode,
   type DrainThrottleMode,
 } from '../config/gameConfig';
@@ -45,6 +46,9 @@ export interface IAudioTrigger {
   startBeamSiphonLoop(realm: SiphonRealmId): void;
   updateBeamSiphonLoop(drainProgress: number, dt: number): void;
   stopBeamSiphonLoop(): void;
+  playStolenKissWrap(): void;
+  playStolenKissSiphonChord(realm: SiphonRealmId): void;
+  playStolenKissBreakaway(realm: SiphonRealmId): void;
   playVoidBolt(): void;
   playShadowBlink(): void;
   playUmbralPulse(): void;
@@ -2957,6 +2961,151 @@ export class SoundEngine implements IAudioTrigger {
         // Ignore already-disconnected graph
       }
     }
+  }
+
+  /**
+   * Beat 1 of Mid-Fight Stolen Kiss: velvet rear-wrap whoosh & low embrace thump.
+   */
+  public playStolenKissWrap(): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = STOLEN_KISS_CONFIG;
+    const now = this.ctx.currentTime;
+
+    this.playNoiseBurst(
+      now,
+      'bandpass',
+      cfg.wrapWhooshStartHz,
+      cfg.wrapWhooshEndHz,
+      2.1,
+      cfg.wrapWhooshGain,
+      cfg.wrapWhooshDurationSec,
+    );
+
+    const osc = this.ctx.createOscillator();
+    const env = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(145, now);
+    osc.frequency.exponentialRampToValueAtTime(62, now + 0.24);
+    env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    env.gain.linearRampToValueAtTime(0.22, now + 0.03);
+    env.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      now + 0.28,
+    );
+    osc.connect(env);
+    env.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.3);
+  }
+
+  /**
+   * Beat 2 of Mid-Fight Stolen Kiss: warm low-end siphon chord with subtle realm shimmer.
+   */
+  public playStolenKissSiphonChord(realm: SiphonRealmId): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = STOLEN_KISS_CONFIG;
+    const now = this.ctx.currentTime;
+    const dur = cfg.siphonChordDurationSec;
+    const baseHz =
+      realm === 3
+        ? cfg.siphonChordBaseHz * 1.122
+        : realm === 2
+          ? cfg.siphonChordBaseHz * 0.944
+          : cfg.siphonChordBaseHz;
+    const ratios = [1.0, 1.5, 2.0, 2.5];
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(340, now);
+    filter.frequency.exponentialRampToValueAtTime(980, now + dur * 0.65);
+    filter.frequency.exponentialRampToValueAtTime(420, now + dur);
+    filter.Q.value = 1.8;
+
+    const env = this.ctx.createGain();
+    env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    env.gain.linearRampToValueAtTime(cfg.siphonChordGain, now + 0.18);
+    env.gain.setValueAtTime(cfg.siphonChordGain * 0.92, now + dur * 0.72);
+    env.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      now + dur,
+    );
+
+    filter.connect(env);
+    env.connect(this.sfxGain);
+
+    for (let i = 0; i < ratios.length; i++) {
+      const ratio = ratios[i];
+      if (ratio === undefined) continue;
+      const osc = this.ctx.createOscillator();
+      osc.type = i === 0 ? 'sine' : 'triangle';
+      osc.frequency.setValueAtTime(baseHz * ratio, now);
+      osc.frequency.exponentialRampToValueAtTime(
+        baseHz * ratio * 1.08,
+        now + dur,
+      );
+      osc.detune.setValueAtTime((i - 1.5) * 5, now);
+      osc.connect(filter);
+      osc.start(now);
+      osc.stop(now + dur + 0.04);
+    }
+  }
+
+  /**
+   * Beat 3 of Mid-Fight Stolen Kiss: startled elemental shockwave burst pushing Dark Mage back.
+   */
+  public playStolenKissBreakaway(realm: SiphonRealmId): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = STOLEN_KISS_CONFIG;
+    const now = this.ctx.currentTime;
+    const dur = cfg.breakawayBurstDurationSec;
+
+    // Punchy radial sub-drop impulse
+    const sub = this.ctx.createOscillator();
+    const subEnv = this.ctx.createGain();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(185, now);
+    sub.frequency.exponentialRampToValueAtTime(38, now + 0.34);
+    subEnv.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    subEnv.gain.linearRampToValueAtTime(cfg.breakawayBurstGain, now + 0.015);
+    subEnv.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      now + dur,
+    );
+    sub.connect(subEnv);
+    subEnv.connect(this.sfxGain);
+    sub.start(now);
+    sub.stop(now + dur + 0.03);
+
+    // Elemental sweep burst
+    const startHz = realm === 3 ? 3200 : realm === 2 ? 1400 : 2400;
+    const endHz = realm === 3 ? 680 : realm === 2 ? 320 : 520;
+    this.playNoiseBurst(
+      now,
+      'bandpass',
+      startHz,
+      endHz,
+      1.6,
+      cfg.breakawayBurstGain * 0.85,
+      dur * 0.82,
+    );
+
+    // Realm-tinted high flourish chime
+    const chimeHz = realm === 3 ? 1318.5 : realm === 2 ? 880 : 1046.5;
+    const chime = this.ctx.createOscillator();
+    const chimeEnv = this.ctx.createGain();
+    chime.type = realm === 3 ? 'sawtooth' : 'triangle';
+    chime.frequency.setValueAtTime(chimeHz, now);
+    chime.frequency.exponentialRampToValueAtTime(chimeHz * 1.45, now + 0.24);
+    chimeEnv.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, now);
+    chimeEnv.gain.linearRampToValueAtTime(0.11, now + 0.012);
+    chimeEnv.gain.exponentialRampToValueAtTime(
+      AUDIO_CONFIG.minGainFloor,
+      now + 0.34,
+    );
+    chime.connect(chimeEnv);
+    chimeEnv.connect(this.sfxGain);
+    chime.start(now);
+    chime.stop(now + 0.38);
   }
 
   /**

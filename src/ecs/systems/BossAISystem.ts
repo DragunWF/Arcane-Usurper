@@ -9,6 +9,7 @@ import {
   NG_PLUS_CONFIG,
   PALETTE,
   SERENA_CONFIG,
+  STOLEN_KISS_CONFIG,
   type BossPhase,
   type GameState,
 } from '../../config/gameConfig';
@@ -298,14 +299,20 @@ export class BossAISystem implements ISystem {
     this.callbacks.onPhaseChanged(newPhase);
   }
 
-  public update(dt: number, _elapsed: number): void {
+  public update(dt: number, elapsed: number): void {
     const state = this.callbacks.getGameState();
-    const boss = this.world.queryFirst('bossPhase', 'transform');
+    const boss = this.world.queryFirst('bossPhase', 'transform', 'health');
     const player = this.world.queryFirst('playerTag', 'transform', 'velocity');
     if (!boss || !player) return;
 
     this.updateClonesAI(dt);
     this.updateHarmonicAmpNodes(dt, player.transform.position);
+
+    const allowBlindspot =
+      state === GAME_STATES.BOSS_COMBAT &&
+      !boss.bossPhase.isStaggered &&
+      boss.health.current > STOLEN_KISS_CONFIG.minRemainingBossHp;
+    this.bossRig.tickBlindspotState(dt, elapsed, allowBlindspot);
 
     if (state !== GAME_STATES.BOSS_COMBAT || boss.bossPhase.isStaggered) {
       return;
@@ -346,11 +353,24 @@ export class BossAISystem implements ISystem {
       }
 
       if (bp.activePatternElapsed >= bp.activePatternDuration) {
+        const finishedPatternId = bp.activePatternId;
         if (strategy?.finish) {
           strategy.finish(ctx);
         }
         bp.activePatternId = null;
         bp.attackCooldown = profile.getCooldown(bp.phase);
+
+        // Open Mid-Fight Stolen Kiss blindspot window after heavy channeled/signature patterns
+        if (
+          !bp.isStaggered &&
+          boss.health.current > STOLEN_KISS_CONFIG.minRemainingBossHp &&
+          this.bossRig.stolenKissCooldownTimer <= 0 &&
+          (
+            STOLEN_KISS_CONFIG.heavyExposurePatterns as readonly string[]
+          ).includes(finishedPatternId)
+        ) {
+          this.bossRig.triggerBlindspotExposure();
+        }
 
         const encoreTier =
           this.world.queryFirst('playerTag', 'playerCombat')?.playerCombat

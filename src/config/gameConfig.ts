@@ -18,6 +18,7 @@ export const GAME_STATES = Object.freeze({
   CHAMBER_COMBAT: 'CHAMBER_COMBAT',
   PORTAL_TRANSITION: 'PORTAL_TRANSITION',
   BOSS_COMBAT: 'BOSS_COMBAT',
+  STOLEN_KISS: 'STOLEN_KISS',
   STAGGER: 'STAGGER',
   SIPHON_FINISHER: 'SIPHON_FINISHER',
   VICTORY_DIORAMA: 'VICTORY_DIORAMA',
@@ -3004,4 +3005,88 @@ export const SIPHON_BEAM_CONFIG = Object.freeze({
   bossSlumpArmX: 0.14,
   bossSlumpArmZ: 0.12,
   bossSlumpElbowX: -0.16,
+} as const);
+
+// ============================================================================
+// MID-FIGHT OVER-THE-SHOULDER STOLEN KISS ([E] BLINDSPOT SIPHON) CONFIGURATION
+// ============================================================================
+
+export const STOLEN_KISS_CONFIG = Object.freeze({
+  // Exposure Window, Rear Blindspot Cone & Cooldown
+  triggerKey: 'KeyE',
+  exposureDurationSec: 1.4,
+  cooldownSec: 14.0,
+  maxRearDistance: 2.4,
+  rearConeMinDot: 0.55,
+  exposedBossTurnScale: 0.16,
+
+  // Three-Beat Timing (1.80s total: Wrap -> Over-the-Shoulder Siphon -> Breakaway)
+  totalDurationSec: 1.8,
+  wrapEndSec: 0.3,
+  siphonEndSec: 1.45,
+
+  // Over-the-Shoulder Kinematics
+  rearOffsetDistance: 0.42,
+  targetSpineArchRad: -0.22,
+  targetHeadPitchRad: -0.61,
+  targetHeadYawRad: 0.38,
+  kissPulseAmp: 0.012,
+  kissPulseFreqHz: 3.2,
+  bossStandingBodyY: 0.9,
+  mageStandingBodyY: 0.92,
+  lipLockMaxCorrection: 0.28,
+
+  // Combat Rewards & Breakaway
+  bossDamage: 45,
+  minRemainingBossHp: 1,
+  playerHpRestore: 28,
+  playerManaRestore: 45,
+  breakawayPushDistance: 4.2,
+  postBreakawayIFramesSec: 0.85,
+  breakawayShockwaveRadius: 7.4,
+  breakawayShockwaveDuration: 0.55,
+  breakawayCameraShake: 0.24,
+
+  // Pooled Blindspot Diamond Glint & Lip-to-Cloak Essence Particles
+  blindspotDiamondRadius: 0.14,
+  blindspotLocalY: 0.42,
+  blindspotLocalZ: -0.26,
+  blindspotParticleCount: 6,
+  blindspotPulseFreqHz: 5.2,
+  essenceParticlePoolSize: 20,
+  essenceEmitIntervalSec: 0.055,
+  essenceParticleLifetimeSec: 0.46,
+  essenceParticleRadius: 0.036,
+
+  // Tight 3/4 Front-Side Close-Up Camera Framing
+  cameraFrontOffset: 1.56,
+  cameraSideOffset: 1.38,
+  cameraHeightOffset: 1.56,
+  cameraFocusY: 1.36,
+  cameraLerpSpeed: 10.5,
+
+  // Heavy Channeled / Signature Patterns Triggering Blindspot Recovery Exposure
+  heavyExposurePatterns: Object.freeze([
+    'TWIN_GLACIAL_LASER',
+    'SNOWFLAKE_CURTAIN',
+    'FALLING_ICE_PILLARS',
+    'FROST_RING_NOVA',
+    'TIDAL_SWEEP',
+    'HARMONIC_SPIRAL',
+    'ABYSSAL_UNDERTOW',
+    'MIKU_BEAT_DROP_RINGS',
+    'MIKU_LASER_LATTICE',
+    'MIKU_CRESCENDO_OVERDRIVE',
+  ] as const),
+
+  // Procedural Web Audio Cues
+  wrapWhooshDurationSec: 0.34,
+  wrapWhooshStartHz: 260,
+  wrapWhooshEndHz: 780,
+  wrapWhooshGain: 0.18,
+  siphonChordDurationSec: 1.15,
+  siphonChordBaseHz: 110,
+  siphonChordGain: 0.14,
+  breakawayBurstDurationSec: 0.48,
+  breakawayBurstGain: 0.24,
 } as const);

@@ -91,6 +91,7 @@ export interface PlayerIntentComponent {
   pulseRequested: boolean;
   finisherExecuteRequested: boolean;
   beamFinisherExecuteRequested: boolean;
+  stolenKissRequested: boolean;
   portalInteractRequested: boolean;
   tauntRequested: boolean;
   surgeTapRequested: boolean;

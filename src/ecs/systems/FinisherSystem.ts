@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import {
+  BOSS_CONFIG,
   BOSS_EXPRESSIONS,
+  BOSS_PHASES,
   DIORAMA_CONFIG,
   DRAIN_THROTTLE_MODES,
   FINISHER_CONFIG,
@@ -14,6 +16,7 @@ import {
   SIPHON_AUDIO_CONFIG,
   SIPHON_BEAM_CONFIG,
   SIPHON_GALLERY_CONFIG,
+  STOLEN_KISS_CONFIG,
   type DrainThrottleMode,
   type FinisherMode,
   type FinisherPoseId,
@@ -46,6 +49,8 @@ export interface IFinisherCallbacks {
   onLobbyBeamComplete?: () => void;
   onLobbyRelease?: () => void;
   onEndlessSavorRelease?: () => void;
+  onStolenKissComplete?: () => void;
+  addCameraShake?: (amount: number) => void;
   onLobbySiphonTick?: (
     charge: number,
     elapsed: number,
@@ -145,6 +150,31 @@ export class FinisherSystem implements ISystem {
   private readonly backlashSparkGeo: THREE.OctahedronGeometry;
   private readonly backlashSparkPool: PooledBacklashSpark[] = [];
   private backlashSparkCursor = 0;
+
+  // Pre-allocated Pool & State for Mid-Fight Over-the-Shoulder Stolen Kiss (zero per-frame GC)
+  private readonly stolenKissEssenceGroup = new THREE.Group();
+  private readonly stolenKissEssenceGeo: THREE.OctahedronGeometry;
+  private readonly stolenKissEssencePool: PooledBacklashSpark[] = [];
+  private stolenKissEssenceCursor = 0;
+  private stolenKissElapsed = 0;
+  private stolenKissBeat: 1 | 2 | 3 = 1;
+  private stolenKissBossX = 0;
+  private stolenKissBossZ = 0;
+  private stolenKissBossYaw = 0;
+  private stolenKissMageStartX = 0;
+  private stolenKissMageStartZ = 0;
+  private stolenKissPushEndX = 0;
+  private stolenKissPushEndZ = 0;
+  private stolenKissDamageApplied = 0;
+  private stolenKissHpRestored = 0;
+  private stolenKissManaRestored = 0;
+  private stolenKissEssenceAccum = 0;
+  private stolenKissBeat2Started = false;
+  private stolenKissBeat3Started = false;
+
+  public get stolenKissBeatState(): 1 | 2 | 3 {
+    return this.stolenKissBeat;
+  }
 
   // Reusable scratch vectors & quaternions (zero per-frame GC allocations)
   private readonly scratchBossHead = new THREE.Vector3();
@@ -323,6 +353,39 @@ export class FinisherSystem implements ISystem {
         vz: 0,
         life: 0,
         maxLife: FINISHER_RESISTANCE_CONFIG.sparkLifetimeSec,
+        scaleX: 1,
+        scaleY: 1,
+        scaleZ: 1,
+        active: false,
+      });
+    }
+
+    // Build pre-allocated Stolen Kiss lip-to-cloak essence particle pool
+    this.stolenKissEssenceGroup.visible = true;
+    this.scene.add(this.stolenKissEssenceGroup);
+    this.stolenKissEssenceGeo = new THREE.OctahedronGeometry(
+      STOLEN_KISS_CONFIG.essenceParticleRadius,
+      0,
+    );
+    for (let i = 0; i < STOLEN_KISS_CONFIG.essenceParticlePoolSize; i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: PALETTE.glowViolet,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(this.stolenKissEssenceGeo, mat);
+      mesh.visible = false;
+      mesh.frustumCulled = false;
+      this.stolenKissEssenceGroup.add(mesh);
+      this.stolenKissEssencePool.push({
+        mesh,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        life: 0,
+        maxLife: STOLEN_KISS_CONFIG.essenceParticleLifetimeSec,
         scaleX: 1,
         scaleY: 1,
         scaleZ: 1,
@@ -531,6 +594,126 @@ export class FinisherSystem implements ISystem {
       sp.life = 0;
       sp.mesh.visible = false;
     }
+    for (let i = 0; i < this.stolenKissEssencePool.length; i++) {
+      const ep = this.stolenKissEssencePool[i];
+      if (!ep) continue;
+      ep.active = false;
+      ep.life = 0;
+      ep.mesh.visible = false;
+    }
+  }
+
+  /**
+   * Initializes the 3-beat Mid-Fight Over-the-Shoulder Stolen Kiss sequence from live ECS positions.
+   */
+  public startStolenKiss(): void {
+    this.resetState();
+    const player = this.world.queryFirst('playerTag', 'transform');
+    const boss = this.world.queryFirst('bossPhase', 'transform');
+    if (!player || !boss) return;
+
+    this.stolenKissElapsed = 0;
+    this.stolenKissBeat = 1;
+    this.stolenKissBossX = boss.transform.position.x;
+    this.stolenKissBossZ = boss.transform.position.z;
+    this.stolenKissBossYaw = boss.transform.rotationY;
+    this.stolenKissMageStartX = player.transform.position.x;
+    this.stolenKissMageStartZ = player.transform.position.z;
+
+    const backX = -Math.sin(this.stolenKissBossYaw);
+    const backZ = -Math.cos(this.stolenKissBossYaw);
+    const rawPushX =
+      this.stolenKissBossX + backX * STOLEN_KISS_CONFIG.breakawayPushDistance;
+    const rawPushZ =
+      this.stolenKissBossZ + backZ * STOLEN_KISS_CONFIG.breakawayPushDistance;
+    const radial = Math.hypot(rawPushX, rawPushZ);
+    const maxR = BOSS_CONFIG.innerTerraceLimit;
+    if (radial > maxR) {
+      this.stolenKissPushEndX = (rawPushX / radial) * maxR;
+      this.stolenKissPushEndZ = (rawPushZ / radial) * maxR;
+    } else {
+      this.stolenKissPushEndX = rawPushX;
+      this.stolenKissPushEndZ = rawPushZ;
+    }
+
+    this.stolenKissDamageApplied = 0;
+    this.stolenKissHpRestored = 0;
+    this.stolenKissManaRestored = 0;
+    this.stolenKissEssenceAccum = 0;
+    this.stolenKissBeat2Started = false;
+    this.stolenKissBeat3Started = false;
+
+    this.bossRig.setExpression(BOSS_EXPRESSIONS.STAGGER);
+    this.audio.playStolenKissWrap();
+  }
+
+  private emitStolenKissEssence(
+    fromLip: THREE.Vector3,
+    toCloak: THREE.Vector3,
+    activeRealm: SiphonRealmId,
+  ): void {
+    const poolLen = this.stolenKissEssencePool.length;
+    if (poolLen === 0) return;
+
+    const ep = this.stolenKissEssencePool[this.stolenKissEssenceCursor];
+    this.stolenKissEssenceCursor =
+      (this.stolenKissEssenceCursor + 1) % poolLen;
+    if (!ep) return;
+
+    const life = STOLEN_KISS_CONFIG.essenceParticleLifetimeSec;
+    ep.maxLife = life;
+    ep.life = life;
+    ep.active = true;
+    ep.mesh.position.set(
+      fromLip.x + (Math.random() - 0.5) * 0.08,
+      fromLip.y + (Math.random() - 0.5) * 0.06,
+      fromLip.z + (Math.random() - 0.5) * 0.08,
+    );
+    ep.vx =
+      (toCloak.x - ep.mesh.position.x) / life + (Math.random() - 0.5) * 0.45;
+    ep.vy =
+      (toCloak.y - ep.mesh.position.y) / life + (Math.random() - 0.25) * 0.4;
+    ep.vz =
+      (toCloak.z - ep.mesh.position.z) / life + (Math.random() - 0.5) * 0.45;
+
+    const useViolet = this.stolenKissEssenceCursor % 2 === 0;
+    const realmHex =
+      activeRealm === 3
+        ? PALETTE.harmonicEmerald
+        : activeRealm === 2
+          ? PALETTE.biolumCyan
+          : PALETTE.frostRunes;
+    ep.mesh.material.color.setHex(useViolet ? PALETTE.glowViolet : realmHex);
+    ep.mesh.material.opacity = 0.92;
+    ep.scaleX = 0.8;
+    ep.scaleY = 1.4;
+    ep.scaleZ = 0.8;
+    ep.mesh.scale.set(ep.scaleX, ep.scaleY, ep.scaleZ);
+    ep.mesh.visible = true;
+  }
+
+  private updateStolenKissEssence(dt: number): void {
+    for (let i = 0; i < this.stolenKissEssencePool.length; i++) {
+      const ep = this.stolenKissEssencePool[i];
+      if (!ep || !ep.active) continue;
+      ep.life -= dt;
+      if (ep.life <= 0) {
+        ep.active = false;
+        ep.mesh.visible = false;
+        continue;
+      }
+      ep.mesh.position.x += ep.vx * dt;
+      ep.mesh.position.y += ep.vy * dt;
+      ep.mesh.position.z += ep.vz * dt;
+      ep.mesh.rotation.y += dt * 7.5;
+      ep.mesh.rotation.x += dt * 5.2;
+
+      const t = ep.life / Math.max(0.001, ep.maxLife);
+      const env = Math.sin(t * Math.PI);
+      ep.mesh.material.opacity = env * 0.94;
+      const s = 0.45 + env * 0.75;
+      ep.mesh.scale.set(ep.scaleX * s, ep.scaleY * s, ep.scaleZ * s);
+    }
   }
 
   private emitBacklashSparkBurst(
@@ -714,6 +897,13 @@ export class FinisherSystem implements ISystem {
 
   public update(dt: number, elapsed: number): void {
     const state = this.callbacks.getGameState();
+    if (state === GAME_STATES.STOLEN_KISS) {
+      this.fxGroup.visible = false;
+      this.beamFxGroup.visible = false;
+      this.updateStolenKiss(dt, elapsed);
+      return;
+    }
+
     const isFinisher = state === GAME_STATES.SIPHON_FINISHER;
     const isEndlessSavor = state === GAME_STATES.ENDLESS_SAVOR;
     const isLobbySiphon = state === GAME_STATES.LOBBY_SIPHON;
@@ -1452,6 +1642,297 @@ export class FinisherSystem implements ISystem {
     for (let i = 0; i < this.backlashSparkPool.length; i++) {
       const sp = this.backlashSparkPool[i];
       if (sp) sp.mesh.material.dispose();
+    }
+
+    this.scene.remove(this.stolenKissEssenceGroup);
+    this.stolenKissEssenceGeo.dispose();
+    for (let i = 0; i < this.stolenKissEssencePool.length; i++) {
+      const ep = this.stolenKissEssencePool[i];
+      if (ep) ep.mesh.material.dispose();
+    }
+  }
+
+  /**
+   * Drives the 3-beat Mid-Fight Over-the-Shoulder Stolen Kiss (1.80s total):
+   * - Beat 1 (0.00-0.30s): Rear wrap & chin tilt over her right shoulder
+   * - Beat 2 (0.30-1.45s): Over-the-shoulder siphon with exact lip lock, pooled essence stream,
+   *   smooth HP/mana restore & clamped boss damage (never < minRemainingBossHp)
+   * - Beat 3 (1.45-1.80s): Startled breakaway shockwave pushing Dark Mage back + i-frames
+   */
+  private updateStolenKiss(dt: number, elapsed: number): void {
+    const cfg = STOLEN_KISS_CONFIG;
+    const player = this.world.queryFirst(
+      'playerTag',
+      'transform',
+      'health',
+      'stamina',
+    );
+    const boss = this.world.queryFirst('bossPhase', 'transform', 'health');
+    if (!player || !boss) return;
+
+    const activeRealm = this.resolveActiveRealm(
+      GAME_STATES.BOSS_COMBAT,
+      this.bossRig,
+    );
+    this.stolenKissElapsed += dt;
+    const t = this.stolenKissElapsed;
+
+    const bx = this.stolenKissBossX;
+    const bz = this.stolenKissBossZ;
+    const bossYaw = this.stolenKissBossYaw;
+    const backX = -Math.sin(bossYaw);
+    const backZ = -Math.cos(bossYaw);
+    const rearX = bx + backX * cfg.rearOffsetDistance;
+    const rearZ = bz + backZ * cfg.rearOffsetDistance;
+
+    let beat: 1 | 2 | 3 = 1;
+    let beatProgress = 0;
+    if (t < cfg.wrapEndSec) {
+      beat = 1;
+      beatProgress = THREE.MathUtils.clamp(t / cfg.wrapEndSec, 0, 1);
+    } else if (t < cfg.siphonEndSec) {
+      beat = 2;
+      beatProgress = THREE.MathUtils.clamp(
+        (t - cfg.wrapEndSec) / Math.max(0.01, cfg.siphonEndSec - cfg.wrapEndSec),
+        0,
+        1,
+      );
+    } else {
+      beat = 3;
+      beatProgress = THREE.MathUtils.clamp(
+        (t - cfg.siphonEndSec) /
+          Math.max(0.01, cfg.totalDurationSec - cfg.siphonEndSec),
+        0,
+        1,
+      );
+    }
+    this.stolenKissBeat = beat;
+
+    // 1. Pose Sovereign FIRST so her tilted-back headAnchor reflects exact world coordinates
+    boss.transform.position.x = bx;
+    boss.transform.position.y = 0;
+    boss.transform.position.z = bz;
+    boss.transform.rotationY = bossYaw;
+    this.bossRig.root.position.set(bx, 0, bz);
+    this.bossRig.root.rotation.set(0, bossYaw, 0);
+    this.bossRig.applyStolenKissPose(beat, beatProgress, elapsed);
+    this.bossRig.root.updateMatrixWorld(true);
+    this.bossRig.headAnchor.getWorldPosition(this.scratchBossHead);
+    this.bossRig.headAnchor.getWorldQuaternion(this.scratchBossHeadQuat);
+    this.scratchBossFaceNormal
+      .set(0, 0, 1)
+      .applyQuaternion(this.scratchBossHeadQuat)
+      .normalize();
+
+    // 2. Position & Pose Dark Mage across Beats 1-3
+    if (beat === 1) {
+      const ease = beatProgress * beatProgress * (3 - 2 * beatProgress);
+      const mx = THREE.MathUtils.lerp(this.stolenKissMageStartX, rearX, ease);
+      const mz = THREE.MathUtils.lerp(this.stolenKissMageStartZ, rearZ, ease);
+      player.transform.position.x = mx;
+      player.transform.position.y = 0;
+      player.transform.position.z = mz;
+      player.transform.rotationY = bossYaw;
+
+      this.scratchMageAnchor.set(mx, 0, mz);
+      this.mageRig.setStaffPlanted(true, this.scratchMageAnchor, bossYaw);
+      this.mageRig.root.position.set(mx, 0, mz);
+      this.mageRig.root.rotation.set(0, bossYaw, 0);
+      this.mageRig.applyStolenKissPose(
+        1,
+        beatProgress,
+        elapsed,
+        this.scratchBossHead,
+        this.scratchBossFaceNormal,
+        this.bossRig.waistWrapRadius,
+      );
+    } else if (beat === 2) {
+      if (!this.stolenKissBeat2Started) {
+        this.stolenKissBeat2Started = true;
+        this.bossRig.setExpression(BOSS_EXPRESSIONS.SIPHON_KISS);
+        this.audio.playStolenKissSiphonChord(activeRealm);
+      }
+
+      player.transform.position.x = rearX;
+      player.transform.position.y = 0;
+      player.transform.position.z = rearZ;
+      player.transform.rotationY = bossYaw;
+
+      this.scratchMageAnchor.set(rearX, 0, rearZ);
+      this.mageRig.setStaffPlanted(true, this.scratchMageAnchor, bossYaw);
+      this.mageRig.root.position.set(rearX, 0, rearZ);
+      this.mageRig.root.rotation.set(0, bossYaw, 0);
+      this.mageRig.applyStolenKissPose(
+        2,
+        beatProgress,
+        elapsed,
+        this.scratchBossHead,
+        this.scratchBossFaceNormal,
+        this.bossRig.waistWrapRadius,
+      );
+
+      // Stream pooled royal-violet & realm-colored essence particles from joined lips into cloak
+      this.stolenKissEssenceAccum += dt;
+      if (this.stolenKissEssenceAccum >= cfg.essenceEmitIntervalSec) {
+        this.stolenKissEssenceAccum = 0;
+        this.scratchMageChest.set(rearX, 1.05, rearZ);
+        this.emitStolenKissEssence(
+          this.scratchBossHead,
+          this.scratchMageChest,
+          activeRealm,
+        );
+      }
+
+      // Smoothly restore player HP/Aether Stamina & apply clamped boss damage over Beat 2
+      const targetDmg = cfg.bossDamage * beatProgress;
+      const dmgDelta = Math.max(0, targetDmg - this.stolenKissDamageApplied);
+      if (dmgDelta > 0) {
+        this.stolenKissDamageApplied += dmgDelta;
+        boss.health.current = Math.max(
+          cfg.minRemainingBossHp,
+          boss.health.current - dmgDelta,
+        );
+      }
+
+      const targetHp = cfg.playerHpRestore * beatProgress;
+      const hpDelta = Math.max(0, targetHp - this.stolenKissHpRestored);
+      if (hpDelta > 0) {
+        this.stolenKissHpRestored += hpDelta;
+        player.health.current = Math.min(
+          player.health.max,
+          player.health.current + hpDelta,
+        );
+      }
+
+      const targetMana = cfg.playerManaRestore * beatProgress;
+      const manaDelta = Math.max(0, targetMana - this.stolenKissManaRestored);
+      if (manaDelta > 0) {
+        this.stolenKissManaRestored += manaDelta;
+        player.stamina.current = Math.min(
+          player.stamina.max,
+          player.stamina.current + manaDelta,
+        );
+      }
+    } else {
+      // Beat 3: Startled breakaway shockwave ring launching Dark Mage cleanly backward
+      if (!this.stolenKissBeat3Started) {
+        this.stolenKissBeat3Started = true;
+        // Finish any fractional Beat 2 rewards/damage cleanly
+        const remDmg = Math.max(
+          0,
+          cfg.bossDamage - this.stolenKissDamageApplied,
+        );
+        if (remDmg > 0) {
+          this.stolenKissDamageApplied = cfg.bossDamage;
+          boss.health.current = Math.max(
+            cfg.minRemainingBossHp,
+            boss.health.current - remDmg,
+          );
+        }
+        const remHp = Math.max(
+          0,
+          cfg.playerHpRestore - this.stolenKissHpRestored,
+        );
+        if (remHp > 0) {
+          this.stolenKissHpRestored = cfg.playerHpRestore;
+          player.health.current = Math.min(
+            player.health.max,
+            player.health.current + remHp,
+          );
+        }
+        const remMana = Math.max(
+          0,
+          cfg.playerManaRestore - this.stolenKissManaRestored,
+        );
+        if (remMana > 0) {
+          this.stolenKissManaRestored = cfg.playerManaRestore;
+          player.stamina.current = Math.min(
+            player.stamina.max,
+            player.stamina.current + remMana,
+          );
+        }
+
+        this.mageRig.setStaffPlanted(false);
+        this.bossRig.setExpression(BOSS_EXPRESSIONS.COMBAT);
+        this.bossRig.triggerHitFlash();
+        this.audio.playStolenKissBreakaway(activeRealm);
+        this.callbacks.addCameraShake?.(cfg.breakawayCameraShake);
+
+        // Spawn expanding elemental shockwave ring from Sovereign's core
+        const waveOrigin = new THREE.Vector3(bx, 0.25, bz);
+        const waveGroup = this.vfx.createPhaseShockwaveGroup(
+          waveOrigin,
+          BOSS_PHASES.PHASE_2,
+        );
+        this.world.createEntity({
+          transform: {
+            position: { x: bx, y: 0.25, z: bz },
+            rotationY: 0,
+            scale: 1,
+          },
+          hazardZone: {
+            kind: 'PHASE_SHOCKWAVE',
+            faction: 'PLAYER',
+            damage: 0,
+            elapsed: 0,
+            telegraphDuration: 0,
+            activeDuration: cfg.breakawayShockwaveDuration,
+            currentRadius: 0.7,
+            maxRadius: cfg.breakawayShockwaveRadius,
+            hitThickness: 0,
+            angle: 0,
+            startAngle: 0,
+            endAngle: 0,
+            beamLength: 0,
+            hitCooldown: 0,
+            hasHitPlayer: true,
+            hasTriggered: true,
+          },
+          meshRef: { object3D: waveGroup },
+        });
+        this.vfx.spawnFrostShatterBurst(
+          new THREE.Vector3(bx, 1.15, bz),
+          18,
+          8.5,
+        );
+      }
+
+      const pushEase = 1 - Math.pow(1 - beatProgress, 3);
+      const mx = THREE.MathUtils.lerp(
+        rearX,
+        this.stolenKissPushEndX,
+        pushEase,
+      );
+      const mz = THREE.MathUtils.lerp(
+        rearZ,
+        this.stolenKissPushEndZ,
+        pushEase,
+      );
+      const faceBossYaw = Math.atan2(bx - mx, bz - mz);
+      player.transform.position.x = mx;
+      player.transform.position.y = 0;
+      player.transform.position.z = mz;
+      player.transform.rotationY = faceBossYaw;
+
+      this.mageRig.root.position.set(mx, 0, mz);
+      this.mageRig.root.rotation.set(0, faceBossYaw, 0);
+      this.mageRig.applyStolenKissPose(3, beatProgress, elapsed, null, null);
+    }
+
+    this.updateStolenKissEssence(dt);
+
+    // 3. Complete Sequence -> Grant Post-Breakaway i-Frames, Start Cooldown & Restore Combat
+    if (t >= cfg.totalDurationSec) {
+      player.health.invulnTimer = Math.max(
+        player.health.invulnTimer,
+        cfg.postBreakawayIFramesSec,
+      );
+      player.health.isInvulnerable = true;
+      this.mageRig.triggerInvulnFlash(cfg.postBreakawayIFramesSec);
+      this.bossRig.consumeBlindspotAndStartCooldown();
+      this.clearBacklashSparks();
+      this.mageRig.setStaffPlanted(false);
+      this.callbacks.onStolenKissComplete?.();
     }
   }
 }

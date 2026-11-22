@@ -303,6 +303,7 @@ export class MikuRig extends BossBase {
     this.buildTwinTailsAndCubicHairTies();
     this.buildHarmonicHalo();
     this.buildPhaseAuraRings();
+    this.attachBlindspotGlint(this.torsoGroup);
   }
 
   private buildLegsAndThighHighBoots(): void {
@@ -2053,6 +2054,77 @@ export class MikuRig extends BossBase {
   }
 
   /**
+   * Dedicated 3-beat Mid-Fight Over-the-Shoulder Stolen Kiss pose:
+   * Beat 1 (Rear Wrap & Chin Tilt) -> Beat 2 (Over-the-Shoulder Siphon) -> Beat 3 (Startled Breakaway Flare).
+   */
+  public applyStolenKissPose(
+    beat: 1 | 2 | 3,
+    beatProgress: number,
+    time: number,
+  ): void {
+    this.finisherPoseState.initialized = false;
+    this.resetResistanceState();
+    const pose = this.computeStolenKissBossPose(beat, beatProgress, time);
+
+    this.bodyPivot.position.set(0, pose.bodyY, 0);
+    this.bodyPivot.rotation.set(0, 0, pose.torsoZ * 0.4);
+    this.torsoGroup.rotation.set(pose.torsoX, 0, pose.torsoZ);
+    this.headGroup.position.set(0, 0.515, 0.008 + pose.headFaceNormalOffset);
+    this.headGroup.rotation.set(pose.headX, pose.headY, pose.headZ);
+    this.headAccessory.rotation.set(0, 0, 0);
+    this.necktiePivot.rotation.x = -pose.torsoX * 0.45;
+
+    const flare = pose.flareFactor;
+    this.leftLegPivot.rotation.set(0.08, 0, -0.08 - flare * 0.08);
+    this.rightLegPivot.rotation.set(-0.08, 0, 0.08 + flare * 0.08);
+    this.leftKneePivot.rotation.x = 0.14;
+    this.rightKneePivot.rotation.x = 0.18;
+
+    this.leftShoulderPivot.rotation.set(
+      pose.leftShoulderX,
+      0,
+      pose.leftShoulderZ,
+    );
+    this.leftElbowPivot.rotation.set(pose.leftElbowX, 0, pose.leftElbowZ);
+    this.rightShoulderPivot.rotation.set(
+      pose.rightShoulderX,
+      0,
+      pose.rightShoulderZ,
+    );
+    this.rightElbowPivot.rotation.set(pose.rightElbowX, 0, pose.rightElbowZ);
+
+    // High A-frame twin-tails flare startled outward on Beats 1-2 -> whip wide on Beat 3
+    for (let i = 0; i < this.twinTails.length; i++) {
+      const tt = this.twinTails[i];
+      if (!tt) continue;
+      const sway = Math.sin(time * 6.5 + tt.side) * (0.08 + flare * 0.16);
+      tt.seg1.rotation.set(
+        0.22 + flare * 0.32 + sway * 0.5,
+        0,
+        tt.side * (0.58 + flare * 0.34) + sway,
+      );
+      tt.seg2.rotation.set(0.18 + flare * 0.22, 0, tt.side * 0.16 + sway * 0.8);
+      tt.seg3.rotation.set(0.14 + sway * 0.6, 0, 0);
+      tt.seg4.rotation.set(0.1 + sway * 0.5, 0, 0);
+    }
+
+    for (let i = 0; i < this.skirtPanels.length; i++) {
+      const sp = this.skirtPanels[i];
+      if (!sp) continue;
+      sp.pivot.rotation.x = -0.12 - flare * 0.3;
+    }
+
+    this.harmonicHalo.visible = beat === 3;
+    if (beat === 3) {
+      this.harmonicHalo.scale.setScalar(0.9 + flare * 0.72);
+      this.harmonicHalo.rotation.z = time * 3.4;
+    }
+    this.phaseAuraRings.visible = false;
+    this.stageLight.intensity =
+      ARENA_CONFIG.lighting.tiaraLightCombatBase * (0.9 + flare * 0.95);
+  }
+
+  /**
    * Victory Diorama floor collapse pose: Miku collapsed gracefully onto the concert stage
    * floor bleached ash-silver with her twin-tails fanned wide beside her.
    */
@@ -2281,6 +2353,7 @@ export class MikuRig extends BossBase {
     this.staggerBlend = 0;
     this.finisherPoseState.initialized = false;
     this.resetResistanceState();
+    this.resetBlindspotState();
     this.hitFlashTimer = 0;
     this.castAnimTimer = 0;
     this.accessoryFlickTimer = 0;
@@ -2311,6 +2384,7 @@ export class MikuRig extends BossBase {
   }
 
   public dispose(): void {
+    this.disposeBlindspotGlint();
     this.faceTexture.dispose();
     this.parent.remove(this.root);
   }

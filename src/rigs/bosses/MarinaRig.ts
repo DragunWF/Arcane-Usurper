@@ -206,6 +206,7 @@ export class MarinaRig extends BossBase {
     this.buildCrystallineTiara();
     this.buildFrostHalo();
     this.buildPhaseAuroraRings();
+    this.attachBlindspotGlint(this.torsoGroup);
 
     this.setExpression(BOSS_EXPRESSIONS.COMBAT);
     this.root.position.set(
@@ -2039,6 +2040,7 @@ export class MarinaRig extends BossBase {
   public applyBeamFinisherPose(drainProgress: number, time: number): void {
     this.finisherPoseState.initialized = false;
     this.resetResistanceState();
+    this.resetBlindspotState();
     this.applyDrainBleach(drainProgress);
 
     const pose = this.computeBeamShieldPose(drainProgress, time);
@@ -2101,12 +2103,80 @@ export class MarinaRig extends BossBase {
   }
 
   /**
+   * Dedicated 3-beat Mid-Fight Over-the-Shoulder Stolen Kiss pose:
+   * Beat 1 (Rear Wrap & Chin Tilt) -> Beat 2 (Over-the-Shoulder Siphon) -> Beat 3 (Startled Breakaway Flare).
+   */
+  public applyStolenKissPose(
+    beat: 1 | 2 | 3,
+    beatProgress: number,
+    time: number,
+  ): void {
+    this.finisherPoseState.initialized = false;
+    this.resetResistanceState();
+    this.resetBlindspotState();
+    const pose = this.computeStolenKissBossPose(beat, beatProgress, time);
+
+    this.bodyPivot.position.set(0, pose.bodyY, 0);
+    this.bodyPivot.rotation.set(0, 0, pose.torsoZ * 0.4);
+    this.torsoGroup.rotation.set(pose.torsoX, 0, pose.torsoZ);
+    this.headGroup.position.set(0, 0.515, 0.008 + pose.headFaceNormalOffset);
+    this.headGroup.rotation.set(pose.headX, pose.headY, pose.headZ);
+    this.headAccessory.rotation.set(-0.16, 0, 0);
+
+    // Standing braced legs on Beats 1-2 -> elevated defensive flare on Beat 3
+    this.leftLegPivot.rotation.set(0.08, 0, -0.07 - pose.flareFactor * 0.08);
+    this.rightLegPivot.rotation.set(-0.08, 0, 0.07 + pose.flareFactor * 0.08);
+    this.leftKneePivot.rotation.x = 0.14;
+    this.rightKneePivot.rotation.x = 0.18;
+
+    this.leftShoulderPivot.rotation.set(
+      pose.leftShoulderX,
+      0,
+      pose.leftShoulderZ,
+    );
+    this.leftElbowPivot.rotation.set(pose.leftElbowX, 0, pose.leftElbowZ);
+    this.rightShoulderPivot.rotation.set(
+      pose.rightShoulderX,
+      0,
+      pose.rightShoulderZ,
+    );
+    this.rightElbowPivot.rotation.set(pose.rightElbowX, 0, pose.rightElbowZ);
+
+    // Sweeping silver hair & billowing gown panels reacting to startled arch and Beat 3 shockwave
+    const flare = pose.flareFactor;
+    for (let i = 0; i < this.hairRibbons.length; i++) {
+      const hr = this.hairRibbons[i];
+      if (!hr) continue;
+      const sway = Math.sin(time * 5.2 + hr.phase) * (0.07 + flare * 0.14);
+      hr.rootSeg.rotation.x = 0.24 + flare * 0.35 + sway;
+      hr.midSeg.rotation.x = 0.18 + flare * 0.25 + sway;
+      hr.tipSeg.rotation.x = 0.14 + flare * 0.2 + sway;
+      hr.rootSeg.rotation.z = hr.spread * (0.28 + flare * 0.48);
+    }
+    for (let i = 0; i < this.skirtPanels.length; i++) {
+      const sp = this.skirtPanels[i];
+      if (!sp) continue;
+      sp.pivot.rotation.x = -0.14 - flare * 0.32;
+    }
+
+    this.frostHalo.visible = beat === 3;
+    if (beat === 3) {
+      this.frostHalo.scale.setScalar(0.85 + flare * 0.65);
+      this.frostHalo.rotation.z = time * 2.8;
+    }
+    this.phaseAuroraRings.visible = false;
+    this.tiaraLight.intensity =
+      ARENA_CONFIG.lighting.tiaraLightCombatBase * (0.9 + flare * 0.9);
+  }
+
+  /**
    * Victory Diorama floor collapse pose (100% drained, sprawled exhausted on the ice floor
    * with cascading silver hair spread wide and tiara light dimmed).
    */
   public applyVictoryCollapsePose(time: number): void {
     this.finisherPoseState.initialized = false;
     this.resetResistanceState();
+    this.resetBlindspotState();
     this.applyDrainBleach(1.0);
     this.frostHalo.visible = false;
     this.phaseAuroraRings.visible = false;
@@ -2214,6 +2284,7 @@ export class MarinaRig extends BossBase {
     this.staggerBlend = 0;
     this.finisherPoseState.initialized = false;
     this.resetResistanceState();
+    this.resetBlindspotState();
     for (let i = 0; i < this.dressRibbons.length; i++) {
       const dr = this.dressRibbons[i];
       if (!dr) continue;
@@ -2255,6 +2326,7 @@ export class MarinaRig extends BossBase {
 
     this.finisherPoseState.initialized = false;
     this.resetResistanceState();
+    this.resetBlindspotState();
     this.applyDrainBleach(depletion);
 
     // Facial expression tracks her cryogenic core recharge level
@@ -2367,6 +2439,7 @@ export class MarinaRig extends BossBase {
   }
 
   public dispose(): void {
+    this.disposeBlindspotGlint();
     this.faceTexture.dispose();
     this.parent.remove(this.root);
   }

@@ -72,6 +72,7 @@ export class RenderSyncSystem implements ISystem {
     this.sceneManager.update(dt, elapsed);
 
     const isDioramaOrFinisher =
+      state === GAME_STATES.STOLEN_KISS ||
       state === GAME_STATES.SIPHON_FINISHER ||
       state === GAME_STATES.LOBBY_SIPHON ||
       state === GAME_STATES.VICTORY_DIORAMA ||

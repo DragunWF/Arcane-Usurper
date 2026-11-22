@@ -38,6 +38,7 @@ export function CombatHUD({ controller }: CombatHUDProps) {
   const bossPhaseSubtitle = useGameStore((s) => s.bossPhaseSubtitle);
   const isBossStaggered = useGameStore((s) => s.isBossStaggered);
   const canExecuteFinisher = useGameStore((s) => s.canExecuteFinisher);
+  const canExecuteStolenKiss = useGameStore((s) => s.canExecuteStolenKiss);
   const encoreTier = useGameStore((s) => s.encoreTier);
   const activeRealm = useGameStore((s) => s.activeRealm);
   const chamberWave = useGameStore((s) => s.chamberWave);
@@ -85,6 +86,7 @@ export function CombatHUD({ controller }: CombatHUDProps) {
     gameState === GAME_STATES.PORTAL_TRANSITION;
   const showCombatHud =
     gameState === GAME_STATES.BOSS_COMBAT ||
+    gameState === GAME_STATES.STOLEN_KISS ||
     gameState === GAME_STATES.CHAMBER_COMBAT ||
     gameState === GAME_STATES.PORTAL_TRANSITION ||
     gameState === GAME_STATES.STAGGER;
@@ -449,6 +451,19 @@ export function CombatHUD({ controller }: CombatHUDProps) {
                 </button>
               </div>
             )}
+
+          {/* Lower-Center Blindspot Ambush Prompt (BOSS_COMBAT rear cone during blindspotExposureTimer > 0) */}
+          {gameState === GAME_STATES.BOSS_COMBAT && canExecuteStolenKiss && (
+            <div className="fixed bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 pointer-events-auto z-30">
+              <button
+                type="button"
+                onClick={() => controller?.triggerStolenKiss()}
+                className="ascend-btn px-6 sm:px-8 py-3 rounded-xl font-display text-xs sm:text-sm font-bold tracking-[0.2em] text-fuchsia-100 uppercase cursor-pointer animate-pulse shadow-[0_0_28px_rgba(139,92,246,0.7)]"
+              >
+                [E] STOLEN KISS
+              </button>
+            </div>
+          )}
 
           {/* Lower-Center Dual Amethyst Finisher Prompts (STAGGER within 8.5m) */}
           {gameState === GAME_STATES.STAGGER && canExecuteFinisher && (

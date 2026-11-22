@@ -10,6 +10,7 @@ import {
   NG_PLUS_CONFIG,
   PLAYER_CONFIG,
   SIPHON_BEAM_CONFIG,
+  STOLEN_KISS_CONFIG,
   type FinisherMode,
   type GameState,
 } from '../../config/gameConfig';
@@ -29,6 +30,7 @@ export interface IMovementCallbacks {
   exitPointerLock: () => void;
   onStaggerProximityChange: (inRange: boolean) => void;
   onFinisherApproachComplete: (mode: FinisherMode) => void;
+  isBossBlindspotExposed?: () => boolean;
 }
 
 interface FinisherApproachState {
@@ -506,9 +508,13 @@ export class MovementSystem implements ISystem {
         let diff = targetYaw - transform.rotationY;
         while (diff > Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
-        const turnSpeed = bossPhase.isStaggered
+        const baseTurnSpeed = bossPhase.isStaggered
           ? BOSS_CONFIG.turnSpeedStagger
           : BOSS_CONFIG.turnSpeedCombat;
+        const turnSpeed =
+          !bossPhase.isStaggered && this.callbacks.isBossBlindspotExposed?.()
+            ? baseTurnSpeed * STOLEN_KISS_CONFIG.exposedBossTurnScale
+            : baseTurnSpeed;
         transform.rotationY += diff * Math.min(1, dt * turnSpeed);
       }
     }

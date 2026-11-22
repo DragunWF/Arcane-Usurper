@@ -11,6 +11,7 @@ import {
   PALETTE,
   SIPHON_BEAM_CONFIG,
   SIPHON_GALLERY_CONFIG,
+  STOLEN_KISS_CONFIG,
   type GameState,
 } from '../config/gameConfig';
 import {
@@ -965,6 +966,63 @@ export class CameraRig {
     this.orbitRimGroup.visible = true;
     this.orbitRimGroup.position.copy(this.desiredLookAt);
     this.orbitRimGroup.rotation.y = Math.atan2(axisX, axisZ);
+
+    this.camera.position.copy(this.currentPosition);
+    if (this.shakeIntensity > 0.001) {
+      this.camera.position.x += (Math.random() - 0.5) * this.shakeIntensity;
+      this.camera.position.y += (Math.random() - 0.5) * this.shakeIntensity;
+      this.shakeIntensity = Math.max(
+        0,
+        this.shakeIntensity - dt * CAMERA_CONFIG.shakeDecayRate,
+      );
+    }
+
+    this.camera.lookAt(this.currentLookAt);
+  }
+
+  /**
+   * Tight 3/4 front-side close-up camera for the Mid-Fight Over-the-Shoulder Stolen Kiss,
+   * framing the Sovereign's tilted-back face over her shoulder and the Dark Mage leaning in from behind.
+   */
+  public updateStolenKissCamera(
+    dt: number,
+    bossPos: THREE.Vector3,
+    bossYaw: number,
+    beat: 1 | 2 | 3,
+  ): void {
+    const cfg = STOLEN_KISS_CONFIG;
+    this.activeMode = 'COMBAT';
+    this._shouldHideRig = false;
+
+    const fwdX = Math.sin(bossYaw);
+    const fwdZ = Math.cos(bossYaw);
+    // Right-hand side of the Sovereign (+X in boss local space): cross(up, fwd) = (fwdZ, 0, -fwdX)
+    const rightX = fwdZ;
+    const rightZ = -fwdX;
+
+    const zoomScale = beat === 2 ? 0.9 : beat === 3 ? 1.42 : 1.02;
+    this.desiredLookAt.set(
+      bossPos.x - fwdX * 0.14 + rightX * 0.08,
+      bossPos.y + cfg.cameraFocusY,
+      bossPos.z - fwdZ * 0.14 + rightZ * 0.08,
+    );
+    this.desiredPos.set(
+      bossPos.x +
+        (fwdX * cfg.cameraFrontOffset + rightX * cfg.cameraSideOffset) *
+          zoomScale,
+      bossPos.y + cfg.cameraHeightOffset + (beat === 3 ? 0.25 : 0),
+      bossPos.z +
+        (fwdZ * cfg.cameraFrontOffset + rightZ * cfg.cameraSideOffset) *
+          zoomScale,
+    );
+
+    const alpha = 1 - Math.exp(-Math.max(0, dt) * cfg.cameraLerpSpeed);
+    this.currentPosition.lerp(this.desiredPos, alpha);
+    this.currentLookAt.lerp(this.desiredLookAt, alpha);
+
+    this.orbitRimGroup.visible = true;
+    this.orbitRimGroup.position.copy(this.desiredLookAt);
+    this.orbitRimGroup.rotation.y = bossYaw;
 
     this.camera.position.copy(this.currentPosition);
     if (this.shakeIntensity > 0.001) {

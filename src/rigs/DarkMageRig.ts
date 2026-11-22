@@ -11,6 +11,7 @@ import {
   PALETTE,
   PLAYER_CONFIG,
   SIPHON_BEAM_CONFIG,
+  STOLEN_KISS_CONFIG,
   type DrainThrottleMode,
   type FinisherPoseId,
 } from '../config/gameConfig';
@@ -1589,6 +1590,166 @@ export class DarkMageRig {
     if (this.staffFrostLight && this.encoreTier >= 1) {
       this.staffFrostLight.intensity = 1.4;
     }
+  }
+
+  /**
+   * Dedicated 3-beat Mid-Fight Over-the-Shoulder Stolen Kiss choreography:
+   * - Beat 1 (Rear Wrap & Chin Tilt): left forearm wraps across her waist/midriff; right hand
+   *   hooks under her chin tilting her head backward and over her right shoulder.
+   * - Beat 2 (Over-the-Shoulder Siphon): leans hooded head down over her right shoulder and
+   *   solves exact lip-to-lip contact against bossLipWorldPos + gentle kissPulseAmp cadence.
+   * - Beat 3 (Startled Breakaway): recoils backward into a sliding defensive stance with staff
+   *   back in hand as the Sovereign's shockwave pushes him away.
+   */
+  public applyStolenKissPose(
+    beat: 1 | 2 | 3,
+    beatProgress: number,
+    time: number,
+    bossLipWorldPos: THREE.Vector3 | null = null,
+    bossFaceNormalWorld: THREE.Vector3 | null = null,
+    bossWaistWrapRadius?: number,
+  ): void {
+    const cfg = STOLEN_KISS_CONFIG;
+    this.finisherPoseState.initialized = false;
+    this.restoreObsidianMaterials();
+    if (this.defeatBlushGroup) this.defeatBlushGroup.visible = false;
+    if (this.puppetCrystalLeft) this.puppetCrystalLeft.visible = false;
+    if (this.puppetCrystalRight) this.puppetCrystalRight.visible = false;
+    this.staffGroup.visible = true;
+
+    const p = THREE.MathUtils.clamp(beatProgress, 0, 1);
+    const ease = p * p * (3 - 2 * p);
+    const wrapOffset =
+      bossWaistWrapRadius !== undefined
+        ? (bossWaistWrapRadius - FINISHER_CONFIG.mikuWaistWrapRadius) * 0.4
+        : 0;
+    const pulse = Math.sin(time * cfg.kissPulseFreqHz * Math.PI * 2);
+
+    if (beat === 1 || beat === 2) {
+      const k = beat === 2 ? 1.0 : ease;
+      const leanExtra = beat === 2 ? 0.1 : 0;
+
+      // Braced close rear stance (left leg slightly forward, right leg braced behind)
+      this.bodyPivot.position.set(0, cfg.mageStandingBodyY, 0);
+      this.bodyPivot.rotation.set(0, 0, 0);
+      this.leftLegPivot.rotation.set(-0.12 * k, 0, -0.07);
+      this.rightLegPivot.rotation.set(0.14 * k, 0, 0.07);
+      this.leftKneePivot.rotation.x = 0.22 * k;
+      this.rightKneePivot.rotation.x = 0.18 * k;
+
+      // Lean chest & hooded head gently down over her right (+X) shoulder
+      this.torsoGroup.rotation.set(
+        THREE.MathUtils.lerp(0.06, 0.22 + leanExtra, k) +
+          (beat === 2 ? pulse * 0.018 : 0),
+        THREE.MathUtils.lerp(0, -0.14, k),
+        THREE.MathUtils.lerp(0, 0.08, k),
+      );
+      this.headGroup.rotation.set(
+        THREE.MathUtils.lerp(0.05, 0.42 + leanExtra * 0.6, k) +
+          (beat === 2 ? pulse * 0.032 : 0),
+        THREE.MathUtils.lerp(0, -0.26, k),
+        THREE.MathUtils.lerp(0, -0.18, k),
+      );
+
+      // Left forearm wraps across her waist/midriff from behind to pin her back against his chest
+      this.leftShoulderPivot.rotation.set(
+        THREE.MathUtils.lerp(-0.2, -1.04, k),
+        THREE.MathUtils.lerp(0, 0.34, k),
+        THREE.MathUtils.lerp(0.14, 0.28 + wrapOffset, k),
+      );
+      this.leftElbowPivot.rotation.set(
+        THREE.MathUtils.lerp(-0.22, -1.16, k),
+        0,
+        THREE.MathUtils.lerp(0, 0.72 - wrapOffset * 0.4, k),
+      );
+
+      // Right hand reaches over/beside her right shoulder to hook cleanly under her tilted chin
+      this.rightShoulderPivot.rotation.set(
+        THREE.MathUtils.lerp(-0.32, -1.36, k),
+        THREE.MathUtils.lerp(0, -0.24, k),
+        THREE.MathUtils.lerp(-0.12, -0.18, k),
+      );
+      this.rightElbowPivot.rotation.set(
+        THREE.MathUtils.lerp(-0.58, -1.08, k),
+        0,
+        THREE.MathUtils.lerp(0, -0.44, k),
+      );
+
+      // Subtle billowing cloak & hood tail
+      const wave = Math.sin(time * 4.2) * 0.04;
+      this.frontLeftRobe.rotation.x = -0.06 + wave;
+      this.frontRightRobe.rotation.x = -0.06 - wave;
+      this.backRobePivot.rotation.x = 0.18 + Math.abs(wave);
+      this.hoodTailPivot.rotation.x = -Math.PI * 0.72 + 0.08 + wave;
+      this.hoodTailPivot.rotation.z = wave * 0.9;
+
+      // Exact Beat 2 lip-to-lip contact solve against bossLipWorldPos + gentle kissPulseAmp cadence
+      if (beat === 2 && bossLipWorldPos) {
+        this.scratchTargetLipWorld.copy(bossLipWorldPos);
+        if (bossFaceNormalWorld) {
+          const pulseGap = (0.5 - 0.5 * pulse) * cfg.kissPulseAmp;
+          this.scratchTargetLipWorld.addScaledVector(
+            bossFaceNormalWorld,
+            pulseGap,
+          );
+        }
+
+        this.root.updateMatrixWorld(true);
+        this.mouthAnchor.getWorldPosition(this.scratchMouthWorld);
+        this.scratchLipDelta.subVectors(
+          this.scratchTargetLipWorld,
+          this.scratchMouthWorld,
+        );
+        this.scratchInvQuat.copy(this.root.quaternion).invert();
+        this.scratchLipDelta.applyQuaternion(this.scratchInvQuat);
+
+        const maxCorr = cfg.lipLockMaxCorrection;
+        this.bodyPivot.position.set(
+          THREE.MathUtils.clamp(this.scratchLipDelta.x, -maxCorr, maxCorr),
+          THREE.MathUtils.clamp(
+            cfg.mageStandingBodyY + this.scratchLipDelta.y,
+            0.7,
+            1.14,
+          ),
+          THREE.MathUtils.clamp(this.scratchLipDelta.z, -maxCorr, maxCorr),
+        );
+      }
+    } else {
+      // Beat 3: Startled breakaway recoil stance sliding backward with staff back in right hand
+      const arch = Math.sin(ease * Math.PI);
+      this.bodyPivot.position.set(
+        0,
+        cfg.mageStandingBodyY + arch * 0.18,
+        0,
+      );
+      this.bodyPivot.rotation.set(-0.14 * (1 - ease * 0.4), 0, 0);
+      this.torsoGroup.rotation.set(-0.16 * (1 - ease * 0.3), 0, 0);
+      this.headGroup.rotation.set(0.14, 0, 0);
+
+      this.leftLegPivot.rotation.set(-0.34, 0, -0.14);
+      this.rightLegPivot.rotation.set(0.28, 0, 0.14);
+      this.leftKneePivot.rotation.x = 0.42;
+      this.rightKneePivot.rotation.x = 0.24;
+
+      this.leftShoulderPivot.rotation.set(-0.88, 0.18, 0.42);
+      this.leftElbowPivot.rotation.set(-0.62, 0, 0.16);
+      this.rightShoulderPivot.rotation.set(-0.64, -0.12, -0.34);
+      this.rightElbowPivot.rotation.set(-0.48, 0, -0.12);
+      this.staffGroup.rotation.set(Math.PI * 0.42, 0, 0);
+
+      this.frontLeftRobe.rotation.x = 0.18;
+      this.frontRightRobe.rotation.x = 0.18;
+      this.backRobePivot.rotation.x = 0.48;
+      this.hoodTailPivot.rotation.x = -Math.PI * 0.72 + 0.28;
+    }
+
+    // Vibrant pulsing staff crystal throughout the ambush
+    this.staffCrystal.rotation.y = time * 6.5;
+    this.staffCrystal.position.y = 1.54 + Math.sin(time * 5.2) * 0.025;
+    this.staffRuneRing.rotation.y = -time * 5.0;
+    this.staffLight.intensity =
+      FINISHER_CONFIG.finisherStaffLightIntensity +
+      (beat === 2 ? 0.65 : 0.25);
   }
 
   /**

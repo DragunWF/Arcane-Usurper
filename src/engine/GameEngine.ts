@@ -68,6 +68,7 @@ export interface IGameController {
   playSfxPreview(): void;
   toggleAudioMute(): void;
   triggerFinisher(mode?: FinisherMode): void;
+  triggerStolenKiss(): void;
   triggerPortalAscend(): void;
   setFinisherPose(pose: FinisherPoseId): void;
   setDrainThrottle(mode: DrainThrottleMode | null): void;
@@ -240,6 +241,7 @@ export class GameEngine implements IGameController {
           }
         },
         onFinisherApproachComplete: (mode) => this.startSiphonFinisher(mode),
+        isBossBlindspotExposed: () => this.bossRig.blindspotExposureTimer > 0,
       },
     );
 
@@ -355,6 +357,10 @@ export class GameEngine implements IGameController {
           this.lobbySystem.handleDummyHit(damage, isEncore, hitPoint),
         onLobbySealedPortalHit: (realmIndex, hitPoint) =>
           this.lobbySystem.handleSealedPortalHit(realmIndex, hitPoint),
+        getCameraForwardXZ: (outVec) => this.cameraRig.getForwardXZ(outVec),
+        onStolenKissAvailabilityChange: (available) =>
+          useGameStore.getState().setCanExecuteStolenKiss(available),
+        onTriggerStolenKiss: () => this.startStolenKiss(),
       },
     );
 
@@ -371,6 +377,8 @@ export class GameEngine implements IGameController {
         onLobbyBeamComplete: () => this.releaseLobbySiphon(),
         onLobbyRelease: () => this.releaseLobbySiphon(),
         onEndlessSavorRelease: () => this.layDownFromEndlessSavor(),
+        onStolenKissComplete: () => this.completeStolenKiss(),
+        addCameraShake: (amount) => this.cameraRig.addShake(amount),
         onLobbySiphonTick: (charge, elapsed, targetId, tetherTension = 0) => {
           if (targetId === 'serena') {
             this.sceneManager.mageTowerLevel.updateSerenaLobbySiphonBackdrop(
@@ -539,6 +547,7 @@ export class GameEngine implements IGameController {
         pulseRequested: false,
         finisherExecuteRequested: false,
         beamFinisherExecuteRequested: false,
+        stolenKissRequested: false,
         portalInteractRequested: false,
         tauntRequested: false,
         surgeTapRequested: false,
@@ -1000,6 +1009,66 @@ export class GameEngine implements IGameController {
         this.inputSystem.queueFinisherExecute();
       }
     }
+  }
+
+  public triggerStolenKiss(): void {
+    if (this.state === GAME_STATES.BOSS_COMBAT) {
+      this.inputSystem.queueStolenKiss();
+    }
+  }
+
+  /**
+   * Transitions from BOSS_COMBAT into the 3-beat Mid-Fight Over-the-Shoulder Stolen Kiss
+   * when triggered inside the Sovereign's active blindspot recovery cone.
+   */
+  private startStolenKiss(): void {
+    if (this.state !== GAME_STATES.BOSS_COMBAT) return;
+    this.releaseFirstPersonGaze();
+    this.state = GAME_STATES.STOLEN_KISS;
+    this.inputSystem.resetTransientInputs();
+    this.bossAISystem.clearAllBossHazards();
+
+    const store = useGameStore.getState();
+    store.setCanExecuteStolenKiss(false);
+    store.setGameState(GAME_STATES.STOLEN_KISS);
+
+    this.finisherSystem.startStolenKiss();
+  }
+
+  /**
+   * Restores third-person BOSS_COMBAT cleanly after the Beat 3 breakaway push & shockwave.
+   */
+  private completeStolenKiss(): void {
+    if (this.state !== GAME_STATES.STOLEN_KISS) return;
+    this.state = GAME_STATES.BOSS_COMBAT;
+    this.inputSystem.resetTransientInputs();
+    this.mageRig.resetCombatPose();
+    this.bossRig.setExpression(BOSS_EXPRESSIONS.COMBAT);
+
+    const player = this.world.queryFirst('playerTag', 'transform', 'velocity');
+    const boss = this.world.queryFirst('bossPhase', 'transform');
+    if (player) {
+      player.velocity.vx = 0;
+      player.velocity.vy = 0;
+      player.velocity.vz = 0;
+      if (boss) {
+        const yawToBoss = Math.atan2(
+          boss.transform.position.x - player.transform.position.x,
+          boss.transform.position.z - player.transform.position.z,
+        );
+        player.transform.rotationY = yawToBoss;
+        this.cameraRig.setCombatAngles(
+          yawToBoss + Math.PI,
+          CAMERA_CONFIG.combatInitialPitch,
+        );
+      }
+    }
+
+    const store = useGameStore.getState();
+    store.setGameState(GAME_STATES.BOSS_COMBAT);
+    store.setCanExecuteStolenKiss(false);
+    this.renderSyncSystem.flushHudSnapshot();
+    this.bossAISystem.evaluateHealthThresholds();
   }
 
   public triggerPortalAscend(): void {
@@ -1653,6 +1722,21 @@ export class GameEngine implements IGameController {
           null,
           this.sceneManager,
         );
+      } else if (this.state === GAME_STATES.STOLEN_KISS) {
+        const activeBoss = this.world.queryFirst('bossPhase', 'transform');
+        if (activeBoss) {
+          this.scratchBeamBossPos.set(
+            activeBoss.transform.position.x,
+            activeBoss.transform.position.y,
+            activeBoss.transform.position.z,
+          );
+          this.cameraRig.updateStolenKissCamera(
+            dt,
+            this.scratchBeamBossPos,
+            activeBoss.transform.rotationY,
+            this.finisherSystem.stolenKissBeatState,
+          );
+        }
       } else if (this.state === GAME_STATES.LOBBY_SIPHON) {
         const activeBoss = this.world.queryFirst('siphonableBoss');
         if (

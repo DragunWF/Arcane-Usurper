@@ -5,6 +5,7 @@ import {
   FIRST_PERSON_GAZE_CONFIG,
   GAME_STATES,
   SIPHON_BEAM_CONFIG,
+  STOLEN_KISS_CONFIG,
   type DrainThrottleMode,
   type FinisherPoseId,
   type GameState,
@@ -53,6 +54,7 @@ export class InputSystem implements ISystem {
   private queuedPulse = false;
   private queuedFinisherExecute = false;
   private queuedBeamFinisherExecute = false;
+  private queuedStolenKiss = false;
   private queuedPortalInteract = false;
   private queuedTaunt = false;
   private queuedSurgeTap = false;
@@ -159,6 +161,15 @@ export class InputSystem implements ISystem {
         (state === GAME_STATES.STAGGER || state === GAME_STATES.LOBBY)
       ) {
         this.queuedBeamFinisherExecute = true;
+        return;
+      }
+      // Execute Mid-Fight Over-the-Shoulder Stolen Kiss ([E]) in BOSS_COMBAT blindspot window
+      if (
+        e.code === STOLEN_KISS_CONFIG.triggerKey &&
+        state === GAME_STATES.BOSS_COMBAT &&
+        !e.repeat
+      ) {
+        this.queuedStolenKiss = true;
         return;
       }
       if (
@@ -308,6 +319,10 @@ export class InputSystem implements ISystem {
     this.queuedBeamFinisherExecute = true;
   }
 
+  public queueStolenKiss(): void {
+    this.queuedStolenKiss = true;
+  }
+
   public queuePortalInteract(): void {
     this.queuedPortalInteract = true;
   }
@@ -369,6 +384,7 @@ export class InputSystem implements ISystem {
     this.queuedPulse = false;
     this.queuedFinisherExecute = false;
     this.queuedBeamFinisherExecute = false;
+    this.queuedStolenKiss = false;
     this.queuedPortalInteract = false;
     this.queuedTaunt = false;
     this.queuedSurgeTap = false;
@@ -420,6 +436,7 @@ export class InputSystem implements ISystem {
     intent.pulseRequested = this.queuedPulse;
     intent.finisherExecuteRequested = this.queuedFinisherExecute;
     intent.beamFinisherExecuteRequested = this.queuedBeamFinisherExecute;
+    intent.stolenKissRequested = this.queuedStolenKiss;
     intent.portalInteractRequested = this.queuedPortalInteract;
     intent.tauntRequested = this.queuedTaunt;
     intent.surgeTapRequested = this.queuedSurgeTap;
@@ -433,6 +450,7 @@ export class InputSystem implements ISystem {
     this.queuedPulse = false;
     this.queuedFinisherExecute = false;
     this.queuedBeamFinisherExecute = false;
+    this.queuedStolenKiss = false;
     this.queuedPortalInteract = false;
     this.queuedTaunt = false;
     this.queuedSurgeTap = false;

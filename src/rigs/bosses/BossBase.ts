@@ -6,6 +6,7 @@ import {
   FINISHER_RESISTANCE_CONFIG,
   PALETTE,
   SIPHON_BEAM_CONFIG,
+  STOLEN_KISS_CONFIG,
   VICTORY_DIORAMA_CONFIG,
   type BossExpression,
   type BossPhase,
@@ -234,6 +235,29 @@ export interface BossBeamShieldPose {
 }
 
 /**
+ * Shared 3-beat Over-the-Shoulder Stolen Kiss posture computed on `BossBase`
+ * across Marina, Serena, and Miku (DRY & LSP).
+ */
+export interface BossStolenKissPose {
+  readonly bodyY: number;
+  readonly torsoX: number;
+  readonly torsoZ: number;
+  readonly headX: number;
+  readonly headY: number;
+  readonly headZ: number;
+  readonly headFaceNormalOffset: number;
+  readonly leftShoulderX: number;
+  readonly leftShoulderZ: number;
+  readonly leftElbowX: number;
+  readonly leftElbowZ: number;
+  readonly rightShoulderX: number;
+  readonly rightShoulderZ: number;
+  readonly rightElbowX: number;
+  readonly rightElbowZ: number;
+  readonly flareFactor: number;
+}
+
+/**
  * Standardized Boss Rig contract honored by every sovereign boss (Marina, Miku, Mermaid).
  * Guarantees Liskov Substitution across FinisherSystem, DioramaSystem, and RenderSyncSystem
  * with zero boss-specific branching.
@@ -278,6 +302,13 @@ export interface BossRigAdapter {
     headChoreography?: FinisherHeadChoreography,
   ): void;
   applyBeamFinisherPose(drainProgress: number, time: number): void;
+  readonly blindspotExposureTimer: number;
+  readonly stolenKissCooldownTimer: number;
+  triggerBlindspotExposure(): void;
+  consumeBlindspotAndStartCooldown(): void;
+  tickBlindspotState(dt: number, elapsed: number, allowExposure: boolean): void;
+  resetBlindspotState(): void;
+  applyStolenKissPose(beat: 1 | 2 | 3, beatProgress: number, time: number): void;
   getLastResistanceState(): FinisherResistanceState | null;
   applyVictoryCollapsePose(time: number): void;
   applyVictoryDioramaPose(time: number): void;
@@ -307,6 +338,32 @@ export abstract class BossBase implements BossRigAdapter {
   private shoveImpulseValue = 0;
   private wasSurgeActive = false;
   private lastResistanceState: FinisherResistanceState | null = null;
+
+  // Mid-Fight Over-the-Shoulder Stolen Kiss exposure & pooled blindspot diamond glint
+  private _blindspotExposureTimer = 0;
+  private _stolenKissCooldownTimer = 0;
+  private blindspotGlintGroup: THREE.Group | null = null;
+  private blindspotCoreMesh: THREE.Mesh<
+    THREE.OctahedronGeometry,
+    THREE.MeshBasicMaterial
+  > | null = null;
+  private blindspotHaloMesh: THREE.Mesh<
+    THREE.OctahedronGeometry,
+    THREE.MeshBasicMaterial
+  > | null = null;
+  private blindspotParticleGeo: THREE.OctahedronGeometry | null = null;
+  private readonly blindspotParticles: THREE.Mesh<
+    THREE.OctahedronGeometry,
+    THREE.MeshBasicMaterial
+  >[] = [];
+
+  public get blindspotExposureTimer(): number {
+    return this._blindspotExposureTimer;
+  }
+
+  public get stolenKissCooldownTimer(): number {
+    return this._stolenKissCooldownTimer;
+  }
 
   public abstract setExpression(
     expression: BossExpression,
@@ -338,6 +395,11 @@ export abstract class BossBase implements BossRigAdapter {
   ): void;
   public abstract applyBeamFinisherPose(
     drainProgress: number,
+    time: number,
+  ): void;
+  public abstract applyStolenKissPose(
+    beat: 1 | 2 | 3,
+    beatProgress: number,
     time: number,
   ): void;
   public abstract applyVictoryCollapsePose(time: number): void;
@@ -865,6 +927,285 @@ export abstract class BossBase implements BossRigAdapter {
     if (rightWrist) {
       rightWrist.rotation.set(0, cfg.relaxedWristRollRad, 0);
     }
+  }
+
+  /**
+   * Attaches a pooled, zero-allocation royal-violet (#8B5CF6) diamond blindspot glint
+   * and 6 rising violet motes behind the Sovereign's upper shoulder blades.
+   */
+  protected attachBlindspotGlint(torsoGroup: THREE.Group): void {
+    const cfg = STOLEN_KISS_CONFIG;
+    const grp = new THREE.Group();
+    grp.position.set(0, cfg.blindspotLocalY, cfg.blindspotLocalZ);
+    grp.visible = false;
+
+    const coreGeo = new THREE.OctahedronGeometry(cfg.blindspotDiamondRadius, 0);
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.amethystTrim,
+      transparent: true,
+      opacity: 0.92,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+    coreMesh.scale.set(0.65, 1.35, 0.65);
+    grp.add(coreMesh);
+
+    const haloGeo = new THREE.OctahedronGeometry(
+      cfg.blindspotDiamondRadius * 1.48,
+      0,
+    );
+    const haloMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.glowViolet,
+      transparent: true,
+      opacity: 0.45,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const haloMesh = new THREE.Mesh(haloGeo, haloMat);
+    haloMesh.scale.set(0.75, 1.45, 0.75);
+    grp.add(haloMesh);
+
+    const pGeo = new THREE.OctahedronGeometry(
+      cfg.blindspotDiamondRadius * 0.24,
+      0,
+    );
+    this.blindspotParticleGeo = pGeo;
+    for (let i = 0; i < cfg.blindspotParticleCount; i++) {
+      const pMat = new THREE.MeshBasicMaterial({
+        color: i % 2 === 0 ? PALETTE.amethystTrim : PALETTE.pulseLavender,
+        transparent: true,
+        opacity: 0.85,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const pMesh = new THREE.Mesh(pGeo, pMat);
+      pMesh.frustumCulled = false;
+      grp.add(pMesh);
+      this.blindspotParticles.push(pMesh);
+    }
+
+    torsoGroup.add(grp);
+    this.blindspotGlintGroup = grp;
+    this.blindspotCoreMesh = coreMesh;
+    this.blindspotHaloMesh = haloMesh;
+  }
+
+  protected disposeBlindspotGlint(): void {
+    if (this.blindspotGlintGroup && this.blindspotGlintGroup.parent) {
+      this.blindspotGlintGroup.parent.remove(this.blindspotGlintGroup);
+    }
+    this.blindspotCoreMesh?.geometry.dispose();
+    this.blindspotCoreMesh?.material.dispose();
+    this.blindspotHaloMesh?.geometry.dispose();
+    this.blindspotHaloMesh?.material.dispose();
+    this.blindspotParticleGeo?.dispose();
+    for (let i = 0; i < this.blindspotParticles.length; i++) {
+      const p = this.blindspotParticles[i];
+      if (p) p.material.dispose();
+    }
+    this.blindspotParticles.length = 0;
+    this.blindspotGlintGroup = null;
+    this.blindspotCoreMesh = null;
+    this.blindspotHaloMesh = null;
+    this.blindspotParticleGeo = null;
+  }
+
+  public triggerBlindspotExposure(): void {
+    if (this._stolenKissCooldownTimer > 0) return;
+    this._blindspotExposureTimer = STOLEN_KISS_CONFIG.exposureDurationSec;
+  }
+
+  public consumeBlindspotAndStartCooldown(): void {
+    this._blindspotExposureTimer = 0;
+    this._stolenKissCooldownTimer = STOLEN_KISS_CONFIG.cooldownSec;
+    if (this.blindspotGlintGroup) {
+      this.blindspotGlintGroup.visible = false;
+    }
+  }
+
+  public resetBlindspotState(): void {
+    this._blindspotExposureTimer = 0;
+    this._stolenKissCooldownTimer = 0;
+    if (this.blindspotGlintGroup) {
+      this.blindspotGlintGroup.visible = false;
+    }
+  }
+
+  public tickBlindspotState(
+    dt: number,
+    elapsed: number,
+    allowExposure: boolean,
+  ): void {
+    const safeDt = Math.max(0, Math.min(dt, 0.05));
+    if (this._stolenKissCooldownTimer > 0) {
+      this._stolenKissCooldownTimer = Math.max(
+        0,
+        this._stolenKissCooldownTimer - safeDt,
+      );
+    }
+
+    if (!allowExposure) {
+      this._blindspotExposureTimer = 0;
+    } else if (this._blindspotExposureTimer > 0) {
+      this._blindspotExposureTimer = Math.max(
+        0,
+        this._blindspotExposureTimer - safeDt,
+      );
+    }
+
+    const grp = this.blindspotGlintGroup;
+    if (!grp) return;
+
+    const visible = allowExposure && this._blindspotExposureTimer > 0;
+    grp.visible = visible;
+    if (!visible) return;
+
+    const cfg = STOLEN_KISS_CONFIG;
+    const remRatio = THREE.MathUtils.clamp(
+      this._blindspotExposureTimer / Math.max(0.01, cfg.exposureDurationSec),
+      0,
+      1,
+    );
+    const fadeEnv = Math.min(1, remRatio * 3.5);
+    const pulse =
+      0.86 + 0.28 * Math.sin(elapsed * cfg.blindspotPulseFreqHz * Math.PI * 2);
+
+    if (this.blindspotCoreMesh) {
+      this.blindspotCoreMesh.rotation.y = elapsed * 4.2;
+      this.blindspotCoreMesh.scale.set(
+        0.65 * pulse,
+        1.35 * pulse,
+        0.65 * pulse,
+      );
+      this.blindspotCoreMesh.material.opacity = 0.92 * fadeEnv;
+    }
+    if (this.blindspotHaloMesh) {
+      this.blindspotHaloMesh.rotation.y = -elapsed * 2.8;
+      this.blindspotHaloMesh.scale.set(
+        0.75 * (1.05 + (pulse - 0.86) * 1.1),
+        1.45 * (1.05 + (pulse - 0.86) * 1.1),
+        0.75 * (1.05 + (pulse - 0.86) * 1.1),
+      );
+      this.blindspotHaloMesh.material.opacity = 0.45 * fadeEnv;
+    }
+
+    const count = this.blindspotParticles.length;
+    for (let i = 0; i < count; i++) {
+      const p = this.blindspotParticles[i];
+      if (!p) continue;
+      const u = (elapsed * 1.45 + i / count) % 1;
+      const ang = i * ((Math.PI * 2) / Math.max(1, count)) + elapsed * 2.4;
+      const rad = 0.14 + Math.sin(u * Math.PI) * 0.08;
+      p.position.set(
+        Math.cos(ang) * rad,
+        -0.08 + u * 0.46,
+        Math.sin(ang) * rad * 0.55 - 0.04,
+      );
+      p.rotation.y = elapsed * 6.0 + i;
+      const s = Math.sin(u * Math.PI) * 1.15;
+      p.scale.setScalar(Math.max(0.01, s));
+      p.material.opacity = Math.sin(u * Math.PI) * 0.85 * fadeEnv;
+    }
+  }
+
+  /**
+   * Computes shared 3-beat Over-the-Shoulder Stolen Kiss posture for any Sovereign rig:
+   * - Beat 1 (Wrap & Chin Tilt): spine arches back, head tilts back & over right shoulder,
+   *   hands lift in startled reflex to grip the Dark Mage's waist-wrap forearm without clipping.
+   * - Beat 2 (Over-the-Shoulder Siphon): holds arch & tilted chin with gentle kissPulseAmp cadence.
+   * - Beat 3 (Startled Breakaway Pulse): snaps upright spreading arms wide outward in a flare.
+   */
+  protected computeStolenKissBossPose(
+    beat: 1 | 2 | 3,
+    beatProgress: number,
+    time: number,
+  ): BossStolenKissPose {
+    const cfg = STOLEN_KISS_CONFIG;
+    const p = THREE.MathUtils.clamp(beatProgress, 0, 1);
+    const ease = p * p * (3 - 2 * p);
+    const pulse = Math.sin(time * cfg.kissPulseFreqHz * Math.PI * 2);
+    const tremor = Math.sin(time * 24.0) * 0.025;
+
+    // Beat 1 & 2 held arch/tilt targets
+    const archTorsoX = cfg.targetSpineArchRad;
+    const tiltHeadX = cfg.targetHeadPitchRad;
+    const tiltHeadY = cfg.targetHeadYawRad;
+    // Startled reflex hands gripping his waist-wrap forearm cleanly in front of midriff
+    const gripLShX = -0.52;
+    const gripLShZ = -0.22;
+    const gripLElX = -1.22;
+    const gripLElZ = -0.34;
+    const gripRShX = -0.48;
+    const gripRShZ = 0.24;
+    const gripRElX = -1.18;
+    const gripRElZ = 0.36;
+
+    if (beat === 1) {
+      return {
+        bodyY: cfg.bossStandingBodyY,
+        torsoX: THREE.MathUtils.lerp(0.04, archTorsoX, ease),
+        torsoZ: THREE.MathUtils.lerp(0, -0.05, ease),
+        headX: THREE.MathUtils.lerp(0.02, tiltHeadX, ease),
+        headY: THREE.MathUtils.lerp(0, tiltHeadY, ease),
+        headZ: THREE.MathUtils.lerp(0, -0.14, ease),
+        headFaceNormalOffset: 0,
+        leftShoulderX: THREE.MathUtils.lerp(-0.18, gripLShX, ease),
+        leftShoulderZ: THREE.MathUtils.lerp(-0.14, gripLShZ, ease),
+        leftElbowX: THREE.MathUtils.lerp(-0.34, gripLElX, ease),
+        leftElbowZ: THREE.MathUtils.lerp(0, gripLElZ, ease),
+        rightShoulderX: THREE.MathUtils.lerp(-0.18, gripRShX, ease),
+        rightShoulderZ: THREE.MathUtils.lerp(0.14, gripRShZ, ease),
+        rightElbowX: THREE.MathUtils.lerp(-0.34, gripRElX, ease),
+        rightElbowZ: THREE.MathUtils.lerp(0, gripRElZ, ease),
+        flareFactor: 0,
+      };
+    }
+
+    if (beat === 2) {
+      return {
+        bodyY: cfg.bossStandingBodyY + pulse * 0.008,
+        torsoX: archTorsoX + pulse * 0.025,
+        torsoZ: -0.05 + tremor * 0.4,
+        headX: tiltHeadX + pulse * 0.03,
+        headY: tiltHeadY + tremor * 0.5,
+        headZ: -0.14 + pulse * 0.025,
+        headFaceNormalOffset: pulse * cfg.kissPulseAmp * 0.5,
+        leftShoulderX: gripLShX + tremor,
+        leftShoulderZ: gripLShZ - tremor * 0.6,
+        leftElbowX: gripLElX + tremor * 1.4,
+        leftElbowZ: gripLElZ,
+        rightShoulderX: gripRShX - tremor,
+        rightShoulderZ: gripRShZ + tremor * 0.6,
+        rightElbowX: gripRElX - tremor * 1.4,
+        rightElbowZ: gripRElZ,
+        flareFactor: 0,
+      };
+    }
+
+    // Beat 3: Startled upright defensive elemental flare pushing the Dark Mage away
+    return {
+      bodyY: THREE.MathUtils.lerp(
+        cfg.bossStandingBodyY,
+        cfg.bossStandingBodyY + 0.14,
+        ease,
+      ),
+      torsoX: THREE.MathUtils.lerp(archTorsoX, -0.08, ease),
+      torsoZ: THREE.MathUtils.lerp(-0.05, 0, ease),
+      headX: THREE.MathUtils.lerp(tiltHeadX, 0.06, ease),
+      headY: THREE.MathUtils.lerp(tiltHeadY, 0, ease),
+      headZ: THREE.MathUtils.lerp(-0.14, 0, ease),
+      headFaceNormalOffset: 0,
+      leftShoulderX: THREE.MathUtils.lerp(gripLShX, -0.35, ease),
+      leftShoulderZ: THREE.MathUtils.lerp(gripLShZ, -1.18, ease),
+      leftElbowX: THREE.MathUtils.lerp(gripLElX, -0.22, ease),
+      leftElbowZ: THREE.MathUtils.lerp(gripLElZ, 0, ease),
+      rightShoulderX: THREE.MathUtils.lerp(gripRShX, -0.35, ease),
+      rightShoulderZ: THREE.MathUtils.lerp(gripRShZ, 1.18, ease),
+      rightElbowX: THREE.MathUtils.lerp(gripRElX, -0.22, ease),
+      rightElbowZ: THREE.MathUtils.lerp(gripRElZ, 0, ease),
+      flareFactor: ease,
+    };
   }
 }
 

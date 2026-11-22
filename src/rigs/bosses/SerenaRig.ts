@@ -295,6 +295,7 @@ export class SerenaRig extends BossBase {
     this.buildCoralPearlTiara();
     this.buildSirenHalo();
     this.buildPhaseAuraRings();
+    this.attachBlindspotGlint(this.torsoGroup);
   }
 
   private buildTorsoAndBodice(): void {
@@ -1844,6 +1845,68 @@ export class SerenaRig extends BossBase {
   }
 
   /**
+   * Dedicated 3-beat Mid-Fight Over-the-Shoulder Stolen Kiss pose:
+   * Beat 1 (Rear Wrap & Chin Tilt) -> Beat 2 (Over-the-Shoulder Siphon) -> Beat 3 (Startled Breakaway Flare).
+   */
+  public applyStolenKissPose(
+    beat: 1 | 2 | 3,
+    beatProgress: number,
+    time: number,
+  ): void {
+    this.finisherPoseState.initialized = false;
+    this.resetResistanceState();
+    const pose = this.computeStolenKissBossPose(beat, beatProgress, time);
+
+    this.bodyPivot.position.set(0, pose.bodyY + 0.08, 0);
+    this.bodyPivot.rotation.set(0, 0, pose.torsoZ * 0.4);
+    this.torsoGroup.rotation.set(pose.torsoX, 0, pose.torsoZ);
+    this.headGroup.position.set(0, 0.515, 0.008 + pose.headFaceNormalOffset);
+    this.headGroup.rotation.set(pose.headX, pose.headY, pose.headZ);
+    this.headAccessory.rotation.set(-0.16, 0, 0);
+
+    // Articulated mermaid tail tenses behind her on Beats 1-2 -> snaps wide outward on Beat 3
+    const flare = pose.flareFactor;
+    const whip = Math.sin(time * 9.5) * (0.14 + flare * 0.22);
+    this.tailSeg1.rotation.set(0.38 - flare * 0.22, whip * 0.35, 0.08);
+    this.tailSeg2.rotation.set(0.32 - flare * 0.14, whip * 0.65, 0);
+    this.tailSeg3.rotation.set(0.24, whip * 0.95, 0);
+    this.tailSeg4.rotation.set(0.18, whip * 1.15, 0);
+    this.caudalFinPivot.rotation.set(Math.sin(time * 11.0) * (0.24 + flare * 0.25), 0, 0);
+
+    this.leftShoulderPivot.rotation.set(
+      pose.leftShoulderX,
+      0,
+      pose.leftShoulderZ,
+    );
+    this.leftElbowPivot.rotation.set(pose.leftElbowX, 0, pose.leftElbowZ);
+    this.rightShoulderPivot.rotation.set(
+      pose.rightShoulderX,
+      0,
+      pose.rightShoulderZ,
+    );
+    this.rightElbowPivot.rotation.set(pose.rightElbowX, 0, pose.rightElbowZ);
+
+    for (let i = 0; i < this.hairRibbons.length; i++) {
+      const hr = this.hairRibbons[i];
+      if (!hr) continue;
+      const sway = Math.sin(time * 5.2 + hr.phase) * (0.07 + flare * 0.15);
+      hr.rootSeg.rotation.x = 0.24 + flare * 0.35 + sway;
+      hr.midSeg.rotation.x = 0.18 + flare * 0.25 + sway;
+      hr.tipSeg.rotation.x = 0.14 + flare * 0.2 + sway;
+      hr.rootSeg.rotation.z = hr.spread * (0.28 + flare * 0.48);
+    }
+
+    this.sirenHalo.visible = beat === 3;
+    if (beat === 3) {
+      this.sirenHalo.scale.setScalar(0.85 + flare * 0.68);
+      this.sirenHalo.rotation.z = time * 3.0;
+    }
+    this.phaseAuraRings.visible = false;
+    this.tiaraLight.intensity =
+      ARENA_CONFIG.lighting.tiaraLightCombatBase * (0.9 + flare * 0.9);
+  }
+
+  /**
    * Victory Diorama floor collapse: 100% ash-silver bleached Serena sprawled gracefully
    * onto the pearl mosaic with her 4-segment fish tail curled softly beside her.
    */
@@ -1949,6 +2012,7 @@ export class SerenaRig extends BossBase {
     this.staggerBlend = 0;
     this.finisherPoseState.initialized = false;
     this.resetResistanceState();
+    this.resetBlindspotState();
     this.hitFlashTimer = 0;
     this.castAnimTimer = 0;
     this.accessoryFlickTimer = 0;
@@ -2099,6 +2163,7 @@ export class SerenaRig extends BossBase {
   }
 
   public dispose(): void {
+    this.disposeBlindspotGlint();
     this.faceTexture.dispose();
     this.parent.remove(this.root);
   }
