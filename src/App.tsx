@@ -6,6 +6,7 @@ import { DioramaHUD } from './ui/DioramaHUD';
 import { FinisherHUD } from './ui/FinisherHUD';
 import { LobbyHUD } from './ui/LobbyHUD';
 import { PauseMenu } from './ui/PauseMenu';
+import { ScenarioSelectorModal } from './ui/ScenarioSelectorModal';
 import { TitleOverlay } from './ui/TitleOverlay';
 
 /**
@@ -53,6 +54,7 @@ export function App() {
       {!isFirstPersonGaze && <FinisherHUD controller={controller} />}
       {!isFirstPersonGaze && <DioramaHUD controller={controller} />}
       <PauseMenu controller={controller} />
+      <ScenarioSelectorModal controller={controller} />
     </div>
   );
 }

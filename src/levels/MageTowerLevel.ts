@@ -10,6 +10,7 @@ import { ToonAssets } from '../engine/ToonAssets';
 import { MarinaRig } from '../rigs/bosses/MarinaRig';
 import { MikuRig } from '../rigs/bosses/MikuRig';
 import { SerenaRig } from '../rigs/bosses/SerenaRig';
+import { YenneferRig } from '../rigs/bosses/YenneferRig';
 
 export interface SanctumCollider {
   readonly x: number;
@@ -146,7 +147,15 @@ export class MageTowerLevel {
     THREE.PointsMaterial
   > | null = null;
 
-  // Siphon Gallery Annex (Southern Archway, Velvet Bridge, Bound Marina, Bound Serena & Bound Miku)
+  // West Perimeter Terrace Astral Rift Portal (Special Scenarios — Royal-Violet #8B5CF6 & Amber #F59E0B)
+  private astralRiftVortexMat: THREE.ShaderMaterial | null = null;
+  private astralRiftRuneRing: THREE.Mesh | null = null;
+  private astralRiftSnowMotes: THREE.Points<
+    THREE.BufferGeometry,
+    THREE.PointsMaterial
+  > | null = null;
+
+  // Siphon Gallery Annex (Southern Archway, Velvet Bridge, Bound Marina, Bound Serena, Bound Miku & East Guest Wing)
   private galleryWardGroup: THREE.Group | null = null;
   private galleryWardMat: THREE.MeshBasicMaterial | null = null;
   private galleryWardRippleTimer = 0;
@@ -154,6 +163,7 @@ export class MageTowerLevel {
   private marinaCaptiveUnlocked = false;
   private serenaCaptiveUnlocked = false;
   private mikuCaptiveUnlocked = false;
+  private yenneferCaptiveUnlocked = false;
   private readonly galleryBraziers: GalleryBrazierRecord[] = [];
   private marinaDaisGroup: THREE.Group | null = null;
   private _captiveMarinaRig: MarinaRig | null = null;
@@ -205,6 +215,21 @@ export class MageTowerLevel {
   private mikuReservoirLight: THREE.PointLight | null = null;
   private readonly mikuDaisRuneSegments: THREE.MeshBasicMaterial[] = [];
 
+  // East Twin-Pedestal Guest Wing — Guest Pedestal 1 (Captive Yennefer) & Guest Pedestal 2 (Dormant Reserved)
+  private yenneferDormantSeal: THREE.Mesh | null = null;
+  private yenneferActiveGroup: THREE.Group | null = null;
+  private _captiveYenneferRig: YenneferRig | null = null;
+  private yenneferLeftConduitTip: THREE.Object3D | null = null;
+  private yenneferRightConduitTip: THREE.Object3D | null = null;
+  private yenneferLeftTetherMesh: THREE.Mesh | null = null;
+  private yenneferRightTetherMesh: THREE.Mesh | null = null;
+  private yenneferTetherMat: THREE.MeshBasicMaterial | null = null;
+  private yenneferReservoirCoreMesh: THREE.Mesh | null = null;
+  private yenneferReservoirCoreMat: THREE.MeshToonMaterial | null = null;
+  private yenneferReservoirLight: THREE.PointLight | null = null;
+  private readonly yenneferDaisRuneSegments: THREE.MeshBasicMaterial[] = [];
+  private guestPedestal2Sigil: THREE.Mesh | null = null;
+
   // Reusable scratch vectors for zero-GC tether updates
   private readonly scratchWristL = new THREE.Vector3();
   private readonly scratchWristR = new THREE.Vector3();
@@ -229,6 +254,10 @@ export class MageTowerLevel {
 
   public get captiveMikuRig(): MikuRig | null {
     return this._captiveMikuRig;
+  }
+
+  public get captiveYenneferRig(): YenneferRig | null {
+    return this._captiveYenneferRig;
   }
 
   public get isGalleryUnlocked(): boolean {
@@ -257,6 +286,7 @@ export class MageTowerLevel {
     this.buildStolenTrophyPedestal();
     this.buildAbyssalTargetCrystal();
     this.buildThreeRealmPortals();
+    this.buildAstralRiftPortal();
     this.buildSiphonGalleryAnnex();
   }
 
@@ -2256,9 +2286,11 @@ export class MageTowerLevel {
 
       // Wall bays (skip the 2 northern bays directly flanking the bridge opening)
       const midAng = ((i + 0.5) / galArchCount) * Math.PI * 2;
+    // Keep the east bay (i === 2, midAng = 112.5°) open for the Twin-Pedestal Guest Wing archway
       const isNorthEntranceBay =
         i === galArchCount / 2 - 1 || i === galArchCount / 2;
-      if (!isNorthEntranceBay) {
+      const isEastGuestWingBay = i === 2;
+      if (!isNorthEntranceBay && !isEastGuestWingBay) {
         const bx = Math.sin(midAng) * galFloorR;
         const bz = Math.cos(midAng) * galFloorR;
         const bGroup = new THREE.Group();
@@ -3270,11 +3302,437 @@ export class MageTowerLevel {
       height: cfg.reservoirHeight + 1.0,
     });
 
+    // Build dedicated East Twin-Pedestal Guest Wing off the Siphon Gallery
+    this.buildGuestWingAnnex(
+      stoneMat,
+      darkObsidianMat,
+      pierMat,
+      velvetMat,
+      violetTrimMat,
+      bridgeCamWallMat,
+    );
+
     // Initialize sealed state until synced from persisted store state
-    this.setGalleryCaptives(false, false, false);
+    this.setGalleryCaptives(false, false, false, false);
     this.updateMarinaCaptiveState(cfg.defaultCoreCharge, 0, 0.016);
     this.updateSerenaCaptiveState(cfg.defaultCoreCharge, 0, 0.016);
     this.updateMikuCaptiveState(cfg.defaultCoreCharge, 0, 0.016);
+    this.updateYenneferCaptiveState(cfg.defaultCoreCharge, 0, 0.016);
+  }
+
+  /**
+   * Builds the single distinct runic obsidian **Astral Rift Portal** on the west perimeter
+   * terrace of the Obsidian Sanctum (swirling royal-violet #8B5CF6 & amber #F59E0B vortex
+   * with drifting snow motes), completely clear of the 3 northern Sovereign portals.
+   */
+  private buildAstralRiftPortal(): void {
+    const pos = LOBBY_CONFIG.astralRiftPortalPos;
+    const riftGroup = new THREE.Group();
+    riftGroup.position.set(pos.x, 0, pos.z);
+    riftGroup.lookAt(0, 0, 0);
+
+    const obsidianMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.abyssalCloak, {
+        emissive: PALETTE.amethystTrim,
+        emissiveIntensity: 0.18,
+      }),
+    );
+    const amberMat = this.trackMat(
+      new THREE.MeshBasicMaterial({ color: PALETTE.riftAmber }),
+    );
+    const violetMat = this.trackMat(
+      new THREE.MeshBasicMaterial({ color: PALETTE.amethystTrim }),
+    );
+
+    // Grounded runic obsidian plinth
+    const plinth = ToonAssets.createOutlinedMesh(
+      this.trackGeo(new THREE.BoxGeometry(4.4, 0.24, 2.0)),
+      obsidianMat,
+      1.03,
+      true,
+    ).group;
+    plinth.position.y = 0.12;
+    riftGroup.add(plinth);
+
+    // Twin slanted obsidian monolith pylons with amber/violet crystal tips
+    const pylonGeo = this.trackGeo(new THREE.CylinderGeometry(0.24, 0.38, 3.6, 6));
+    const tipGeo = this.trackGeo(new THREE.OctahedronGeometry(0.24, 0));
+    const sides: readonly (-1 | 1)[] = [-1, 1];
+    sides.forEach((side) => {
+      const pylon = ToonAssets.createOutlinedMesh(
+        pylonGeo,
+        obsidianMat,
+        1.05,
+        true,
+      ).group;
+      pylon.position.set(side * 1.75, 1.95, 0);
+      pylon.rotation.z = side * 0.09;
+      riftGroup.add(pylon);
+
+      const tip = new THREE.Mesh(tipGeo, side < 0 ? violetMat : amberMat);
+      tip.position.set(side * 1.92, 3.92, 0);
+      riftGroup.add(tip);
+    });
+
+    // Outer obsidian arch ring & rotating inner runic ring
+    const frameRing = ToonAssets.createOutlinedMesh(
+      this.trackGeo(new THREE.TorusGeometry(1.62, 0.18, 8, 28)),
+      obsidianMat,
+      1.04,
+      true,
+    ).group;
+    frameRing.position.y = 2.25;
+    riftGroup.add(frameRing);
+
+    this.astralRiftRuneRing = new THREE.Mesh(
+      this.trackGeo(new THREE.TorusGeometry(1.42, 0.055, 6, 32)),
+      amberMat,
+    );
+    this.astralRiftRuneRing.position.y = 2.25;
+    riftGroup.add(this.astralRiftRuneRing);
+
+    // Swirling royal-violet (#8B5CF6) & amber (#F59E0B) rift vortex shader
+    this.astralRiftVortexMat = this.trackMat(
+      new THREE.ShaderMaterial({
+        uniforms: {
+          uTime: { value: 0 },
+          uColorCyan: { value: new THREE.Color(PALETTE.riftAmber) },
+          uColorViolet: { value: new THREE.Color(PALETTE.amethystTrim) },
+          uColorCore: { value: new THREE.Color(PALETTE.iceHighlights) },
+          uColorDeep: { value: new THREE.Color(PALETTE.abyssalCloak) },
+        },
+        vertexShader: REALM1_VORTEX_VERTEX_SHADER,
+        fragmentShader: REALM1_VORTEX_FRAGMENT_SHADER,
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    );
+    const vortexDisc = new THREE.Mesh(
+      this.trackGeo(new THREE.CircleGeometry(1.42, 32)),
+      this.astralRiftVortexMat,
+    );
+    vortexDisc.position.y = 2.25;
+    riftGroup.add(vortexDisc);
+
+    // Drifting snow motes blowing out of the Skellige/Astral Rift
+    const count = LOBBY_CONFIG.astralRiftSnowMoteCount;
+    const motePositions = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      motePositions[i * 3 + 0] = (Math.random() - 0.5) * 3.0;
+      motePositions[i * 3 + 1] = 0.25 + Math.random() * 3.8;
+      motePositions[i * 3 + 2] = 0.15 + Math.random() * 1.4;
+    }
+    const moteGeo = this.trackGeo(new THREE.BufferGeometry());
+    moteGeo.setAttribute('position', new THREE.BufferAttribute(motePositions, 3));
+    const moteMat = this.trackMat(
+      new THREE.PointsMaterial({
+        color: PALETTE.iceHighlights,
+        size: 0.085,
+        transparent: true,
+        opacity: 0.82,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.astralRiftSnowMotes = new THREE.Points(moteGeo, moteMat);
+    riftGroup.add(this.astralRiftSnowMotes);
+
+    const riftLight = new THREE.PointLight(
+      PALETTE.riftAmber,
+      LOBBY_CONFIG.lighting.portalLightIntensity * 0.9,
+      LOBBY_CONFIG.lighting.portalLightDistance,
+      1.7,
+    );
+    riftLight.position.set(0, 2.35, 0.95);
+    riftGroup.add(riftLight);
+
+    this.root.add(riftGroup);
+  }
+
+  /**
+   * Builds the dedicated two-pedestal **Guest Wing** on the east side of the Siphon Gallery:
+   * - Guest Pedestal 1: Unlocks **Yennefer** after winning *The Wolf & The Raven* (0% -> 100% recharge, LOBBY_SIPHON, ENDLESS_SAVOR)
+   * - Guest Pedestal 2: Dormant rune-etched obsidian pedestal reserved for a future Guest Sovereign.
+   */
+  private buildGuestWingAnnex(
+    stoneMat: THREE.MeshToonMaterial,
+    darkObsidianMat: THREE.MeshToonMaterial,
+    pierMat: THREE.MeshToonMaterial,
+    velvetMat: THREE.MeshToonMaterial,
+    violetTrimMat: THREE.MeshBasicMaterial,
+    camWallMat: THREE.MeshBasicMaterial,
+  ): void {
+    const cfg = SIPHON_GALLERY_CONFIG;
+    const wingMinX = 6.2;
+    const wingMaxX = cfg.guestWingOuterMaxX;
+    const wingW = wingMaxX - wingMinX;
+    const wingCenterX = (wingMinX + wingMaxX) * 0.5;
+    const wingMinZ = cfg.guestWingOuterMinZ;
+    const wingMaxZ = cfg.guestWingOuterMaxZ;
+    const wingD = wingMaxZ - wingMinZ;
+    const wingCenterZ = (wingMinZ + wingMaxZ) * 0.5;
+    const wallH = cfg.galleryWallHeight * 0.72;
+
+    // Walkable Obsidian Floor Slab & Velvet Runner extending east into the Guest Wing
+    const floorSlab = new THREE.Mesh(
+      this.trackGeo(new THREE.BoxGeometry(wingW + 1.2, 0.8, wingD + 0.6)),
+      stoneMat,
+    );
+    floorSlab.position.set(wingCenterX, -0.4, wingCenterZ);
+    floorSlab.receiveShadow = true;
+    this.root.add(floorSlab);
+
+    const runnerLen = wingW - 1.2;
+    const wingRunner = new THREE.Mesh(
+      this.trackGeo(new THREE.PlaneGeometry(runnerLen, 1.45)),
+      velvetMat,
+    );
+    wingRunner.rotation.x = -Math.PI / 2;
+    wingRunner.position.set(wingCenterX - 0.4, 0.017, wingCenterZ);
+    wingRunner.receiveShadow = true;
+    this.root.add(wingRunner);
+
+    // North, South, and East Enclosing Walls + Inward Camera Colliders
+    const backWall = new THREE.Mesh(
+      this.trackGeo(new THREE.BoxGeometry(0.48, wallH, wingD)),
+      darkObsidianMat,
+    );
+    backWall.position.set(wingMaxX, wallH * 0.5, wingCenterZ);
+    this.root.add(backWall);
+    this._cameraColliders.push(backWall);
+    this._pillarMeshes.push(backWall);
+
+    const sideWallGeo = this.trackGeo(new THREE.BoxGeometry(wingW, 2.6, 0.46));
+    const sideCamGeo = this.trackGeo(new THREE.PlaneGeometry(wingW, wallH));
+    const sideZs: readonly [number, number][] = [
+      [wingMinZ, 1],
+      [wingMaxZ, -1],
+    ];
+    for (let i = 0; i < sideZs.length; i++) {
+      const [wz, inwardSign] = sideZs[i]!;
+      const wall = new THREE.Mesh(sideWallGeo, stoneMat);
+      wall.position.set(wingCenterX, 1.3, wz);
+      this.root.add(wall);
+      this._cameraColliders.push(wall);
+      this._pillarMeshes.push(wall);
+
+      const camPlane = new THREE.Mesh(sideCamGeo, camWallMat);
+      camPlane.position.set(wingCenterX, wallH * 0.5, wz + inwardSign * 0.25);
+      camPlane.rotation.y = inwardSign > 0 ? 0 : Math.PI;
+      this.root.add(camPlane);
+      this._cameraColliders.push(camPlane);
+    }
+
+    // --- Guest Pedestal 1: Yennefer of Vengerberg (Active after winning The Wolf & The Raven) ---
+    const p1Pos = cfg.guestPedestal1Pos;
+    const p1Group = new THREE.Group();
+    p1Group.position.set(p1Pos.x, 0, p1Pos.z);
+    p1Group.rotation.y = cfg.guestPedestal1FacingYaw;
+
+    const p1Dais = ToonAssets.createOutlinedMesh(
+      this.trackGeo(
+        new THREE.CylinderGeometry(
+          cfg.guestPedestalRadius,
+          cfg.guestPedestalRadius + 0.14,
+          cfg.daisHeight,
+          24,
+        ),
+      ),
+      velvetMat,
+      1.02,
+      true,
+    ).group;
+    p1Dais.position.y = cfg.daisHeight * 0.5;
+    p1Group.add(p1Dais);
+
+    this.yenneferDormantSeal = new THREE.Mesh(
+      this.trackGeo(new THREE.RingGeometry(0.65, 0.92, 6)),
+      violetTrimMat,
+    );
+    this.yenneferDormantSeal.rotation.x = -Math.PI / 2;
+    this.yenneferDormantSeal.position.y = cfg.daisHeight + 0.02;
+    p1Group.add(this.yenneferDormantSeal);
+
+    this.yenneferActiveGroup = new THREE.Group();
+    p1Group.add(this.yenneferActiveGroup);
+
+    // 12-Segment Floor Rune Gauge around Guest Pedestal 1
+    const segCount = cfg.runeSegmentCount;
+    const segArc = (Math.PI * 2) / segCount;
+    for (let i = 0; i < segCount; i++) {
+      const segMat = this.trackMat(
+        new THREE.MeshBasicMaterial({
+          color: PALETTE.yenneferLilac,
+          transparent: true,
+          opacity: 0.85,
+          side: THREE.DoubleSide,
+        }),
+      );
+      const segMesh = new THREE.Mesh(
+        this.trackGeo(
+          new THREE.RingGeometry(
+            cfg.guestPedestalRadius + 0.08,
+            cfg.guestPedestalRadius + 0.24,
+            4,
+            1,
+            i * segArc + 0.04,
+            segArc - 0.08,
+          ),
+        ),
+        segMat,
+      );
+      segMesh.rotation.x = -Math.PI / 2;
+      segMesh.position.y = 0.02;
+      this.yenneferActiveGroup.add(segMesh);
+      this.yenneferDaisRuneSegments.push(segMat);
+    }
+
+    // Twin Flanking Lilac-Obsidian Tether Conduits
+    const conduitGeo = this.trackGeo(
+      new THREE.CylinderGeometry(0.08, 0.13, cfg.conduitHeight, 6),
+    );
+    const conduitTipGeo = this.trackGeo(new THREE.OctahedronGeometry(0.11, 0));
+    const leftCond = new THREE.Mesh(conduitGeo, darkObsidianMat);
+    leftCond.position.set(-1.12, cfg.conduitHeight * 0.5, -0.2);
+    const rightCond = new THREE.Mesh(conduitGeo, darkObsidianMat);
+    rightCond.position.set(1.12, cfg.conduitHeight * 0.5, -0.2);
+    this.yenneferActiveGroup.add(leftCond, rightCond);
+
+    this.yenneferLeftConduitTip = new THREE.Mesh(conduitTipGeo, violetTrimMat);
+    this.yenneferLeftConduitTip.position.set(-1.12, cfg.conduitTipY, -0.2);
+    this.yenneferRightConduitTip = new THREE.Mesh(conduitTipGeo, violetTrimMat);
+    this.yenneferRightConduitTip.position.set(1.12, cfg.conduitTipY, -0.2);
+    this.yenneferActiveGroup.add(
+      this.yenneferLeftConduitTip,
+      this.yenneferRightConduitTip,
+    );
+
+    // Captive Yennefer Rig seated atop Guest Pedestal 1
+    this._captiveYenneferRig = new YenneferRig(p1Group as unknown as THREE.Scene);
+    this._captiveYenneferRig.root.position.set(0, cfg.daisHeight, 0);
+    this._captiveYenneferRig.root.rotation.set(0, 0, 0);
+
+    // Wrist Energy Tether Meshes
+    const tetherGeo = this.trackGeo(
+      new THREE.CylinderGeometry(cfg.tetherRadius, cfg.tetherRadius, 1.0, 6),
+    );
+    this.yenneferTetherMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.glowViolet,
+        transparent: true,
+        opacity: 0.78,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.yenneferLeftTetherMesh = new THREE.Mesh(tetherGeo, this.yenneferTetherMat);
+    this.yenneferRightTetherMesh = new THREE.Mesh(tetherGeo, this.yenneferTetherMat);
+    this.root.add(this.yenneferLeftTetherMesh, this.yenneferRightTetherMesh);
+
+    // Chaos Core Reservoir Crystal beside Guest Pedestal 1
+    const resGroup = new THREE.Group();
+    resGroup.position.set(-1.72, 0, -0.45);
+    const resBase = new THREE.Mesh(
+      this.trackGeo(new THREE.CylinderGeometry(0.32, 0.4, 0.36, 6)),
+      pierMat,
+    );
+    resBase.position.y = 0.18;
+    resGroup.add(resBase);
+
+    const resCoreGeo = this.trackGeo(
+      new THREE.CylinderGeometry(0.18, 0.18, 1.9, 8),
+    );
+    resCoreGeo.translate(0, 0.95, 0);
+    this.yenneferReservoirCoreMat = this.trackMat(
+      ToonAssets.createToonMaterial(PALETTE.yenneferLilac, {
+        emissive: PALETTE.amethystTrim,
+        emissiveIntensity: 0.85,
+      }),
+    );
+    this.yenneferReservoirCoreMesh = new THREE.Mesh(
+      resCoreGeo,
+      this.yenneferReservoirCoreMat,
+    );
+    this.yenneferReservoirCoreMesh.position.y = 0.38;
+    resGroup.add(this.yenneferReservoirCoreMesh);
+
+    this.yenneferReservoirLight = new THREE.PointLight(
+      PALETTE.yenneferLilac,
+      cfg.reservoirLightIntensity * 0.85,
+      cfg.reservoirLightDistance,
+      1.7,
+    );
+    this.yenneferReservoirLight.position.set(0, 1.45, 0);
+    resGroup.add(this.yenneferReservoirLight);
+    this.yenneferActiveGroup.add(resGroup);
+
+    this.root.add(p1Group);
+    this._pillarColliders.push({
+      x: p1Pos.x,
+      z: p1Pos.z,
+      radius: cfg.guestPedestalCollisionRadius,
+      height: 2.2,
+    });
+
+    // --- Guest Pedestal 2: Dormant Rune-Etched Obsidian Pedestal (Reserved for Future Guest Sovereign) ---
+    const p2Pos = cfg.guestPedestal2Pos;
+    const p2Group = new THREE.Group();
+    p2Group.position.set(p2Pos.x, 0, p2Pos.z);
+    p2Group.rotation.y = cfg.guestPedestal2FacingYaw;
+
+    const p2Base = ToonAssets.createOutlinedMesh(
+      this.trackGeo(
+        new THREE.CylinderGeometry(
+          cfg.guestPedestalRadius,
+          cfg.guestPedestalRadius + 0.16,
+          cfg.daisHeight,
+          8,
+        ),
+      ),
+      darkObsidianMat,
+      1.03,
+      true,
+    ).group;
+    p2Base.position.y = cfg.daisHeight * 0.5;
+    p2Group.add(p2Base);
+
+    const p2OuterRune = new THREE.Mesh(
+      this.trackGeo(
+        new THREE.RingGeometry(
+          cfg.guestPedestalRadius - 0.25,
+          cfg.guestPedestalRadius - 0.12,
+          8,
+        ),
+      ),
+      violetTrimMat,
+    );
+    p2OuterRune.rotation.x = -Math.PI / 2;
+    p2OuterRune.position.y = cfg.daisHeight + 0.016;
+    p2Group.add(p2OuterRune);
+
+    this.guestPedestal2Sigil = new THREE.Mesh(
+      this.trackGeo(new THREE.RingGeometry(0.48, 0.64, 6)),
+      this.trackMat(
+        new THREE.MeshBasicMaterial({
+          color: PALETTE.riftAmber,
+          transparent: true,
+          opacity: 0.52,
+          side: THREE.DoubleSide,
+        }),
+      ),
+    );
+    this.guestPedestal2Sigil.rotation.x = -Math.PI / 2;
+    this.guestPedestal2Sigil.position.y = cfg.daisHeight + 0.022;
+    p2Group.add(this.guestPedestal2Sigil);
+
+    this.root.add(p2Group);
+    this._pillarColliders.push({
+      x: p2Pos.x,
+      z: p2Pos.z,
+      radius: cfg.guestPedestalCollisionRadius,
+      height: 1.4,
+    });
   }
 
   /**
@@ -3285,12 +3743,15 @@ export class MageTowerLevel {
     marinaUnlocked: boolean,
     serenaUnlocked: boolean,
     mikuUnlocked = false,
+    yenneferUnlocked = false,
   ): void {
-    const anyUnlocked = marinaUnlocked || serenaUnlocked || mikuUnlocked;
+    const anyUnlocked =
+      marinaUnlocked || serenaUnlocked || mikuUnlocked || yenneferUnlocked;
     this.galleryUnlocked = anyUnlocked;
     this.marinaCaptiveUnlocked = marinaUnlocked;
     this.serenaCaptiveUnlocked = serenaUnlocked;
     this.mikuCaptiveUnlocked = mikuUnlocked;
+    this.yenneferCaptiveUnlocked = yenneferUnlocked;
 
     if (this.galleryWardGroup) {
       this.galleryWardGroup.visible = !anyUnlocked;
@@ -3344,6 +3805,25 @@ export class MageTowerLevel {
     }
     if (this.mikuReservoirLight && !mikuUnlocked) {
       this.mikuReservoirLight.intensity = 0;
+    }
+
+    if (this.yenneferDormantSeal) {
+      this.yenneferDormantSeal.visible = !yenneferUnlocked;
+    }
+    if (this.yenneferActiveGroup) {
+      this.yenneferActiveGroup.visible = yenneferUnlocked;
+    }
+    if (this._captiveYenneferRig) {
+      this._captiveYenneferRig.root.visible = yenneferUnlocked;
+    }
+    if (this.yenneferLeftTetherMesh) {
+      this.yenneferLeftTetherMesh.visible = yenneferUnlocked;
+    }
+    if (this.yenneferRightTetherMesh) {
+      this.yenneferRightTetherMesh.visible = yenneferUnlocked;
+    }
+    if (this.yenneferReservoirLight && !yenneferUnlocked) {
+      this.yenneferReservoirLight.intensity = 0;
     }
 
     for (let i = 0; i < this.galleryBraziers.length; i++) {
@@ -3437,6 +3917,100 @@ export class MageTowerLevel {
     }
 
     this.updateMikuLobbySiphonBackdrop(clamped, time);
+  }
+
+  /**
+   * Updates captive Yennefer on Guest Pedestal 1 (East Guest Wing), wrist tether strands,
+   * 12-segment lilac floor rune ring, and Chaos Core Reservoir smoothly from `charge` (0 -> 1).
+   */
+  public updateYenneferCaptiveState(
+    charge: number,
+    time: number,
+    dt: number,
+  ): void {
+    const clamped = THREE.MathUtils.clamp(charge, 0, 1);
+    if (this._captiveYenneferRig && this.yenneferCaptiveUnlocked) {
+      this._captiveYenneferRig.applyCaptiveDaisPose(clamped, time, dt);
+    }
+    this.updateYenneferLobbySiphonBackdrop(clamped, time);
+  }
+
+  /**
+   * Updates Guest Pedestal 1 diegetic peripherals during LOBBY and LOBBY_SIPHON.
+   */
+  public updateYenneferLobbySiphonBackdrop(
+    charge: number,
+    time: number,
+    tetherTension = 0,
+  ): void {
+    const clamped = THREE.MathUtils.clamp(charge, 0, 1);
+    if (
+      this._captiveYenneferRig &&
+      this.yenneferCaptiveUnlocked &&
+      this.yenneferLeftConduitTip &&
+      this.yenneferRightConduitTip &&
+      this.yenneferLeftTetherMesh &&
+      this.yenneferRightTetherMesh
+    ) {
+      this._captiveYenneferRig.root.updateMatrixWorld(true);
+      this._captiveYenneferRig.getLeftHandWorldPosition(this.scratchWristL);
+      this._captiveYenneferRig.getRightHandWorldPosition(this.scratchWristR);
+      this.yenneferLeftConduitTip.getWorldPosition(this.scratchTipL);
+      this.yenneferRightConduitTip.getWorldPosition(this.scratchTipR);
+
+      const tensionScale = 1 + tetherTension * 0.45;
+      const alignTether = (
+        mesh: THREE.Mesh,
+        a: THREE.Vector3,
+        b: THREE.Vector3,
+      ) => {
+        this.scratchMid.addVectors(a, b).multiplyScalar(0.5);
+        this.scratchDir.subVectors(b, a);
+        const len = Math.max(0.05, this.scratchDir.length());
+        this.scratchDir.divideScalar(len);
+        this.scratchQuat.setFromUnitVectors(this.upAxis, this.scratchDir);
+        mesh.position.copy(this.scratchMid);
+        mesh.quaternion.copy(this.scratchQuat);
+        mesh.scale.set(tensionScale, len, tensionScale);
+      };
+      alignTether(
+        this.yenneferLeftTetherMesh,
+        this.scratchWristL,
+        this.scratchTipL,
+      );
+      alignTether(
+        this.yenneferRightTetherMesh,
+        this.scratchWristR,
+        this.scratchTipR,
+      );
+    }
+
+    if (this.yenneferTetherMat) {
+      const pulse = 0.72 + 0.24 * Math.sin(time * 5.2) + tetherTension * 0.2;
+      this.yenneferTetherMat.opacity = Math.min(1, pulse);
+    }
+
+    const litSegments = Math.round(clamped * this.yenneferDaisRuneSegments.length);
+    for (let i = 0; i < this.yenneferDaisRuneSegments.length; i++) {
+      const mat = this.yenneferDaisRuneSegments[i];
+      if (!mat) continue;
+      const isLit = i < litSegments;
+      mat.color.setHex(isLit ? PALETTE.yenneferLilac : PALETTE.drainedAshSilver);
+      mat.opacity = isLit ? 0.88 : 0.22;
+    }
+
+    if (this.yenneferReservoirCoreMesh && this.yenneferReservoirCoreMat) {
+      const fill = Math.max(
+        SIPHON_GALLERY_CONFIG.reservoirMinFillScale,
+        clamped,
+      );
+      this.yenneferReservoirCoreMesh.scale.set(1, fill, 1);
+      this.yenneferReservoirCoreMat.emissiveIntensity = 0.15 + clamped * 0.85;
+    }
+    if (this.yenneferReservoirLight && this.yenneferCaptiveUnlocked) {
+      this.yenneferReservoirLight.intensity =
+        SIPHON_GALLERY_CONFIG.reservoirLightIntensity * (0.2 + clamped * 0.8);
+    }
   }
 
   /**
@@ -3918,6 +4492,28 @@ export class MageTowerLevel {
       posAttr.needsUpdate = true;
     }
 
+    // 7b. Animate West-Terrace Astral Rift Portal (Royal-Violet & Amber Vortex + Snow Motes) & Guest Pedestal 2 Sigil
+    if (this.astralRiftVortexMat) {
+      this.astralRiftVortexMat.uniforms.uTime!.value = time * 1.15;
+    }
+    if (this.astralRiftRuneRing) {
+      this.astralRiftRuneRing.rotation.z = -time * 0.65;
+    }
+    if (this.astralRiftSnowMotes) {
+      const posAttr = this.astralRiftSnowMotes.geometry.getAttribute(
+        'position',
+      ) as THREE.BufferAttribute;
+      for (let i = 0; i < posAttr.count; i++) {
+        let y = posAttr.getY(i) - dt * 0.58;
+        if (y < 0.2) y = 4.0;
+        posAttr.setY(i, y);
+      }
+      posAttr.needsUpdate = true;
+    }
+    if (this.guestPedestal2Sigil) {
+      this.guestPedestal2Sigil.rotation.z = time * 0.42;
+    }
+
     // 8. Animate Siphon Gallery southern ward seal & cold-flame braziers
     if (this.galleryWardMat && this.galleryWardGroup && !this.galleryUnlocked) {
       if (this.galleryWardRippleTimer > 0) {
@@ -3962,6 +4558,10 @@ export class MageTowerLevel {
     if (this._captiveMikuRig) {
       this._captiveMikuRig.dispose();
       this._captiveMikuRig = null;
+    }
+    if (this._captiveYenneferRig) {
+      this._captiveYenneferRig.dispose();
+      this._captiveYenneferRig = null;
     }
     for (let i = 0; i < this.ownedGeometries.length; i++) {
       this.ownedGeometries[i]?.dispose();

@@ -161,6 +161,18 @@ export interface BossPhaseStateComponent {
   phase: BossPhase;
   expression: BossExpression;
   isStaggered: boolean;
+  /** Asymmetric siphon gate: false bosses collapse & ash-dissolve at 0 HP; never open STOLEN_KISS or SIPHON_FINISHER. */
+  canBeSiphoned: boolean;
+  /** True once a non-siphonable boss completes ash-dissolve or a siphonable boss is defeated/dispersed. */
+  isDefeated: boolean;
+  /** -1 when alive; 0..ashDissolveDurationSec during lethal stagger-collapse & ash/ember dissolution. */
+  dissolveTimer: number;
+  /** HP ratio threshold for lethal stagger (0.08 for Realm I-III Sovereigns; 0 for Special Scenario bosses). */
+  staggerThreshold: number;
+  /** Guest pedestal index in Siphon Gallery (0, 1, ...) or null for main realm / non-siphonable bosses. */
+  guestPedestalIndex: number | null;
+  /** Frozen palette hex accent for stacked multi-boss HUD bars. */
+  barAccentHex: string;
   orbitAngle: number;
   orbitDir: 1 | -1;
   orbitSwitchTimer: number;

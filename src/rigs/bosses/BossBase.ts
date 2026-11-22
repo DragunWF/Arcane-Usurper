@@ -315,6 +315,9 @@ export interface BossRigAdapter {
   applyVictoryDioramaPose(time: number): void;
   applyPuppetMasterPose(time: number): void;
   applyDrainBleach(drainProgress: number): void;
+  /** Lethal stagger-collapse & ash/ember dissolution animation (0 -> 1 over ashDissolveDurationSec) for non-siphonable bosses. */
+  applyAshDissolve(progress: number): void;
+  resetAshDissolve(): void;
   resetForEncounter(encoreTier: number): void;
   dispose(): void;
 }
@@ -415,6 +418,47 @@ export abstract class BossBase implements BossRigAdapter {
   public abstract applyDrainBleach(drainProgress: number): void;
   public abstract resetForEncounter(encoreTier: number): void;
   public abstract dispose(): void;
+
+  private readonly scratchEmberColor = new THREE.Color(PALETTE.ashEmber);
+  private readonly scratchAshColor = new THREE.Color(PALETTE.ashCharcoal);
+
+  /**
+   * Default lethal stagger-collapse & ash/ember dissolution for non-siphonable bosses (0 -> 1).
+   * Rigs may override to add custom limb slump while calling `super.applyAshDissolve(progress)`.
+   */
+  public applyAshDissolve(progress: number): void {
+    const p = THREE.MathUtils.clamp(progress, 0, 1);
+    const emberPeak = Math.sin(Math.min(1, p * 1.45) * Math.PI);
+    const fade = 1 - THREE.MathUtils.smoothstep(p, 0.38, 1.0);
+
+    for (let i = 0; i < this.drainableMaterials.length; i++) {
+      const mat = this.drainableMaterials[i];
+      const orig = this.originalColors[i];
+      if (!mat || !orig) continue;
+      mat.color.copy(orig).lerp(this.scratchAshColor, Math.min(1, p * 1.25));
+      mat.emissive.copy(this.scratchEmberColor);
+      mat.emissiveIntensity = emberPeak * 2.2;
+      mat.transparent = true;
+      mat.opacity = Math.max(0.02, fade);
+    }
+
+    const scaleXZ = THREE.MathUtils.lerp(1.0, 0.86, p * p);
+    const scaleY = THREE.MathUtils.lerp(1.0, 0.62, p * p);
+    this.root.scale.set(scaleXZ, scaleY, scaleXZ);
+  }
+
+  /**
+   * Restores opacity and root scale cleanly after an ash/ember dissolution or encounter reset.
+   */
+  public resetAshDissolve(): void {
+    this.root.scale.set(1, 1, 1);
+    for (let i = 0; i < this.drainableMaterials.length; i++) {
+      const mat = this.drainableMaterials[i];
+      if (!mat) continue;
+      mat.transparent = false;
+      mat.opacity = 1.0;
+    }
+  }
 
   public getLastResistanceState(): FinisherResistanceState | null {
     return this.lastResistanceState;

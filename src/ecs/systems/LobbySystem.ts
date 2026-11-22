@@ -5,6 +5,7 @@ import {
   LOBBY_CONFIG,
   LOBBY_PROMPT_KINDS,
   SIPHON_GALLERY_CONFIG,
+  SPECIAL_SCENARIO_CONFIG,
   type FinisherMode,
   type GameState,
 } from '../../config/gameConfig';
@@ -15,6 +16,7 @@ import type { DarkMageRig } from '../../rigs/DarkMageRig';
 import {
   useGameStore,
   type LobbyPromptState,
+  type LobbySiphonTargetId,
 } from '../../state/useGameStore';
 import type { ECSWorld, ISystem } from '../World';
 
@@ -23,8 +25,9 @@ export interface ILobbyCallbacks {
   onEnterRealm1: () => void;
   onEnterRealm2: () => void;
   onEnterRealm3: () => void;
+  onOpenScenarioSelector: () => void;
   onEnterLobbySiphon: (
-    target: 'marina' | 'serena' | 'miku',
+    target: LobbySiphonTargetId,
     mode: FinisherMode,
   ) => void;
   onEncoreTierToggled: (nextTier: number) => void;
@@ -53,9 +56,13 @@ export class LobbySystem implements ISystem {
   private lastSyncedSerenaCharge = -1;
   private liveMikuCharge: number = SIPHON_GALLERY_CONFIG.defaultCoreCharge;
   private lastSyncedMikuCharge = -1;
+  private liveYenneferCharge: number =
+    SPECIAL_SCENARIO_CONFIG.guestPedestalDefaultCoreCharge;
+  private lastSyncedYenneferCharge = -1;
   private chargeSyncAccum = 0;
   private serenaChargeSyncAccum = 0;
   private mikuChargeSyncAccum = 0;
+  private yenneferChargeSyncAccum = 0;
   private readonly scratchBurst = new THREE.Vector3();
 
   constructor(
@@ -85,9 +92,12 @@ export class LobbySystem implements ISystem {
     this.lastSyncedSerenaCharge = store.serenaCoreCharge;
     this.liveMikuCharge = store.mikuCoreCharge;
     this.lastSyncedMikuCharge = store.mikuCoreCharge;
+    this.liveYenneferCharge = store.yenneferCoreCharge;
+    this.lastSyncedYenneferCharge = store.yenneferCoreCharge;
     this.chargeSyncAccum = 0;
     this.serenaChargeSyncAccum = 0;
     this.mikuChargeSyncAccum = 0;
+    this.yenneferChargeSyncAccum = 0;
     this.mageTower.setTrophyVisible(
       store.marinaDefeated,
       store.encoreTier,
@@ -98,13 +108,18 @@ export class LobbySystem implements ISystem {
       store.marinaDefeated,
       store.serenaDefeated,
       store.mikuDefeated,
+      store.yenneferDefeated,
     );
     this.callbacks.onSyncGalleryUnlocked(
-      store.marinaDefeated || store.serenaDefeated || store.mikuDefeated,
+      store.marinaDefeated ||
+        store.serenaDefeated ||
+        store.mikuDefeated ||
+        store.yenneferDefeated,
     );
     this.mageTower.updateMarinaCaptiveState(this.liveMarinaCharge, 0, 0.016);
     this.mageTower.updateSerenaCaptiveState(this.liveSerenaCharge, 0, 0.016);
     this.mageTower.updateMikuCaptiveState(this.liveMikuCharge, 0, 0.016);
+    this.mageTower.updateYenneferCaptiveState(this.liveYenneferCharge, 0, 0.016);
     this.mageRig.setEncoreTier(store.encoreTier);
     this.setPromptIfChanged(null);
   }
@@ -160,8 +175,20 @@ export class LobbySystem implements ISystem {
     const isDaisPrompt =
       this.activePrompt.kind === LOBBY_PROMPT_KINDS.MARINA_DAIS ||
       this.activePrompt.kind === LOBBY_PROMPT_KINDS.SERENA_DAIS ||
-      this.activePrompt.kind === LOBBY_PROMPT_KINDS.MIKU_DAIS;
+      this.activePrompt.kind === LOBBY_PROMPT_KINDS.MIKU_DAIS ||
+      this.activePrompt.kind === LOBBY_PROMPT_KINDS.YENNEFER_DAIS;
     if (mode === FINISHER_MODES.BEAM && !isDaisPrompt) {
+      return;
+    }
+
+    if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.ASTRAL_RIFT) {
+      this.audio.playSunkenWardChime();
+      this.callbacks.onOpenScenarioSelector();
+      return;
+    }
+
+    if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.GUEST_PEDESTAL_RESERVED) {
+      this.audio.playSunkenWardChime();
       return;
     }
 
@@ -246,6 +273,17 @@ export class LobbySystem implements ISystem {
       return;
     }
 
+    if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.YENNEFER_DAIS) {
+      const store = useGameStore.getState();
+      if (!store.yenneferDefeated) return;
+      if (mode === FINISHER_MODES.BEAM && this.liveYenneferCharge <= 0) return;
+      store.setYenneferCoreCharge(this.liveYenneferCharge);
+      this.lastSyncedYenneferCharge = this.liveYenneferCharge;
+      this.setPromptIfChanged(null);
+      this.callbacks.onEnterLobbySiphon('yennefer', mode);
+      return;
+    }
+
     if (this.activePrompt.kind === LOBBY_PROMPT_KINDS.TROPHY_PEDESTAL) {
       const store = useGameStore.getState();
       if (
@@ -294,6 +332,8 @@ export class LobbySystem implements ISystem {
       this.lastSyncedSerenaCharge = store.serenaCoreCharge;
       this.liveMikuCharge = store.mikuCoreCharge;
       this.lastSyncedMikuCharge = store.mikuCoreCharge;
+      this.liveYenneferCharge = store.yenneferCoreCharge;
+      this.lastSyncedYenneferCharge = store.yenneferCoreCharge;
       this.mageTower.setTrophyVisible(
         store.marinaDefeated,
         store.encoreTier,
@@ -304,9 +344,13 @@ export class LobbySystem implements ISystem {
         store.marinaDefeated,
         store.serenaDefeated,
         store.mikuDefeated,
+        store.yenneferDefeated,
       );
       this.callbacks.onSyncGalleryUnlocked(
-        store.marinaDefeated || store.serenaDefeated || store.mikuDefeated,
+        store.marinaDefeated ||
+          store.serenaDefeated ||
+          store.mikuDefeated ||
+          store.yenneferDefeated,
       );
       this.mageTower.updateMarinaCaptiveState(
         this.liveMarinaCharge,
@@ -320,6 +364,11 @@ export class LobbySystem implements ISystem {
       );
       this.mageTower.updateMikuCaptiveState(
         this.liveMikuCharge,
+        elapsed,
+        dt,
+      );
+      this.mageTower.updateYenneferCaptiveState(
+        this.liveYenneferCharge,
         elapsed,
         dt,
       );
@@ -348,6 +397,13 @@ export class LobbySystem implements ISystem {
     if (Math.abs(store.mikuCoreCharge - this.lastSyncedMikuCharge) > 0.0005) {
       this.liveMikuCharge = store.mikuCoreCharge;
       this.lastSyncedMikuCharge = store.mikuCoreCharge;
+    }
+    if (
+      Math.abs(store.yenneferCoreCharge - this.lastSyncedYenneferCharge) >
+      0.0005
+    ) {
+      this.liveYenneferCharge = store.yenneferCoreCharge;
+      this.lastSyncedYenneferCharge = store.yenneferCoreCharge;
     }
 
     // Passive cryogenic core recharge while exploring the Sanctum after defeating Marina
@@ -407,6 +463,25 @@ export class LobbySystem implements ISystem {
       }
     }
 
+    // Passive chaos core recharge for Guest Pedestal 1 (Yennefer) while exploring the Sanctum
+    if (store.yenneferDefeated && this.liveYenneferCharge < 1.0) {
+      this.liveYenneferCharge = Math.min(
+        1.0,
+        this.liveYenneferCharge +
+          SPECIAL_SCENARIO_CONFIG.guestPedestalPassiveRechargePerSec * dt,
+      );
+      this.yenneferChargeSyncAccum += dt;
+      if (
+        this.yenneferChargeSyncAccum >=
+          SIPHON_GALLERY_CONFIG.chargeStoreSyncIntervalSec ||
+        this.liveYenneferCharge >= 1.0
+      ) {
+        this.yenneferChargeSyncAccum = 0;
+        this.lastSyncedYenneferCharge = this.liveYenneferCharge;
+        store.setYenneferCoreCharge(this.liveYenneferCharge);
+      }
+    }
+
     this.mageTower.setTrophyVisible(
       store.marinaDefeated,
       store.encoreTier,
@@ -417,9 +492,13 @@ export class LobbySystem implements ISystem {
       store.marinaDefeated,
       store.serenaDefeated,
       store.mikuDefeated,
+      store.yenneferDefeated,
     );
     this.callbacks.onSyncGalleryUnlocked(
-      store.marinaDefeated || store.serenaDefeated || store.mikuDefeated,
+      store.marinaDefeated ||
+        store.serenaDefeated ||
+        store.mikuDefeated ||
+        store.yenneferDefeated,
     );
     this.mageTower.updateMarinaCaptiveState(
       this.liveMarinaCharge,
@@ -433,6 +512,11 @@ export class LobbySystem implements ISystem {
     );
     this.mageTower.updateMikuCaptiveState(
       this.liveMikuCharge,
+      elapsed,
+      dt,
+    );
+    this.mageTower.updateYenneferCaptiveState(
+      this.liveYenneferCharge,
       elapsed,
       dt,
     );
@@ -504,8 +588,24 @@ export class LobbySystem implements ISystem {
       };
     }
 
+    const dRift = Math.hypot(
+      px - LOBBY_CONFIG.astralRiftPortalPos.x,
+      pz - LOBBY_CONFIG.astralRiftPortalPos.z,
+    );
+    if (dRift <= LOBBY_CONFIG.astralRiftInteractRadius && dRift < bestDist) {
+      bestDist = dRift;
+      bestPrompt = {
+        kind: LOBBY_PROMPT_KINDS.ASTRAL_RIFT,
+        title: '[E] ASTRAL RIFT — SPECIAL SCENARIOS',
+        subtitle: 'MULTI-BOSS ENCOUNTERS • THE WOLF & THE RAVEN',
+      };
+    }
+
     const anySovereignDefeated =
-      store.marinaDefeated || store.serenaDefeated || store.mikuDefeated;
+      store.marinaDefeated ||
+      store.serenaDefeated ||
+      store.mikuDefeated ||
+      store.yenneferDefeated;
     if (anySovereignDefeated) {
       const defeatedCount =
         (store.marinaDefeated ? 1 : 0) +
@@ -577,6 +677,42 @@ export class LobbySystem implements ISystem {
             subtitle: `HARMONIC CORE CHARGE: ${Math.round(this.liveMikuCharge * 100)}%`,
           };
         }
+      }
+
+      // East Guest Wing — Guest Pedestal 1 (Yennefer)
+      const dYen = Math.hypot(
+        px - SIPHON_GALLERY_CONFIG.guestPedestal1Pos.x,
+        pz - SIPHON_GALLERY_CONFIG.guestPedestal1Pos.z,
+      );
+      if (dYen <= SIPHON_GALLERY_CONFIG.interactRadius && dYen < bestDist) {
+        bestDist = dYen;
+        if (store.yenneferDefeated) {
+          bestPrompt = {
+            kind: LOBBY_PROMPT_KINDS.YENNEFER_DAIS,
+            title: '[E] SIPHON GUEST SOVEREIGN — YENNEFER',
+            subtitle: `CHAOS CORE CHARGE: ${Math.round(this.liveYenneferCharge * 100)}%`,
+          };
+        } else {
+          bestPrompt = {
+            kind: LOBBY_PROMPT_KINDS.GUEST_PEDESTAL_RESERVED,
+            title: 'GUEST PEDESTAL I — DORMANT',
+            subtitle: 'Complete "The Wolf & The Raven" at the West Astral Rift',
+          };
+        }
+      }
+
+      // East Guest Wing — Guest Pedestal 2 (Reserved Dormant Obsidian Pedestal)
+      const dGuest2 = Math.hypot(
+        px - SIPHON_GALLERY_CONFIG.guestPedestal2Pos.x,
+        pz - SIPHON_GALLERY_CONFIG.guestPedestal2Pos.z,
+      );
+      if (dGuest2 <= SIPHON_GALLERY_CONFIG.interactRadius && dGuest2 < bestDist) {
+        bestDist = dGuest2;
+        bestPrompt = {
+          kind: LOBBY_PROMPT_KINDS.GUEST_PEDESTAL_RESERVED,
+          title: 'GUEST PEDESTAL II — RESERVED',
+          subtitle: 'Runic Obsidian Pedestal awaiting a future Guest Sovereign',
+        };
       }
     } else {
       const dWard = Math.hypot(px, pz - SIPHON_GALLERY_CONFIG.southArchwayZ);

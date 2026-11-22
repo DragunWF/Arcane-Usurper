@@ -15,6 +15,7 @@ import {
   SERVANT_ARCHETYPES,
   SERVANT_CONFIG,
   SERENA_CONFIG,
+  SPECIAL_SCENARIO_CONFIG,
   STOLEN_KISS_CONFIG,
   SUNKEN_SERVANT_CONFIG,
   type GameState,
@@ -42,7 +43,7 @@ export interface ICombatCallbacks {
   onReticlePulse: () => void;
   onPlayerDamaged: () => void;
   onPlayerDefeated: () => void;
-  onBossDamaged: () => void;
+  onBossDamaged: (bossEntityId?: EntityId) => void;
   onServantHitFlash?: (entityId: EntityId) => void;
   onServantGuardBreak?: (entityId: EntityId) => void;
   onServantDefeated?: (entityId: EntityId) => void;
@@ -59,7 +60,7 @@ export interface ICombatCallbacks {
   getCameraForwardXZ?: (outVec: THREE.Vector3) => THREE.Vector3;
   onBossExposureChange?: (exposed: boolean) => void;
   onStolenKissAvailabilityChange?: (available: boolean) => void;
-  onTriggerStolenKiss?: () => void;
+  onTriggerStolenKiss?: (bossEntityId?: EntityId) => void;
 }
 
 /**
@@ -73,6 +74,7 @@ export class CombatSystem implements ISystem {
   private readonly vfx: IVfxSpawner;
   private readonly mageRig: DarkMageRig;
   private bossRig: BossRigAdapter;
+  private readonly bossRigs = new Map<EntityId, BossRigAdapter>();
   private readonly callbacks: ICombatCallbacks;
 
   // Reusable scratch vectors (zero per-frame GC churn)
@@ -83,6 +85,7 @@ export class CombatSystem implements ISystem {
   private readonly vBurstPos = new THREE.Vector3();
   private lastBossExposed = false;
   private lastStolenKissEligible = false;
+  private eligibleStolenKissBossId: EntityId | null = null;
 
   constructor(
     world: ECSWorld,
@@ -106,6 +109,21 @@ export class CombatSystem implements ISystem {
     this.bossRig = rig;
   }
 
+  public setBossRigs(rigs: ReadonlyMap<EntityId, BossRigAdapter>): void {
+    this.bossRigs.clear();
+    rigs.forEach((rig, id) => {
+      this.bossRigs.set(id, rig);
+    });
+  }
+
+  private getBossRigForEntity(entityId: EntityId): BossRigAdapter {
+    return this.bossRigs.get(entityId) ?? this.bossRig;
+  }
+
+  public getEligibleStolenKissBossId(): EntityId | null {
+    return this.eligibleStolenKissBossId;
+  }
+
   public update(dt: number, _elapsed: number): void {
     const state = this.callbacks.getGameState();
     const isCombatActive =
@@ -123,39 +141,57 @@ export class CombatSystem implements ISystem {
   }
 
   /**
-   * Evaluates 360° frontal guard-break ambush eligibility during BOSS_COMBAT whenever
-   * the Sovereign's recovery exposure window (`exposureTimer > 0`) is open:
-   * - Stage 1 (exposed, out of range): notifies HUD to display `SOVEREIGN EXPOSED — BLINK IN [SPACE]`
-   * - Stage 2 (exposed, within `maxTriggerDistance` from any angle): snaps HUD to `[E] STOLEN KISS`
-   *   and triggers the 3-beat frontal ambush immediately on `[E]` press.
+   * Evaluates 360° frontal guard-break ambush eligibility across dynamic N-Bosses during BOSS_COMBAT.
+   * Strictly enforces asymmetric siphon gating (`boss.bossPhase.canBeSiphoned === true`):
+   * non-siphonable bosses never open exposure windows and never trigger STOLEN_KISS.
    */
   private evaluateStolenKissBlindspot(state: GameState): void {
     let isExposed = false;
     let eligible = false;
+    let closestEligibleId: EntityId | null = null;
+    let closestEligibleDist = Infinity;
+
     const player = this.world.queryFirst(
       'playerTag',
       'transform',
       'playerIntent',
     );
-    const boss = this.world.queryFirst('bossPhase', 'transform', 'health');
+    const bosses = this.world.query('bossPhase', 'transform', 'health');
 
-    if (
-      state === GAME_STATES.BOSS_COMBAT &&
-      player &&
-      boss &&
-      !boss.bossPhase.isStaggered &&
-      boss.health.current > STOLEN_KISS_CONFIG.minRemainingBossHp &&
-      this.bossRig.exposureTimer > 0
-    ) {
-      isExposed = true;
-      const dx = player.transform.position.x - boss.transform.position.x;
-      const dz = player.transform.position.z - boss.transform.position.z;
-      const dist = Math.hypot(dx, dz);
+    if (state === GAME_STATES.BOSS_COMBAT && player) {
+      for (let i = 0; i < bosses.length; i++) {
+        const boss = bosses[i];
+        if (!boss) continue;
+        const bp = boss.bossPhase;
+        if (
+          !bp.canBeSiphoned ||
+          bp.isStaggered ||
+          bp.isDefeated ||
+          bp.dissolveTimer >= 0 ||
+          boss.health.current <= STOLEN_KISS_CONFIG.minRemainingBossHp
+        ) {
+          continue;
+        }
+        const rig = this.getBossRigForEntity(boss.id);
+        if (rig.exposureTimer <= 0) continue;
 
-      if (dist <= STOLEN_KISS_CONFIG.maxTriggerDistance) {
-        eligible = true;
+        isExposed = true;
+        const dx = player.transform.position.x - boss.transform.position.x;
+        const dz = player.transform.position.z - boss.transform.position.z;
+        const dist = Math.hypot(dx, dz);
+
+        if (
+          dist <= STOLEN_KISS_CONFIG.maxTriggerDistance &&
+          dist < closestEligibleDist
+        ) {
+          eligible = true;
+          closestEligibleDist = dist;
+          closestEligibleId = boss.id;
+        }
       }
     }
+
+    this.eligibleStolenKissBossId = closestEligibleId;
 
     if (isExposed !== this.lastBossExposed) {
       this.lastBossExposed = isExposed;
@@ -167,12 +203,12 @@ export class CombatSystem implements ISystem {
       this.callbacks.onStolenKissAvailabilityChange?.(eligible);
     }
 
-    if (eligible && player?.playerIntent.stolenKissRequested) {
+    if (eligible && closestEligibleId !== null && player?.playerIntent.stolenKissRequested) {
       this.lastBossExposed = false;
       this.lastStolenKissEligible = false;
       this.callbacks.onBossExposureChange?.(false);
       this.callbacks.onStolenKissAvailabilityChange?.(false);
-      this.callbacks.onTriggerStolenKiss?.();
+      this.callbacks.onTriggerStolenKiss?.(closestEligibleId);
     }
   }
 
@@ -193,21 +229,36 @@ export class CombatSystem implements ISystem {
       playerCombat.boltCooldown = PLAYER_CONFIG.boltCooldown;
       playerCombat.aimFaceTimer = PLAYER_CONFIG.aimFaceDuration;
 
-      const boss =
-        state === GAME_STATES.BOSS_COMBAT
-          ? this.world.queryFirst('bossPhase', 'transform')
-          : undefined;
-      if (boss) {
-        this.vBossPos.set(
-          boss.transform.position.x,
-          boss.transform.position.y,
-          boss.transform.position.z,
-        );
+      let closestBossPos: { x: number; y: number; z: number } | null = null;
+      if (state === GAME_STATES.BOSS_COMBAT) {
+        const activeBosses = this.world.query('bossPhase', 'transform');
+        let bestDistSq = Infinity;
+        for (let i = 0; i < activeBosses.length; i++) {
+          const b = activeBosses[i];
+          if (
+            !b ||
+            b.bossPhase.isDefeated ||
+            b.bossPhase.dissolveTimer >= 0 ||
+            b.bossPhase.isStaggered
+          ) {
+            continue;
+          }
+          const ddx = b.transform.position.x - transform.position.x;
+          const ddz = b.transform.position.z - transform.position.z;
+          const dSq = ddx * ddx + ddz * ddz;
+          if (dSq < bestDistSq) {
+            bestDistSq = dSq;
+            closestBossPos = b.transform.position;
+          }
+        }
+      }
+      if (closestBossPos) {
+        this.vBossPos.set(closestBossPos.x, closestBossPos.y, closestBossPos.z);
       }
 
       this.callbacks.getReticleTargetPoint(
         this.vAimTarget,
-        boss ? this.vBossPos : null,
+        closestBossPos ? this.vBossPos : null,
       );
 
       const dx = this.vAimTarget.x - transform.position.x;
@@ -337,21 +388,30 @@ export class CombatSystem implements ISystem {
         PLAYER_CONFIG.umbralPulseRadius,
       );
 
-      // Bidirectional Hit Check: Umbral Pulse damages boss on Summit, or servants & Frost Urns in Chambers
+      // Bidirectional Hit Check: Umbral Pulse damages all active bosses on Summit, or servants & Frost Urns in Chambers
       if (state === GAME_STATES.BOSS_COMBAT) {
-        const boss = this.world.queryFirst(
+        const activeBosses = this.world.query(
           'bossPhase',
           'transform',
           'hurtbox',
           'health',
         );
-        if (boss && !boss.bossPhase.isStaggered) {
+        for (let i = 0; i < activeBosses.length; i++) {
+          const boss = activeBosses[i];
+          if (
+            !boss ||
+            boss.bossPhase.isStaggered ||
+            boss.bossPhase.isDefeated ||
+            boss.bossPhase.dissolveTimer >= 0
+          ) {
+            continue;
+          }
           const dist = Math.hypot(
             transform.position.x - boss.transform.position.x,
             transform.position.z - boss.transform.position.z,
           );
           if (dist <= PLAYER_CONFIG.umbralPulseRadius + boss.hurtbox.radius) {
-            this.damageBoss(BOSS_CONFIG.pulseDamage, null);
+            this.damageBoss(boss, BOSS_CONFIG.pulseDamage, null);
           }
         }
 
@@ -403,7 +463,7 @@ export class CombatSystem implements ISystem {
   private resolveProjectileCollisions(dt: number, state: GameState): void {
     const projectiles = this.world.query('projectile', 'transform');
     const player = this.world.queryFirst('playerTag', 'transform', 'health');
-    const boss = this.world.queryFirst(
+    const activeBosses = this.world.query(
       'bossPhase',
       'transform',
       'hurtbox',
@@ -430,33 +490,41 @@ export class CombatSystem implements ISystem {
           this.vfx.spawnTrailSpark(this.vBurstPos);
         }
 
-        // Hit Boss cylindrical hurtbox (Summit BOSS_COMBAT only)
-        if (
-          state === GAME_STATES.BOSS_COMBAT &&
-          boss &&
-          !boss.bossPhase.isStaggered &&
-          !projectile.hitEntityIds.includes(boss.id)
-        ) {
-          const bPos = boss.transform.position;
-          const extraY = boss.bossPhase.ascendHeight;
-          const minY = BOSS_CONFIG.hitMinY + extraY * 0.5;
-          const maxY =
-            BOSS_CONFIG.hitHeight +
-            BOSS_CONFIG.floatHeight +
-            extraY +
-            BOSS_CONFIG.hitMaxYPad;
-          const r = boss.hurtbox.radius + projectile.radius;
-          const dx = p.x - bPos.x;
-          const dz = p.z - bPos.z;
+        // Hit Dynamic N-Boss cylindrical hurtboxes (Summit / Special Scenario BOSS_COMBAT)
+        if (state === GAME_STATES.BOSS_COMBAT) {
+          for (let bIdx = 0; bIdx < activeBosses.length; bIdx++) {
+            const boss = activeBosses[bIdx];
+            if (
+              !boss ||
+              boss.bossPhase.isStaggered ||
+              boss.bossPhase.isDefeated ||
+              boss.bossPhase.dissolveTimer >= 0 ||
+              projectile.hitEntityIds.includes(boss.id)
+            ) {
+              continue;
+            }
+            const bPos = boss.transform.position;
+            const extraY = boss.bossPhase.ascendHeight;
+            const minY = BOSS_CONFIG.hitMinY + extraY * 0.5;
+            const maxY =
+              BOSS_CONFIG.hitHeight +
+              BOSS_CONFIG.floatHeight +
+              extraY +
+              BOSS_CONFIG.hitMaxYPad;
+            const r = boss.hurtbox.radius + projectile.radius;
+            const dx = p.x - bPos.x;
+            const dz = p.z - bPos.z;
 
-          if (p.y >= minY && p.y <= maxY && dx * dx + dz * dz <= r * r) {
-            projectile.hitEntityIds.push(boss.id);
-            this.vBurstPos.set(p.x, p.y, p.z);
-            this.damageBoss(projectile.damage, this.vBurstPos);
-            if (projectile.pierceRemaining > 0) {
-              projectile.pierceRemaining--;
-            } else {
-              hit = true;
+            if (p.y >= minY && p.y <= maxY && dx * dx + dz * dz <= r * r) {
+              projectile.hitEntityIds.push(boss.id);
+              this.vBurstPos.set(p.x, p.y, p.z);
+              this.damageBoss(boss, projectile.damage, this.vBurstPos);
+              if (projectile.pierceRemaining > 0) {
+                projectile.pierceRemaining--;
+              } else {
+                hit = true;
+                break;
+              }
             }
           }
         }
@@ -1382,26 +1450,58 @@ export class CombatSystem implements ISystem {
     this.damagePlayer(amount, this.callbacks.getGameState());
   }
 
-  private damageBoss(amount: number, hitPoint: THREE.Vector3 | null): void {
-    const boss = this.world.queryFirst('bossPhase', 'health', 'transform');
-    if (!boss || boss.bossPhase.isStaggered) return;
+  private damageBoss(
+    boss: {
+      readonly id: EntityId;
+      bossPhase: {
+        isStaggered: boolean;
+        canBeSiphoned: boolean;
+        isDefeated: boolean;
+        dissolveTimer: number;
+        staggerThreshold: number;
+        ascendHeight: number;
+        activePatternId: string | null;
+      };
+      health: { current: number; max: number };
+      transform: { position: { x: number; y: number; z: number } };
+    },
+    amount: number,
+    hitPoint: THREE.Vector3 | null,
+  ): void {
+    const bp = boss.bossPhase;
+    if (bp.isStaggered || bp.isDefeated || bp.dissolveTimer >= 0) return;
 
-    const staggerFloor = Math.floor(
-      boss.health.max * BOSS_CONFIG.staggerThreshold,
-    );
+    const staggerFloor = bp.canBeSiphoned
+      ? Math.floor(boss.health.max * bp.staggerThreshold)
+      : 0;
     boss.health.current = Math.max(staggerFloor, boss.health.current - amount);
-    this.bossRig.triggerHitFlash();
+
+    const rig = this.getBossRigForEntity(boss.id);
+    rig.triggerHitFlash();
 
     const burstPos = hitPoint
       ? hitPoint.clone()
       : new THREE.Vector3(
           boss.transform.position.x,
-          1.3 + boss.bossPhase.ascendHeight,
+          1.3 + bp.ascendHeight,
           boss.transform.position.z,
         );
     this.vfx.spawnFrostShatterBurst(burstPos, 10, 6.2);
     this.audio.playIceShatter(0.5);
-    this.callbacks.onBossDamaged();
+
+    // Non-siphonable boss reaching 0 HP immediately enters lethal stagger-collapse & 1.6s ash/ember dissolution
+    if (!bp.canBeSiphoned && boss.health.current <= 0) {
+      bp.dissolveTimer = 0;
+      bp.activePatternId = null;
+      bp.ascendHeight = 0;
+      rig.setAscendHeight(0);
+      this.vfx.spawnImpactBurst(burstPos, 24);
+      this.vfx.spawnFrostShatterBurst(burstPos, 18, 8.8);
+      this.audio.playIceShatter(0.95);
+      this.callbacks.addCameraShake(SPECIAL_SCENARIO_CONFIG.disperseCameraShake * 0.7);
+    }
+
+    this.callbacks.onBossDamaged(boss.id);
   }
 
   private damagePlayer(amount: number, state: GameState): void {

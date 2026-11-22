@@ -10,6 +10,7 @@ import {
   NG_PLUS_CONFIG,
   PLAYER_CONFIG,
   SIPHON_BEAM_CONFIG,
+  SPECIAL_SCENARIO_CONFIG,
   STOLEN_KISS_CONFIG,
   type FinisherMode,
   type GameState,
@@ -21,6 +22,7 @@ import {
 import type { IAudioTrigger } from '../../engine/SoundEngine';
 import type { IVfxSpawner } from '../../engine/VfxFactory';
 import type { DarkMageRig } from '../../rigs/DarkMageRig';
+import type { EntityId } from '../components';
 import type { ECSWorld, ISystem } from '../World';
 
 export interface IMovementCallbacks {
@@ -29,8 +31,11 @@ export interface IMovementCallbacks {
   addCameraShake: (amount: number) => void;
   exitPointerLock: () => void;
   onStaggerProximityChange: (inRange: boolean) => void;
-  onFinisherApproachComplete: (mode: FinisherMode) => void;
-  isBossBlindspotExposed?: () => boolean;
+  onFinisherApproachComplete: (
+    mode: FinisherMode,
+    targetBossEntityId?: EntityId,
+  ) => void;
+  isBossBlindspotExposed?: (bossEntityId?: EntityId) => boolean;
 }
 
 interface FinisherApproachState {
@@ -42,6 +47,7 @@ interface FinisherApproachState {
   duration: number;
   afterimageTimer: number;
   mode: FinisherMode;
+  targetBossEntityId: EntityId;
 }
 
 /**
@@ -191,9 +197,49 @@ export class MovementSystem implements ISystem {
         playerCombat.dashDirX = this.vMove.x;
         playerCombat.dashDirZ = this.vMove.z;
       } else {
-        this.callbacks.getCameraForwardXZ(this.vForward);
-        playerCombat.dashDirX = this.vForward.x;
-        playerCombat.dashDirZ = this.vForward.z;
+        // Space-Blink targeting: if a siphonable boss is exposed in BOSS_COMBAT, dash directly toward her
+        let aimedExposed = false;
+        if (state === GAME_STATES.BOSS_COMBAT) {
+          const bosses = this.world.query('bossPhase', 'transform');
+          let bestDist = Infinity;
+          let targetBx = 0;
+          let targetBz = 0;
+          for (let i = 0; i < bosses.length; i++) {
+            const b = bosses[i];
+            if (
+              !b ||
+              !b.bossPhase.canBeSiphoned ||
+              b.bossPhase.isDefeated ||
+              b.bossPhase.isStaggered
+            ) {
+              continue;
+            }
+            if (this.callbacks.isBossBlindspotExposed?.(b.id)) {
+              const d = Math.hypot(
+                b.transform.position.x - transform.position.x,
+                b.transform.position.z - transform.position.z,
+              );
+              if (d > 0.35 && d < bestDist) {
+                bestDist = d;
+                targetBx = b.transform.position.x;
+                targetBz = b.transform.position.z;
+                aimedExposed = true;
+              }
+            }
+          }
+          if (aimedExposed) {
+            const dx = targetBx - transform.position.x;
+            const dz = targetBz - transform.position.z;
+            const len = Math.hypot(dx, dz) || 1;
+            playerCombat.dashDirX = dx / len;
+            playerCombat.dashDirZ = dz / len;
+          }
+        }
+        if (!aimedExposed) {
+          this.callbacks.getCameraForwardXZ(this.vForward);
+          playerCombat.dashDirX = this.vForward.x;
+          playerCombat.dashDirZ = this.vForward.z;
+        }
       }
 
       transform.rotationY = Math.atan2(
@@ -274,13 +320,21 @@ export class MovementSystem implements ISystem {
       }
     }
 
-    // Soft body separation from Boss (summit combat & stagger only)
+    // Soft body separation from all living Bosses (summit combat & stagger only)
     if (
       state !== GAME_STATES.CHAMBER_COMBAT &&
       state !== GAME_STATES.LOBBY
     ) {
-      const boss = this.world.queryFirst('bossPhase', 'transform', 'hurtbox');
-      if (boss) {
+      const bosses = this.world.query('bossPhase', 'transform', 'hurtbox');
+      for (let i = 0; i < bosses.length; i++) {
+        const boss = bosses[i];
+        if (
+          !boss ||
+          boss.bossPhase.isDefeated ||
+          boss.bossPhase.dissolveTimer >= 0
+        ) {
+          continue;
+        }
         const bx = boss.transform.position.x;
         const bz = boss.transform.position.z;
         const dx = pos.x - bx;
@@ -384,12 +438,22 @@ export class MovementSystem implements ISystem {
       'transform',
       'playerIntent',
     );
-    const boss = this.world.queryFirst(
-      'bossPhase',
-      'siphonableBoss',
-      'transform',
+    const bosses = this.world.query('bossPhase', 'siphonableBoss', 'transform');
+    if (!player || bosses.length === 0) return;
+
+    // Pick the closest staggered siphonable boss
+    let boss = bosses.find(
+      (b) =>
+        b.bossPhase.canBeSiphoned &&
+        b.bossPhase.isStaggered &&
+        !b.bossPhase.isDefeated,
     );
-    if (!player || !boss) return;
+    if (!boss) {
+      boss = bosses.find(
+        (b) => b.bossPhase.canBeSiphoned && !b.bossPhase.isDefeated,
+      );
+    }
+    if (!boss) return;
 
     const pPos = player.transform.position;
     const bPos = boss.transform.position;
@@ -434,6 +498,7 @@ export class MovementSystem implements ISystem {
         duration: FINISHER_CONFIG.approachDashDuration,
         afterimageTimer: 0.05,
         mode,
+        targetBossEntityId: boss.id,
       };
     }
   }
@@ -441,8 +506,10 @@ export class MovementSystem implements ISystem {
   private updateFinisherApproach(dt: number): void {
     const fd = this.finisherApproach;
     const player = this.world.queryFirst('playerTag', 'transform');
-    const boss = this.world.queryFirst('bossPhase', 'transform');
-    if (!fd || !player || !boss) {
+    const boss = fd
+      ? this.world.getEntity(fd.targetBossEntityId)
+      : this.world.queryFirst('bossPhase', 'transform');
+    if (!fd || !player || !boss || !boss.transform) {
       this.finisherApproach = null;
       return;
     }
@@ -483,90 +550,16 @@ export class MovementSystem implements ISystem {
         player.transform.position.x - boss.transform.position.x,
         player.transform.position.z - boss.transform.position.z,
       );
-      this.callbacks.onFinisherApproachComplete(fd.mode);
+      this.callbacks.onFinisherApproachComplete(fd.mode, fd.targetBossEntityId);
     }
   }
 
   private updateBossMovement(dt: number, state: GameState): void {
-    const boss = this.world.queryFirst('bossPhase', 'transform');
+    const bosses = this.world.query('bossPhase', 'transform');
     const player = this.world.queryFirst('playerTag', 'transform');
-    if (!boss || !player) return;
+    if (bosses.length === 0 || !player) return;
 
-    const { bossPhase, transform } = boss;
-    const bossPos = transform.position;
     const playerPos = player.transform.position;
-
-    // Smoothly face Dark Mage unless locked in Twin Glacial Laser or Miku Crescendo Spotlights
-    const lockRotation =
-      bossPhase.activePatternId === 'TWIN_GLACIAL_LASER' ||
-      bossPhase.activePatternId === 'MIKU_CRESCENDO_OVERDRIVE';
-    if (!lockRotation) {
-      const dx = playerPos.x - bossPos.x;
-      const dz = playerPos.z - bossPos.z;
-      if (dx * dx + dz * dz > 0.04) {
-        const targetYaw = Math.atan2(dx, dz);
-        let diff = targetYaw - transform.rotationY;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        const baseTurnSpeed = bossPhase.isStaggered
-          ? BOSS_CONFIG.turnSpeedStagger
-          : BOSS_CONFIG.turnSpeedCombat;
-        const turnSpeed =
-          !bossPhase.isStaggered && this.callbacks.isBossBlindspotExposed?.()
-            ? baseTurnSpeed * STOLEN_KISS_CONFIG.exposedBossTurnScale
-            : baseTurnSpeed;
-        transform.rotationY += diff * Math.min(1, dt * turnSpeed);
-      }
-    }
-
-    if (state === GAME_STATES.STAGGER) {
-      const lerpFactor = Math.min(1, dt * BOSS_CONFIG.staggerCenterLerp);
-      bossPos.x += (0 - bossPos.x) * lerpFactor;
-      bossPos.z += (0 - bossPos.z) * lerpFactor;
-      return;
-    }
-
-    if (state !== GAME_STATES.BOSS_COMBAT || bossPhase.isStaggered) return;
-
-    // Sideways dash burst impulse (Phase 2 Frost Clone Illusions)
-    if (bossPhase.dashTimer > 0) {
-      bossPhase.dashTimer = Math.max(0, bossPhase.dashTimer - dt);
-      bossPos.x += bossPhase.dashVelX * dt;
-      bossPos.z += bossPhase.dashVelZ * dt;
-      const radial = Math.hypot(bossPos.x, bossPos.z);
-      if (radial > BOSS_CONFIG.innerTerraceLimit) {
-        bossPos.x = (bossPos.x / radial) * BOSS_CONFIG.innerTerraceLimit;
-        bossPos.z = (bossPos.z / radial) * BOSS_CONFIG.innerTerraceLimit;
-      }
-      return;
-    }
-
-    // Hold steady gracefully during sweeping beam or curtain patterns
-    if (
-      bossPhase.activePatternId === 'TWIN_GLACIAL_LASER' ||
-      bossPhase.activePatternId === 'SNOWFLAKE_CURTAIN' ||
-      bossPhase.activePatternId === 'MIKU_CRESCENDO_OVERDRIVE'
-    ) {
-      return;
-    }
-
-    bossPhase.orbitSwitchTimer -= dt;
-    if (bossPhase.orbitSwitchTimer <= 0) {
-      const base =
-        bossPhase.phase >= BOSS_PHASES.PHASE_2
-          ? BOSS_CONFIG.phase2.orbitSwitchBase
-          : BOSS_CONFIG.phase1.orbitSwitchBase;
-      bossPhase.orbitSwitchTimer =
-        base + Math.random() * BOSS_CONFIG.phase1.orbitSwitchJitter;
-      bossPhase.orbitDir = bossPhase.orbitDir === 1 ? -1 : 1;
-    }
-
-    const speedMult =
-      bossPhase.phase === BOSS_PHASES.PHASE_3
-        ? BOSS_CONFIG.phase3.moveSpeedMultiplier
-        : bossPhase.phase === BOSS_PHASES.PHASE_2
-          ? BOSS_CONFIG.phase2.moveSpeedMultiplier
-          : 1.0;
     const playerCombat = this.world.queryFirst('playerTag', 'playerCombat')
       ?.playerCombat;
     const encoreTier = playerCombat ? playerCombat.encoreTier : 0;
@@ -574,39 +567,156 @@ export class MovementSystem implements ISystem {
       NG_PLUS_CONFIG.bossSpeedMultiplierPerTier,
       encoreTier,
     );
-    const effectiveSpeed = BOSS_CONFIG.moveSpeed * speedMult * encoreSpeedMult;
 
-    const angularRate =
-      (effectiveSpeed / BOSS_CONFIG.orbitRadius) *
-      BOSS_CONFIG.orbitAngularFactor;
-    bossPhase.orbitAngle += bossPhase.orbitDir * angularRate * dt;
+    for (let i = 0; i < bosses.length; i++) {
+      const boss = bosses[i];
+      if (!boss) continue;
+      const { bossPhase, transform } = boss;
+      if (bossPhase.isDefeated || bossPhase.dissolveTimer >= 0) continue;
 
-    const desiredX = Math.sin(bossPhase.orbitAngle) * BOSS_CONFIG.orbitRadius;
-    const desiredZ = Math.cos(bossPhase.orbitAngle) * BOSS_CONFIG.orbitRadius;
+      const bossPos = transform.position;
 
-    const toBossX = bossPos.x - playerPos.x;
-    const toBossZ = bossPos.z - playerPos.z;
-    const distToPlayer = Math.hypot(toBossX, toBossZ) || 1;
-    let pushX = 0;
-    let pushZ = 0;
-    if (distToPlayer < BOSS_CONFIG.personalSpaceRadius) {
-      pushX = (toBossX / distToPlayer) * BOSS_CONFIG.personalSpacePush;
-      pushZ = (toBossZ / distToPlayer) * BOSS_CONFIG.personalSpacePush;
+      // Smoothly face Dark Mage unless locked in Twin Glacial Laser or Miku Crescendo Spotlights
+      const lockRotation =
+        bossPhase.activePatternId === 'TWIN_GLACIAL_LASER' ||
+        bossPhase.activePatternId === 'MIKU_CRESCENDO_OVERDRIVE' ||
+        bossPhase.activePatternId === 'YENNEFER_OBSIDIAN_LASERS';
+      if (!lockRotation) {
+        const dx = playerPos.x - bossPos.x;
+        const dz = playerPos.z - bossPos.z;
+        if (dx * dx + dz * dz > 0.04) {
+          const targetYaw = Math.atan2(dx, dz);
+          let diff = targetYaw - transform.rotationY;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          const baseTurnSpeed = bossPhase.isStaggered
+            ? BOSS_CONFIG.turnSpeedStagger
+            : BOSS_CONFIG.turnSpeedCombat;
+          const turnSpeed =
+            !bossPhase.isStaggered &&
+            bossPhase.canBeSiphoned &&
+            this.callbacks.isBossBlindspotExposed?.(boss.id)
+              ? baseTurnSpeed * STOLEN_KISS_CONFIG.exposedBossTurnScale
+              : baseTurnSpeed;
+          transform.rotationY += diff * Math.min(1, dt * turnSpeed);
+        }
+      }
+
+      if (state === GAME_STATES.STAGGER && bossPhase.isStaggered) {
+        const lerpFactor = Math.min(1, dt * BOSS_CONFIG.staggerCenterLerp);
+        bossPos.x += (0 - bossPos.x) * lerpFactor;
+        bossPos.z += (0 - bossPos.z) * lerpFactor;
+        continue;
+      }
+
+      if (state !== GAME_STATES.BOSS_COMBAT || bossPhase.isStaggered) continue;
+
+      // Sideways / lunge dash burst impulse
+      if (bossPhase.dashTimer > 0) {
+        bossPhase.dashTimer = Math.max(0, bossPhase.dashTimer - dt);
+        bossPos.x += bossPhase.dashVelX * dt;
+        bossPos.z += bossPhase.dashVelZ * dt;
+        const radial = Math.hypot(bossPos.x, bossPos.z);
+        if (radial > BOSS_CONFIG.innerTerraceLimit) {
+          bossPos.x = (bossPos.x / radial) * BOSS_CONFIG.innerTerraceLimit;
+          bossPos.z = (bossPos.z / radial) * BOSS_CONFIG.innerTerraceLimit;
+        }
+        continue;
+      }
+
+      // Hold steady gracefully during sweeping beam or curtain patterns
+      if (
+        bossPhase.activePatternId === 'TWIN_GLACIAL_LASER' ||
+        bossPhase.activePatternId === 'SNOWFLAKE_CURTAIN' ||
+        bossPhase.activePatternId === 'MIKU_CRESCENDO_OVERDRIVE' ||
+        bossPhase.activePatternId === 'YENNEFER_OBSIDIAN_LASERS'
+      ) {
+        continue;
+      }
+
+      bossPhase.orbitSwitchTimer -= dt;
+      if (bossPhase.orbitSwitchTimer <= 0) {
+        const base =
+          bossPhase.phase >= BOSS_PHASES.PHASE_2
+            ? BOSS_CONFIG.phase2.orbitSwitchBase
+            : BOSS_CONFIG.phase1.orbitSwitchBase;
+        bossPhase.orbitSwitchTimer =
+          base + Math.random() * BOSS_CONFIG.phase1.orbitSwitchJitter;
+        bossPhase.orbitDir = bossPhase.orbitDir === 1 ? -1 : 1;
+      }
+
+      const speedMult =
+        bossPhase.phase === BOSS_PHASES.PHASE_3
+          ? BOSS_CONFIG.phase3.moveSpeedMultiplier
+          : bossPhase.phase === BOSS_PHASES.PHASE_2
+            ? BOSS_CONFIG.phase2.moveSpeedMultiplier
+            : 1.0;
+      const effectiveSpeed = BOSS_CONFIG.moveSpeed * speedMult * encoreSpeedMult;
+
+      // Aggressive melee bosses (non-siphonable Witcher) orbit tighter around the player
+      const orbitR = !bossPhase.canBeSiphoned
+        ? BOSS_CONFIG.orbitRadius * 0.62
+        : BOSS_CONFIG.orbitRadius;
+      const angularRate =
+        (effectiveSpeed / orbitR) * BOSS_CONFIG.orbitAngularFactor;
+      bossPhase.orbitAngle += bossPhase.orbitDir * angularRate * dt;
+
+      const desiredX = Math.sin(bossPhase.orbitAngle) * orbitR;
+      const desiredZ = Math.cos(bossPhase.orbitAngle) * orbitR;
+
+      const toBossX = bossPos.x - playerPos.x;
+      const toBossZ = bossPos.z - playerPos.z;
+      const distToPlayer = Math.hypot(toBossX, toBossZ) || 1;
+      let pushX = 0;
+      let pushZ = 0;
+      const personalSpace = !bossPhase.canBeSiphoned
+        ? BOSS_CONFIG.personalSpaceRadius * 0.52
+        : BOSS_CONFIG.personalSpaceRadius;
+      if (distToPlayer < personalSpace) {
+        pushX = (toBossX / distToPlayer) * BOSS_CONFIG.personalSpacePush;
+        pushZ = (toBossZ / distToPlayer) * BOSS_CONFIG.personalSpacePush;
+      }
+
+      const stepX = desiredX + pushX - bossPos.x;
+      const stepZ = desiredZ + pushZ - bossPos.z;
+      const stepLen = Math.hypot(stepX, stepZ);
+      if (stepLen > 0.05) {
+        const moveDist = Math.min(stepLen, effectiveSpeed * dt);
+        bossPos.x += (stepX / stepLen) * moveDist;
+        bossPos.z += (stepZ / stepLen) * moveDist;
+      }
+
+      const radial = Math.hypot(bossPos.x, bossPos.z);
+      if (radial > BOSS_CONFIG.innerTerraceLimit) {
+        bossPos.x = (bossPos.x / radial) * BOSS_CONFIG.innerTerraceLimit;
+        bossPos.z = (bossPos.z / radial) * BOSS_CONFIG.innerTerraceLimit;
+      }
     }
 
-    const stepX = desiredX + pushX - bossPos.x;
-    const stepZ = desiredZ + pushZ - bossPos.z;
-    const stepLen = Math.hypot(stepX, stepZ);
-    if (stepLen > 0.05) {
-      const moveDist = Math.min(stepLen, effectiveSpeed * dt);
-      bossPos.x += (stepX / stepLen) * moveDist;
-      bossPos.z += (stepZ / stepLen) * moveDist;
-    }
-
-    const radial = Math.hypot(bossPos.x, bossPos.z);
-    if (radial > BOSS_CONFIG.innerTerraceLimit) {
-      bossPos.x = (bossPos.x / radial) * BOSS_CONFIG.innerTerraceLimit;
-      bossPos.z = (bossPos.z / radial) * BOSS_CONFIG.innerTerraceLimit;
+    // Soft Boss-to-Boss separation for multi-boss encounters (2 to 4+ simultaneous bosses)
+    if (bosses.length > 1) {
+      const minSep = SPECIAL_SCENARIO_CONFIG.bossToBossMinSeparation;
+      for (let i = 0; i < bosses.length; i++) {
+        const a = bosses[i];
+        if (!a || a.bossPhase.isDefeated || a.bossPhase.dissolveTimer >= 0) continue;
+        for (let j = i + 1; j < bosses.length; j++) {
+          const b = bosses[j];
+          if (!b || b.bossPhase.isDefeated || b.bossPhase.dissolveTimer >= 0) continue;
+          const dx = a.transform.position.x - b.transform.position.x;
+          const dz = a.transform.position.z - b.transform.position.z;
+          const dSq = dx * dx + dz * dz;
+          if (dSq < minSep * minSep && dSq > 0.0001) {
+            const d = Math.sqrt(dSq);
+            const push = (minSep - d) * 0.5;
+            const nx = dx / d;
+            const nz = dz / d;
+            a.transform.position.x += nx * push;
+            a.transform.position.z += nz * push;
+            b.transform.position.x -= nx * push;
+            b.transform.position.z -= nz * push;
+          }
+        }
+      }
     }
   }
 

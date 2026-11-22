@@ -19,6 +19,7 @@ import {
   REALM_IDS,
   SERENA_CONFIG,
   SIPHON_GALLERY_CONFIG,
+  SPECIAL_SCENARIO_CONFIG,
   type AudioMode,
   type BossExpression,
   type BossPhase,
@@ -217,6 +218,84 @@ function persistMikuCoreCharge(charge: number): void {
   }
 }
 
+function readInitialYenneferDefeated(): boolean {
+  try {
+    return (
+      typeof window !== 'undefined' &&
+      window.localStorage.getItem(
+        SPECIAL_SCENARIO_CONFIG.yenneferDefeatedStorageKey,
+      ) === 'true'
+    );
+  } catch {
+    return false;
+  }
+}
+
+function persistYenneferDefeated(defeated: boolean): void {
+  try {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(
+        SPECIAL_SCENARIO_CONFIG.yenneferDefeatedStorageKey,
+        defeated ? 'true' : 'false',
+      );
+    }
+  } catch {
+    // Ignore storage quota / sandboxed iframe restrictions
+  }
+}
+
+function readInitialYenneferCoreCharge(): number {
+  try {
+    if (typeof window === 'undefined') {
+      return SPECIAL_SCENARIO_CONFIG.guestPedestalDefaultCoreCharge;
+    }
+    const raw = window.localStorage.getItem(
+      SPECIAL_SCENARIO_CONFIG.yenneferCoreChargeStorageKey,
+    );
+    if (raw === null) {
+      return SPECIAL_SCENARIO_CONFIG.guestPedestalDefaultCoreCharge;
+    }
+    const parsed = Number.parseFloat(raw);
+    if (!Number.isFinite(parsed)) {
+      return SPECIAL_SCENARIO_CONFIG.guestPedestalDefaultCoreCharge;
+    }
+    return Math.max(0, Math.min(1, parsed));
+  } catch {
+    return SPECIAL_SCENARIO_CONFIG.guestPedestalDefaultCoreCharge;
+  }
+}
+
+function persistYenneferCoreCharge(charge: number): void {
+  try {
+    if (typeof window !== 'undefined') {
+      const clamped = Math.max(0, Math.min(1, charge));
+      window.localStorage.setItem(
+        SPECIAL_SCENARIO_CONFIG.yenneferCoreChargeStorageKey,
+        clamped.toFixed(4),
+      );
+    }
+  } catch {
+    // Ignore storage quota / sandboxed iframe restrictions
+  }
+}
+
+export type LobbySiphonTargetId = 'marina' | 'serena' | 'miku' | 'yennefer';
+
+export interface ActiveBossHudEntry {
+  readonly entityId: number;
+  readonly bossId: string;
+  readonly displayName: string;
+  readonly title: string;
+  readonly hp: number;
+  readonly maxHp: number;
+  readonly phase: BossPhase;
+  readonly canBeSiphoned: boolean;
+  readonly isStaggered: boolean;
+  readonly isDissolving: boolean;
+  readonly isDefeated: boolean;
+  readonly barAccentHex: string;
+}
+
 /**
  * Throttled telemetry snapshot written by the 60 FPS ECS simulation (~15–20 Hz)
  * to keep React HUD re-renders lightweight and batched.
@@ -230,6 +309,7 @@ export interface CombatHudSnapshot {
   pulseCooldown?: number;
   bossHp?: number;
   bossMaxHp?: number;
+  activeBosses?: readonly ActiveBossHudEntry[];
   siphonProgress?: number;
   tauntDizzyTimer?: number;
   canExecuteFinisher?: boolean;
@@ -260,9 +340,16 @@ export interface GameStoreState {
   serenaCoreCharge: number;
   mikuDefeated: boolean;
   mikuCoreCharge: number;
-  lobbySiphonTarget: 'marina' | 'serena' | 'miku';
+  yenneferDefeated: boolean;
+  yenneferCoreCharge: number;
+  lobbySiphonTarget: LobbySiphonTargetId;
   lobbyPrompt: LobbyPromptState | null;
   lobbyDummyHit: LobbyDummyHitState | null;
+
+  // Special Scenarios & Dynamic N-Boss Telemetry
+  activeScenarioId: string | null;
+  isScenarioSelectorOpen: boolean;
+  activeBosses: readonly ActiveBossHudEntry[];
 
   // Royal Ice Chambers Progression Telemetry
   chamberWave: number;
@@ -346,7 +433,13 @@ export interface GameStoreState {
   setMikuDefeated: (val: boolean) => void;
   setMikuCoreCharge: (charge: number) => void;
   addMikuCoreCharge: (delta: number) => void;
-  setLobbySiphonTarget: (target: 'marina' | 'serena' | 'miku') => void;
+  setYenneferDefeated: (val: boolean) => void;
+  setYenneferCoreCharge: (charge: number) => void;
+  addYenneferCoreCharge: (delta: number) => void;
+  setLobbySiphonTarget: (target: LobbySiphonTargetId) => void;
+  setActiveScenarioId: (scenarioId: string | null) => void;
+  setScenarioSelectorOpen: (open: boolean) => void;
+  setActiveBosses: (bosses: readonly ActiveBossHudEntry[]) => void;
   setLobbyPrompt: (prompt: LobbyPromptState | null) => void;
   setLobbyDummyHit: (hit: LobbyDummyHitState | null) => void;
   setFinisherMode: (mode: FinisherMode) => void;
@@ -372,6 +465,13 @@ export interface GameStoreState {
 }
 
 function getSubtitleForPhase(phase: BossPhase, bossId?: string): string {
+  if (bossId === SPECIAL_SCENARIO_CONFIG.yenneferId) {
+    if (phase === BOSS_PHASES.PHASE_2)
+      return SPECIAL_SCENARIO_CONFIG.yenneferPhase2Subtitle;
+    if (phase === BOSS_PHASES.PHASE_3)
+      return SPECIAL_SCENARIO_CONFIG.yenneferPhase3Subtitle;
+    return SPECIAL_SCENARIO_CONFIG.yenneferPhase1Subtitle;
+  }
   if (bossId === MIKU_CONFIG.id) {
     if (phase === BOSS_PHASES.PHASE_2) return MIKU_CONFIG.twinTailDash.subtitle;
     if (phase === BOSS_PHASES.PHASE_3) return MIKU_CONFIG.crescendoOverdrive.subtitle;
@@ -409,9 +509,15 @@ const INITIAL_STATE = {
   serenaCoreCharge: readInitialSerenaCoreCharge(),
   mikuDefeated: readInitialMikuDefeated(),
   mikuCoreCharge: readInitialMikuCoreCharge(),
-  lobbySiphonTarget: 'marina' as 'marina' | 'serena' | 'miku',
+  yenneferDefeated: readInitialYenneferDefeated(),
+  yenneferCoreCharge: readInitialYenneferCoreCharge(),
+  lobbySiphonTarget: 'marina' as LobbySiphonTargetId,
   lobbyPrompt: null as LobbyPromptState | null,
   lobbyDummyHit: null as LobbyDummyHitState | null,
+
+  activeScenarioId: null as string | null,
+  isScenarioSelectorOpen: false,
+  activeBosses: [] as readonly ActiveBossHudEntry[],
 
   chamberWave: 0,
   totalChamberWaves: CHAMBER_CONFIG.WAVES.length,
@@ -578,7 +684,29 @@ export const useGameStore = create<GameStoreState>((set) => ({
       persistMikuCoreCharge(clamped);
       return { mikuCoreCharge: clamped };
     }),
+  setYenneferDefeated: (yenneferDefeated) => {
+    persistYenneferDefeated(yenneferDefeated);
+    set({ yenneferDefeated });
+  },
+  setYenneferCoreCharge: (charge) => {
+    const clamped = Math.max(0, Math.min(1, charge));
+    persistYenneferCoreCharge(clamped);
+    set({ yenneferCoreCharge: clamped });
+  },
+  addYenneferCoreCharge: (delta) =>
+    set((state) => {
+      const clamped = Math.max(
+        0,
+        Math.min(1, state.yenneferCoreCharge + delta),
+      );
+      persistYenneferCoreCharge(clamped);
+      return { yenneferCoreCharge: clamped };
+    }),
   setLobbySiphonTarget: (lobbySiphonTarget) => set({ lobbySiphonTarget }),
+  setActiveScenarioId: (activeScenarioId) => set({ activeScenarioId }),
+  setScenarioSelectorOpen: (isScenarioSelectorOpen) =>
+    set({ isScenarioSelectorOpen }),
+  setActiveBosses: (activeBosses) => set({ activeBosses }),
   setLobbyPrompt: (lobbyPrompt) => set({ lobbyPrompt }),
   setLobbyDummyHit: (lobbyDummyHit) => set({ lobbyDummyHit }),
 
@@ -630,6 +758,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
       pulseCooldown: snapshot.pulseCooldown ?? state.pulseCooldown,
       bossHp: snapshot.bossHp ?? state.bossHp,
       bossMaxHp: snapshot.bossMaxHp ?? state.bossMaxHp,
+      activeBosses: snapshot.activeBosses ?? state.activeBosses,
       siphonProgress: snapshot.siphonProgress ?? state.siphonProgress,
       tauntDizzyTimer: snapshot.tauntDizzyTimer ?? state.tauntDizzyTimer,
       canExecuteFinisher:
@@ -695,6 +824,8 @@ export const useGameStore = create<GameStoreState>((set) => ({
       serenaCoreCharge: state.serenaCoreCharge,
       mikuDefeated: state.mikuDefeated,
       mikuCoreCharge: state.mikuCoreCharge,
+      yenneferDefeated: state.yenneferDefeated,
+      yenneferCoreCharge: state.yenneferCoreCharge,
       audioMuted: state.audioMuted,
       musicVolume: state.musicVolume,
       sfxVolume: state.sfxVolume,

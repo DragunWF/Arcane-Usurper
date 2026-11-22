@@ -109,11 +109,14 @@ export const LOBBY_PROMPT_KINDS = Object.freeze({
   REALM_3: 'REALM_3',
   REALM_2_SEALED: 'REALM_2_SEALED',
   REALM_3_SEALED: 'REALM_3_SEALED',
+  ASTRAL_RIFT: 'ASTRAL_RIFT',
   TROPHY_PEDESTAL: 'TROPHY_PEDESTAL',
   SIPHON_GALLERY_WARD: 'SIPHON_GALLERY_WARD',
   MARINA_DAIS: 'MARINA_DAIS',
   SERENA_DAIS: 'SERENA_DAIS',
   MIKU_DAIS: 'MIKU_DAIS',
+  YENNEFER_DAIS: 'YENNEFER_DAIS',
+  GUEST_PEDESTAL_RESERVED: 'GUEST_PEDESTAL_RESERVED',
 } as const);
 
 export type LobbyPromptKind =
@@ -366,8 +369,32 @@ export const PALETTE = Object.freeze({
   mikuEyeDeepTeal: 0x065f46,
   mikuBootDark: 0x0b0f1a,
 
+  // Special Scenarios — Astral Rift, Wolf & Raven (Geralt & Yennefer) & Ash Dissolve
+  riftAmber: 0xf59e0b,
+  steelSilver: 0xcbd5e1,
+  ashEmber: 0xf97316,
+  ashCharcoal: 0x1e293b,
+  yenneferRaven: 0x0b0a12,
+  yenneferLilac: 0xc084fc,
+  yenneferVioletEye: 0x9333ea,
+  yenneferVelvet: 0x111118,
+  yenneferLace: 0xf1f5f9,
+  geraltArmor: 0x1f2430,
+  geraltLeather: 0x3b2f2f,
+  geraltSteel: 0xd1d5db,
+  geraltHairSilver: 0xe2e8f0,
+  geraltAmberEye: 0xf59e0b,
+
   // CSS Hex Strings for Canvas2D, Tailwind inline styles, and SVG tokens
   hex: Object.freeze({
+    riftAmber: '#F59E0B',
+    steelSilver: '#CBD5E1',
+    ashEmber: '#F97316',
+    yenneferLilac: '#C084FC',
+    yenneferVioletEye: '#9333EA',
+    yenneferRaven: '#0B0A12',
+    geraltAmberEye: '#F59E0B',
+    geraltSteel: '#D1D5DB',
     midnightSky: '#040711',
     glacialNavy: '#0B132B',
     iceFloor: '#1E3A5F',
@@ -1580,6 +1607,10 @@ export const LOBBY_CONFIG = Object.freeze({
   realm1PortalPos: Object.freeze({ x: 0, z: -9.8 }),
   realm2PortalPos: Object.freeze({ x: -6.8, z: -7.2 }),
   realm3PortalPos: Object.freeze({ x: 6.8, z: -7.2 }),
+  // West Perimeter Terrace Single Astral Rift Portal (Special Scenarios)
+  astralRiftPortalPos: Object.freeze({ x: -9.8, z: -1.8 }),
+  astralRiftInteractRadius: 2.8,
+  astralRiftSnowMoteCount: 38,
   portalInteractRadius: 2.6,
   portalCenterY: 2.45,
   portalRingRadius: 1.95,
@@ -1685,6 +1716,22 @@ export const SIPHON_GALLERY_CONFIG = Object.freeze({
   mikuDaisPos: Object.freeze({ x: 4.75, y: 0, z: 24.9 }),
   leftDormantDaisPos: Object.freeze({ x: -4.75, y: 0, z: 24.9 }),
   rightDormantDaisPos: Object.freeze({ x: 4.75, y: 0, z: 24.9 }),
+
+  // East Twin-Pedestal Guest Wing (Accessed through East Archway off Siphon Gallery)
+  guestWingMinX: 5.0,
+  guestWingMaxX: 15.0,
+  guestWingMinZ: 19.0,
+  guestWingMaxZ: 25.6,
+  guestWingOuterMaxX: 15.6,
+  guestWingOuterMinZ: 18.4,
+  guestWingOuterMaxZ: 26.2,
+  guestPedestal1Pos: Object.freeze({ x: 13.3, y: 0, z: 20.5 }),
+  guestPedestal1FacingYaw: -Math.PI * 0.56,
+  guestPedestal2Pos: Object.freeze({ x: 13.3, y: 0, z: 24.1 }),
+  guestPedestal2FacingYaw: -Math.PI * 0.44,
+  guestPedestalRadius: 1.52,
+  guestPedestalCollisionRadius: 1.1,
+  guestSiphonInitialAzimuth: -Math.PI * 0.56 - 0.52,
   daisRadius: 1.85,
   serenaDaisRadius: 1.72,
   mikuDaisRadius: 1.72,
@@ -3081,6 +3128,8 @@ export const STOLEN_KISS_CONFIG = Object.freeze({
     'MIKU_BEAT_DROP_RINGS',
     'MIKU_LASER_LATTICE',
     'MIKU_CRESCENDO_OVERDRIVE',
+    'YENNEFER_CHAOS_NOVA',
+    'YENNEFER_OBSIDIAN_LASERS',
   ] as const),
 
   // Procedural Web Audio Cues
@@ -3097,3 +3146,134 @@ export const STOLEN_KISS_CONFIG = Object.freeze({
   breakawayBurstDurationSec: 0.48,
   breakawayBurstGain: 0.24,
 } as const);
+
+// ============================================================================
+// SPECIAL SCENARIOS & DYNAMIC N-BOSS ARCHITECTURE REGISTRY
+// ============================================================================
+
+export type SpecialScenarioRigKey =
+  | 'marina'
+  | 'serena'
+  | 'miku'
+  | 'geralt'
+  | 'yennefer';
+
+export interface SpecialScenarioBossEntry {
+  readonly bossId: string;
+  readonly displayName: string;
+  readonly title: string;
+  readonly rigKey: SpecialScenarioRigKey;
+  readonly maxHp: number;
+  readonly hitRadius: number;
+  readonly canBeSiphoned: boolean;
+  readonly guestPedestalIndex: number | null;
+  readonly spawnOffsetX: number;
+  readonly spawnOffsetZ: number;
+  readonly barAccentHex: string;
+}
+
+export interface SpecialScenarioDefinition {
+  readonly id: string;
+  readonly title: string;
+  readonly subtitle: string;
+  readonly arenaId: string;
+  readonly unlocked: boolean;
+  readonly guestPedestalIndex: number | null;
+  readonly bosses: readonly SpecialScenarioBossEntry[];
+}
+
+export const SPECIAL_SCENARIO_CONFIG = Object.freeze({
+  ashDissolveDurationSec: 1.6,
+  ashEmberBurstIntervalSec: 0.18,
+  duoSpacingOffsetX: 3.4,
+  duoSpacingOffsetZ: 1.6,
+  bossToBossMinSeparation: 2.35,
+  maxSimultaneousBosses: 4,
+  guestPedestalPassiveRechargePerSec: 0.018,
+  guestPedestalDefaultCoreCharge: 1.0,
+  guestPedestalDefeatRechargeBonus: 1.0,
+  disperseShockwaveRadius: 11.5,
+  disperseShockwaveDuration: 0.65,
+  disperseCameraShake: 0.28,
+  yenneferDefeatedStorageKey: 'arcane_usurper_yennefer_defeated',
+  yenneferCoreChargeStorageKey: 'arcane_usurper_yennefer_core_charge',
+
+  // Geralt & Yennefer baseline combat tuning (zero magic numbers)
+  geraltId: 'geralt',
+  geraltDisplayName: 'GERALT OF RIVIA',
+  geraltTitle: 'The White Wolf',
+  geraltMaxHp: 560,
+  geraltHitRadius: 1.05,
+  geraltAttackCooldownP1: 2.4,
+  geraltAttackCooldownP2: 1.85,
+  geraltLungeSpeed: 13.5,
+  geraltIgniCount: 5,
+  geraltIgniSpeed: 16.5,
+  geraltIgniDamage: 14,
+  geraltAardRadius: 13.5,
+  geraltAardDamage: 16,
+
+  yenneferId: 'yennefer',
+  yenneferDisplayName: 'YENNEFER OF VENGERBERG',
+  yenneferTitle: 'Sorceress of Obsidian & Lilac',
+  yenneferMaxHp: 780,
+  yenneferHitRadius: 1.05,
+  yenneferPhase1Subtitle: 'PHASE I • OBSIDIAN & LILAC',
+  yenneferPhase2Subtitle: 'PHASE II • CHAOS CONVERGENCE',
+  yenneferPhase3Subtitle: 'PHASE III • MAELSTROM OF VENGERBERG',
+  yenneferAttackCooldownP1: 2.6,
+  yenneferAttackCooldownP2: 2.0,
+  yenneferAttackCooldownP3: 1.55,
+  yenneferBoltDamage: 14,
+  yenneferNovaDamage: 18,
+  yenneferLaserDamage: 16,
+} as const);
+
+export const SPECIAL_SCENARIOS: readonly SpecialScenarioDefinition[] =
+  Object.freeze([
+    Object.freeze({
+      id: 'wolf_and_raven',
+      title: 'The Wolf & The Raven',
+      subtitle: 'Geralt of Rivia & Yennefer of Vengerberg',
+      arenaId: 'skellige_peak',
+      unlocked: true,
+      guestPedestalIndex: 0,
+      bosses: Object.freeze([
+        Object.freeze({
+          bossId: SPECIAL_SCENARIO_CONFIG.geraltId,
+          displayName: SPECIAL_SCENARIO_CONFIG.geraltDisplayName,
+          title: SPECIAL_SCENARIO_CONFIG.geraltTitle,
+          rigKey: 'geralt' as const,
+          maxHp: SPECIAL_SCENARIO_CONFIG.geraltMaxHp,
+          hitRadius: SPECIAL_SCENARIO_CONFIG.geraltHitRadius,
+          canBeSiphoned: false,
+          guestPedestalIndex: null,
+          spawnOffsetX: -SPECIAL_SCENARIO_CONFIG.duoSpacingOffsetX,
+          spawnOffsetZ: SPECIAL_SCENARIO_CONFIG.duoSpacingOffsetZ,
+          barAccentHex: PALETTE.hex.steelSilver,
+        }),
+        Object.freeze({
+          bossId: SPECIAL_SCENARIO_CONFIG.yenneferId,
+          displayName: SPECIAL_SCENARIO_CONFIG.yenneferDisplayName,
+          title: SPECIAL_SCENARIO_CONFIG.yenneferTitle,
+          rigKey: 'yennefer' as const,
+          maxHp: SPECIAL_SCENARIO_CONFIG.yenneferMaxHp,
+          hitRadius: SPECIAL_SCENARIO_CONFIG.yenneferHitRadius,
+          canBeSiphoned: true,
+          guestPedestalIndex: 0,
+          spawnOffsetX: SPECIAL_SCENARIO_CONFIG.duoSpacingOffsetX,
+          spawnOffsetZ: -SPECIAL_SCENARIO_CONFIG.duoSpacingOffsetZ,
+          barAccentHex: PALETTE.hex.amethystTrim,
+        }),
+      ]),
+    }),
+    Object.freeze({
+      id: 'sealed_rift_slot_2',
+      title: '[SEALED RIFT — COMING SOON]',
+      subtitle: 'Uncharted Astral Convergence • Reserved Multi-Boss Encounter',
+      arenaId: 'sealed_void',
+      unlocked: false,
+      guestPedestalIndex: 1,
+      bosses: Object.freeze([]),
+    }),
+  ]);

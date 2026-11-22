@@ -11,6 +11,7 @@ import {
   PALETTE,
   SERENA_CONFIG,
   SIPHON_GALLERY_CONFIG,
+  SPECIAL_SCENARIO_CONFIG,
   type GameState,
 } from '../../config/gameConfig';
 import type { IAudioTrigger } from '../../engine/SoundEngine';
@@ -18,6 +19,7 @@ import type { IVfxSpawner } from '../../engine/VfxFactory';
 import type { DarkMageRig } from '../../rigs/DarkMageRig';
 import type { BossRigAdapter } from '../../rigs/bosses/BossBase';
 import { useGameStore } from '../../state/useGameStore';
+import type { EntityId } from '../components';
 import type { ECSWorld, ISystem } from '../World';
 
 export interface IDioramaCallbacks {
@@ -51,6 +53,8 @@ export class DioramaSystem implements ISystem {
   private readonly scene: THREE.Scene;
   private readonly mageRig: DarkMageRig;
   private bossRig: BossRigAdapter;
+  private readonly bossRigs = new Map<EntityId, BossRigAdapter>();
+  private targetBossEntityId: EntityId | null = null;
   private readonly audio: IAudioTrigger;
   private readonly vfx: IVfxSpawner;
   private readonly callbacks: IDioramaCallbacks;
@@ -98,6 +102,93 @@ export class DioramaSystem implements ISystem {
 
   public setBossRig(rig: BossRigAdapter): void {
     this.bossRig = rig;
+  }
+
+  public setBossRigs(rigs: ReadonlyMap<EntityId, BossRigAdapter>): void {
+    this.bossRigs.clear();
+    rigs.forEach((rig, id) => {
+      this.bossRigs.set(id, rig);
+    });
+  }
+
+  public setTargetBossEntityId(entityId: EntityId | null): void {
+    this.targetBossEntityId = entityId;
+    if (entityId !== null) {
+      const rig = this.bossRigs.get(entityId);
+      if (rig) this.bossRig = rig;
+    }
+  }
+
+  private getPrimarySiphonBoss() {
+    const candidates = this.world.query(
+      'bossPhase',
+      'siphonableBoss',
+      'transform',
+    );
+    if (this.targetBossEntityId !== null) {
+      const exact = candidates.find((b) => b.id === this.targetBossEntityId);
+      if (exact) return exact;
+    }
+    return (
+      candidates.find((b) => b.bossPhase.canBeSiphoned) ?? candidates[0]
+    );
+  }
+
+  /**
+   * Disperses any surviving non-siphonable bosses in a royal-violet shockwave
+   * when the final siphonable Sovereign in a Special Scenario is defeated.
+   */
+  public disperseSurvivingNonSiphonableBosses(): void {
+    const bosses = this.world.query('bossPhase', 'transform');
+    for (let i = 0; i < bosses.length; i++) {
+      const b = bosses[i];
+      if (!b || b.bossPhase.canBeSiphoned || b.bossPhase.isDefeated) continue;
+
+      b.bossPhase.isDefeated = true;
+      b.bossPhase.dissolveTimer = SPECIAL_SCENARIO_CONFIG.ashDissolveDurationSec;
+      b.bossPhase.activePatternId = null;
+
+      const rig = this.bossRigs.get(b.id);
+      if (rig) {
+        rig.root.visible = false;
+      }
+
+      const bx = b.transform.position.x;
+      const bz = b.transform.position.z;
+      const origin = new THREE.Vector3(bx, 0.25, bz);
+      const wave = this.vfx.createPhaseShockwaveGroup(
+        origin,
+        BOSS_PHASES.PHASE_2,
+      );
+      this.world.createEntity({
+        transform: {
+          position: { x: bx, y: 0.25, z: bz },
+          rotationY: 0,
+          scale: 1,
+        },
+        hazardZone: {
+          kind: 'PHASE_SHOCKWAVE',
+          faction: 'PLAYER',
+          damage: 0,
+          elapsed: 0,
+          telegraphDuration: 0,
+          activeDuration: SPECIAL_SCENARIO_CONFIG.disperseShockwaveDuration,
+          currentRadius: 0.9,
+          maxRadius: SPECIAL_SCENARIO_CONFIG.disperseShockwaveRadius,
+          hitThickness: 0,
+          angle: 0,
+          startAngle: 0,
+          endAngle: 0,
+          beamLength: 0,
+          hitCooldown: 0,
+          hasHitPlayer: true,
+          hasTriggered: true,
+        },
+        meshRef: { object3D: wave },
+      });
+      this.vfx.spawnImpactBurst(new THREE.Vector3(bx, 1.15, bz), 24);
+      this.vfx.spawnFrostShatterBurst(new THREE.Vector3(bx, 1.15, bz), 18, 9.5);
+    }
   }
 
   private buildMarionetteVisuals(): void {
@@ -196,8 +287,13 @@ export class DioramaSystem implements ISystem {
     this.callbacks.setGameState(GAME_STATES.VICTORY_DIORAMA);
     this.callbacks.exitPointerLock();
 
-    const boss = this.world.queryFirst('bossPhase', 'siphonableBoss', 'transform');
+    const boss = this.getPrimarySiphonBoss();
     const player = this.world.queryFirst('playerTag', 'transform');
+
+    if (withClimaxShockwave) {
+      // Immediately disperse any surviving non-siphonable bosses (e.g. Geralt) in a violet shockwave
+      this.disperseSurvivingNonSiphonableBosses();
+    }
 
     if (boss) {
       boss.siphonableBoss.siphonProgress =
@@ -269,7 +365,15 @@ export class DioramaSystem implements ISystem {
     this.callbacks.setAtmosphereStagger();
 
     const store = useGameStore.getState();
-    if (store.activeRealm === 3) {
+    if (
+      boss?.bossPhase.bossId === SPECIAL_SCENARIO_CONFIG.yenneferId ||
+      boss?.bossPhase.guestPedestalIndex === 0
+    ) {
+      store.setYenneferDefeated(true);
+      store.setYenneferCoreCharge(
+        SPECIAL_SCENARIO_CONFIG.guestPedestalDefeatRechargeBonus,
+      );
+    } else if (store.activeRealm === 3) {
       store.setMikuDefeated(true);
       store.setMikuCoreCharge(MIKU_CONFIG.defaultCoreCharge);
     } else if (store.activeRealm === 2) {
@@ -298,7 +402,7 @@ export class DioramaSystem implements ISystem {
     this.callbacks.setGameState(GAME_STATES.ENDLESS_SAVOR);
     this.callbacks.exitPointerLock();
 
-    const boss = this.world.queryFirst('bossPhase', 'siphonableBoss');
+    const boss = this.getPrimarySiphonBoss();
     if (boss) {
       boss.siphonableBoss.siphonProgress =
         FINISHER_CONFIG.endlessSavorLockedProgress;
@@ -342,8 +446,17 @@ export class DioramaSystem implements ISystem {
     this.callbacks.setGameState(GAME_STATES.DEFEAT_DIORAMA);
     this.callbacks.exitPointerLock();
 
-    const boss = this.world.queryFirst('bossPhase', 'transform');
+    const boss = this.getPrimarySiphonBoss() ?? this.world.queryFirst('bossPhase', 'transform');
     const player = this.world.queryFirst('playerTag', 'transform');
+
+    // Hide any secondary non-siphonable bosses cleanly during the Defeat Diorama
+    const allBosses = this.world.query('bossPhase');
+    for (let i = 0; i < allBosses.length; i++) {
+      const b = allBosses[i];
+      if (!b || b.id === boss?.id) continue;
+      const rig = this.bossRigs.get(b.id);
+      if (rig) rig.root.visible = false;
+    }
 
     // Stage diorama neatly at arena center for unobstructed 360° inspection
     const halfDist = DIORAMA_CONFIG.puppetSeatDistance * 0.5;
@@ -422,7 +535,7 @@ export class DioramaSystem implements ISystem {
    * Computes the smooth 360° orbit camera focus target for VICTORY_DIORAMA or DEFEAT_DIORAMA.
    */
   public getOrbitFocusTarget(state: GameState, outVec: THREE.Vector3): THREE.Vector3 {
-    const boss = this.world.queryFirst('bossPhase', 'transform');
+    const boss = this.getPrimarySiphonBoss() ?? this.world.queryFirst('bossPhase', 'transform');
     const player = this.world.queryFirst('playerTag', 'transform');
 
     if (state === GAME_STATES.VICTORY_DIORAMA && boss) {
@@ -457,7 +570,7 @@ export class DioramaSystem implements ISystem {
   }
 
   private updateVictoryDiorama(dt: number, elapsed: number): void {
-    const boss = this.world.queryFirst('bossPhase', 'transform');
+    const boss = this.getPrimarySiphonBoss() ?? this.world.queryFirst('bossPhase', 'transform');
     const player = this.world.queryFirst('playerTag', 'transform');
     if (!boss || !player) return;
 

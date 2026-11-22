@@ -16,6 +16,7 @@ export function DioramaHUD({ controller }: DioramaHUDProps) {
   const gameState = useGameStore((s) => s.gameState);
   const encoreTier = useGameStore((s) => s.encoreTier);
   const activeRealm = useGameStore((s) => s.activeRealm);
+  const activeScenarioId = useGameStore((s) => s.activeScenarioId);
   const bossDisplayName = useGameStore((s) => s.bossDisplayName);
   const audioMuted = useGameStore((s) => s.audioMuted);
 
@@ -57,11 +58,13 @@ export function DioramaHUD({ controller }: DioramaHUDProps) {
             <div className="inline-flex items-center gap-2 px-4 py-1 rounded-full frost-panel border-purple-400/50 mb-2">
               <span className="w-2 h-2 rounded-full bg-slate-400" />
               <span className="text-[10px] sm:text-xs font-semibold tracking-[0.26em] uppercase text-purple-200">
-                {activeRealm === 3
-                  ? 'Arcane Core Depleted • Harmony Usurped'
-                  : activeRealm === 2
-                    ? 'Arcane Core Depleted • Tide Usurped'
-                    : 'Arcane Core Depleted • Frost Usurped'}
+                {activeScenarioId
+                  ? 'Arcane Core Depleted • Chaos Usurped • Guest Pedestal I Unlocked'
+                  : activeRealm === 3
+                    ? 'Arcane Core Depleted • Harmony Usurped'
+                    : activeRealm === 2
+                      ? 'Arcane Core Depleted • Tide Usurped'
+                      : 'Arcane Core Depleted • Frost Usurped'}
               </span>
               {encoreTier > 0 && (
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-sky-500/25 border border-sky-300/40 text-sky-100">

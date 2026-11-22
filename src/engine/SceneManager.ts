@@ -58,6 +58,13 @@ export interface CompositeLobbyBounds {
   readonly galleryCenterZ: number;
   readonly galleryRadius: number;
   readonly galleryOuterRadius: number;
+  readonly guestWingMinX: number;
+  readonly guestWingMaxX: number;
+  readonly guestWingMinZ: number;
+  readonly guestWingMaxZ: number;
+  readonly guestWingOuterMaxX: number;
+  readonly guestWingOuterMinZ: number;
+  readonly guestWingOuterMaxZ: number;
 }
 
 export type ArenaBounds =
@@ -67,7 +74,7 @@ export type ArenaBounds =
 
 /**
  * Returns true if point `(x, z)` lies inside the union of the main rotunda circle,
- * southern bridge rectangle, and Siphon Gallery circle (each optionally inset by `margin`).
+ * southern bridge rectangle, Siphon Gallery circle, and East Twin-Pedestal Guest Wing.
  */
 export function isPointInsideCompositeLobby(
   x: number,
@@ -91,12 +98,21 @@ export function isPointInsideCompositeLobby(
   const gdz = z - bounds.galleryCenterZ;
   if (x * x + gdz * gdz <= galR * galR) return true;
 
+  if (
+    x >= bounds.guestWingMinX - margin &&
+    x <= bounds.guestWingMaxX - margin &&
+    z >= bounds.guestWingMinZ + margin &&
+    z <= bounds.guestWingMaxZ - margin
+  ) {
+    return true;
+  }
+
   return false;
 }
 
 /**
  * Clamps `(pos.x, pos.z)` to the exact closest point in the union of the main rotunda,
- * southern bridge, and Siphon Gallery (each optionally inset by `margin`).
+ * southern bridge, Siphon Gallery, and East Twin-Pedestal Guest Wing.
  */
 export function clampPointToCompositeLobby(
   pos: { x: number; z: number },
@@ -132,16 +148,38 @@ export function clampPointToCompositeLobby(
   const c3z = bounds.galleryCenterZ + (gdz / galLen) * galR;
   const d3 = (px - c3x) * (px - c3x) + (pz - c3z) * (pz - c3z);
 
-  if (d1 <= d2 && d1 <= d3) {
-    pos.x = c1x;
-    pos.z = c1z;
-  } else if (d2 <= d3) {
-    pos.x = c2x;
-    pos.z = c2z;
-  } else {
-    pos.x = c3x;
-    pos.z = c3z;
+  // Candidate 4: projection onto East Twin-Pedestal Guest Wing rectangle
+  const c4x = THREE.MathUtils.clamp(
+    px,
+    bounds.guestWingMinX,
+    bounds.guestWingMaxX - margin,
+  );
+  const c4z = THREE.MathUtils.clamp(
+    pz,
+    bounds.guestWingMinZ + margin,
+    bounds.guestWingMaxZ - margin,
+  );
+  const d4 = (px - c4x) * (px - c4x) + (pz - c4z) * (pz - c4z);
+
+  let bestX = c1x;
+  let bestZ = c1z;
+  let bestD = d1;
+  if (d2 < bestD) {
+    bestD = d2;
+    bestX = c2x;
+    bestZ = c2z;
   }
+  if (d3 < bestD) {
+    bestD = d3;
+    bestX = c3x;
+    bestZ = c3z;
+  }
+  if (d4 < bestD) {
+    bestX = c4x;
+    bestZ = c4z;
+  }
+  pos.x = bestX;
+  pos.z = bestZ;
 }
 
 /**
@@ -157,8 +195,8 @@ export function intersectRayCompositeLobby(
   bounds: CompositeLobbyBounds,
   margin: number,
 ): number {
-  const intervalsA: [number, number, number] = [0, 0, 0];
-  const intervalsB: [number, number, number] = [0, 0, 0];
+  const intervalsA: [number, number, number, number] = [0, 0, 0, 0];
+  const intervalsB: [number, number, number, number] = [0, 0, 0, 0];
   let count = 0;
 
   const pushCircleInterval = (cz: number, radius: number): void => {
@@ -187,49 +225,58 @@ export function intersectRayCompositeLobby(
     }
   };
 
-  // 1. Main rotunda circle
-  pushCircleInterval(0, bounds.rotundaOuterRadius);
-
-  // 2. Southern bridge rectangle slab intersection
-  const halfW = Math.max(0.5, bounds.bridgeHalfWidth - margin);
-  const minZ = bounds.bridgeStartZ;
-  const maxZ = bounds.bridgeEndZ;
-  let tMin = 0;
-  let tMax = maxDist;
-  let hitBox = true;
-
-  if (Math.abs(dx) < 0.00001) {
-    if (ox < -halfW || ox > halfW) hitBox = false;
-  } else {
-    const tx1 = (-halfW - ox) / dx;
-    const tx2 = (halfW - ox) / dx;
-    tMin = Math.max(tMin, Math.min(tx1, tx2));
-    tMax = Math.min(tMax, Math.max(tx1, tx2));
-  }
-
-  if (hitBox) {
+  const pushRectInterval = (
+    minX: number,
+    maxX: number,
+    minZ: number,
+    maxZ: number,
+  ): void => {
+    let tMin = 0;
+    let tMax = maxDist;
+    if (Math.abs(dx) < 0.00001) {
+      if (ox < minX || ox > maxX) return;
+    } else {
+      const tx1 = (minX - ox) / dx;
+      const tx2 = (maxX - ox) / dx;
+      tMin = Math.max(tMin, Math.min(tx1, tx2));
+      tMax = Math.min(tMax, Math.max(tx1, tx2));
+    }
     if (Math.abs(dz) < 0.00001) {
-      if (oz < minZ || oz > maxZ) hitBox = false;
+      if (oz < minZ || oz > maxZ) return;
     } else {
       const tz1 = (minZ - oz) / dz;
       const tz2 = (maxZ - oz) / dz;
       tMin = Math.max(tMin, Math.min(tz1, tz2));
       tMax = Math.min(tMax, Math.max(tz1, tz2));
     }
-  }
+    if (tMax >= tMin) {
+      intervalsA[count] = tMin;
+      intervalsB[count] = tMax;
+      count++;
+    }
+  };
 
-  if (hitBox && tMax >= tMin) {
-    intervalsA[count] = tMin;
-    intervalsB[count] = tMax;
-    count++;
-  }
+  // 1. Main rotunda circle
+  pushCircleInterval(0, bounds.rotundaOuterRadius);
+
+  // 2. Southern bridge rectangle slab
+  const halfW = Math.max(0.5, bounds.bridgeHalfWidth - margin);
+  pushRectInterval(-halfW, halfW, bounds.bridgeStartZ, bounds.bridgeEndZ);
 
   // 3. Siphon Gallery circle
   pushCircleInterval(bounds.galleryCenterZ, bounds.galleryOuterRadius);
 
+  // 4. East Twin-Pedestal Guest Wing rectangle
+  pushRectInterval(
+    bounds.guestWingMinX,
+    bounds.guestWingOuterMaxX - margin,
+    bounds.guestWingOuterMinZ + margin,
+    bounds.guestWingOuterMaxZ - margin,
+  );
+
   // Merge connected intervals starting from t = 0
   let reachable = 0;
-  for (let pass = 0; pass < 3; pass++) {
+  for (let pass = 0; pass < 4; pass++) {
     for (let i = 0; i < count; i++) {
       const a = intervalsA[i] ?? 0;
       const b = intervalsB[i] ?? 0;
@@ -329,6 +376,13 @@ export class SceneManager implements IArenaGeometry {
     galleryCenterZ: SIPHON_GALLERY_CONFIG.galleryCenterZ,
     galleryRadius: SIPHON_GALLERY_CONFIG.galleryRadius,
     galleryOuterRadius: SIPHON_GALLERY_CONFIG.galleryOuterWallRadius,
+    guestWingMinX: SIPHON_GALLERY_CONFIG.guestWingMinX,
+    guestWingMaxX: SIPHON_GALLERY_CONFIG.guestWingMaxX,
+    guestWingMinZ: SIPHON_GALLERY_CONFIG.guestWingMinZ,
+    guestWingMaxZ: SIPHON_GALLERY_CONFIG.guestWingMaxZ,
+    guestWingOuterMaxX: SIPHON_GALLERY_CONFIG.guestWingOuterMaxX,
+    guestWingOuterMinZ: SIPHON_GALLERY_CONFIG.guestWingOuterMinZ,
+    guestWingOuterMaxZ: SIPHON_GALLERY_CONFIG.guestWingOuterMaxZ,
   });
 
   private isLobbyGalleryUnlocked = false;

@@ -208,6 +208,20 @@ export function PauseMenu({ controller }: PauseMenuProps) {
             [P] RESUME
           </button>
 
+          <button
+            type="button"
+            onClick={() => controller?.openScenarioSelector()}
+            className="w-full py-3 px-6 rounded-xl font-display text-xs sm:text-sm font-bold tracking-[0.18em] uppercase cursor-pointer border transition-all hover:scale-[1.01]"
+            style={{
+              backgroundColor: PALETTE.hex.abyssalCloak,
+              borderColor: PALETTE.hex.riftAmber,
+              color: PALETTE.hex.riftAmber,
+              boxShadow: `0 0 18px ${PALETTE.hex.riftAmber}33`,
+            }}
+          >
+            [SPECIAL SCENARIOS]
+          </button>
+
           {gameState !== GAME_STATES.LOBBY && (
             <button
               type="button"

@@ -21,7 +21,11 @@ import type {
 } from '../../engine/VfxFactory';
 import type { DarkMageRig } from '../../rigs/DarkMageRig';
 import type { BossRigAdapter } from '../../rigs/bosses/BossBase';
-import { useGameStore } from '../../state/useGameStore';
+import {
+  useGameStore,
+  type ActiveBossHudEntry,
+} from '../../state/useGameStore';
+import type { EntityId } from '../components';
 import type { ECSWorld, ISystem } from '../World';
 
 export interface IRenderSyncCallbacks {
@@ -40,6 +44,7 @@ export class RenderSyncSystem implements ISystem {
   private readonly vfx: IVfxSpawner;
   private readonly mageRig: DarkMageRig;
   private bossRig: BossRigAdapter;
+  private readonly bossRigs = new Map<EntityId, BossRigAdapter>();
   private readonly callbacks: IRenderSyncCallbacks;
 
   private hudSyncAccum = 0;
@@ -63,6 +68,17 @@ export class RenderSyncSystem implements ISystem {
 
   public setBossRig(rig: BossRigAdapter): void {
     this.bossRig = rig;
+  }
+
+  public setBossRigs(rigs: ReadonlyMap<EntityId, BossRigAdapter>): void {
+    this.bossRigs.clear();
+    rigs.forEach((rig, id) => {
+      this.bossRigs.set(id, rig);
+    });
+  }
+
+  private getBossRigForEntity(entityId: EntityId): BossRigAdapter {
+    return this.bossRigs.get(entityId) ?? this.bossRig;
   }
 
   public update(dt: number, elapsed: number): void {
@@ -110,21 +126,39 @@ export class RenderSyncSystem implements ISystem {
       }
     }
 
-    // 3. Sync Boss Rig Transform & Procedural Pose (hidden in Title/Lobby/LobbySiphon/Chambers, yields to Finisher/Diorama)
+    // 3. Sync Dynamic N-Boss Rig Transforms & Procedural Poses (hidden in Title/Lobby/LobbySiphon/Chambers, yields to Finisher/Diorama)
     const isBossHiddenState =
       state === GAME_STATES.TITLE ||
       state === GAME_STATES.LOBBY ||
       state === GAME_STATES.LOBBY_SIPHON ||
       state === GAME_STATES.CHAMBER_COMBAT ||
       state === GAME_STATES.PORTAL_TRANSITION;
-    this.bossRig.root.visible = !isBossHiddenState;
 
-    const boss = this.world.queryFirst('bossPhase', 'transform');
-    if (boss && !isDioramaOrFinisher && !isBossHiddenState) {
-      const bPos = boss.transform.position;
-      this.bossRig.root.position.set(bPos.x, bPos.y, bPos.z);
-      this.bossRig.root.rotation.y = boss.transform.rotationY;
-      this.bossRig.updateCombatPose(dt, state, elapsed, null);
+    const bosses = this.world.query('bossPhase', 'transform');
+    if (bosses.length === 0) {
+      this.bossRig.root.visible = !isBossHiddenState;
+    } else {
+      for (let i = 0; i < bosses.length; i++) {
+        const boss = bosses[i];
+        if (!boss) continue;
+        const rig = this.getBossRigForEntity(boss.id);
+        const bp = boss.bossPhase;
+        rig.root.visible = !isBossHiddenState && !bp.isDefeated;
+
+        if (!isDioramaOrFinisher && !isBossHiddenState && !bp.isDefeated) {
+          const bPos = boss.transform.position;
+          rig.root.position.set(bPos.x, bPos.y, bPos.z);
+          rig.root.rotation.y = boss.transform.rotationY;
+          if (bp.dissolveTimer < 0) {
+            rig.updateCombatPose(
+              dt,
+              bp.isStaggered ? GAME_STATES.STAGGER : state,
+              elapsed,
+              bp.isStaggered ? 1.0 : null,
+            );
+          }
+        }
+      }
     }
 
     // 4. Sync Clone Illusion Transforms
@@ -385,7 +419,37 @@ export class RenderSyncSystem implements ISystem {
       'stamina',
       'playerCombat',
     );
-    const boss = this.world.queryFirst('bossPhase', 'health', 'siphonableBoss');
+    const allBosses = this.world.query('bossPhase', 'health');
+    const activeBosses: ActiveBossHudEntry[] = [];
+    let primaryBoss = allBosses.find(
+      (b) => b.bossPhase.canBeSiphoned && !b.bossPhase.isDefeated,
+    );
+    if (!primaryBoss) {
+      primaryBoss = allBosses.find((b) => !b.bossPhase.isDefeated) ?? allBosses[0];
+    }
+
+    for (let i = 0; i < allBosses.length; i++) {
+      const b = allBosses[i];
+      if (!b || b.bossPhase.isDefeated) continue;
+      activeBosses.push({
+        entityId: b.id,
+        bossId: b.bossPhase.bossId,
+        displayName: b.bossPhase.displayName,
+        title: b.bossPhase.title,
+        hp: b.health.current,
+        maxHp: b.health.max,
+        phase: b.bossPhase.phase,
+        canBeSiphoned: b.bossPhase.canBeSiphoned,
+        isStaggered: b.bossPhase.isStaggered,
+        isDissolving: b.bossPhase.dissolveTimer >= 0,
+        isDefeated: b.bossPhase.isDefeated,
+        barAccentHex: b.bossPhase.barAccentHex,
+      });
+    }
+
+    const siphonBoss = this.world
+      .query('bossPhase', 'siphonableBoss')
+      .find((b) => b.id === primaryBoss?.id);
 
     useGameStore.getState().syncCombatSnapshot({
       playerHp: player?.health.current,
@@ -394,10 +458,11 @@ export class RenderSyncSystem implements ISystem {
       playerMaxStamina: player?.stamina.max,
       dashCooldown: player?.playerCombat.dashCooldown,
       pulseCooldown: player?.playerCombat.pulseCooldown,
-      bossHp: boss?.health.current,
-      bossMaxHp: boss?.health.max,
-      siphonProgress: boss?.siphonableBoss.siphonProgress,
-      tauntDizzyTimer: boss?.siphonableBoss.tauntDizzyTimer,
+      bossHp: primaryBoss?.health.current,
+      bossMaxHp: primaryBoss?.health.max,
+      activeBosses,
+      siphonProgress: siphonBoss?.siphonableBoss.siphonProgress,
+      tauntDizzyTimer: siphonBoss?.siphonableBoss.tauntDizzyTimer,
     });
   }
 }

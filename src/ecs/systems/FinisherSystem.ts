@@ -29,11 +29,15 @@ import {
   computeFinisherHeadChoreography,
   type BossRigAdapter,
 } from '../../rigs/bosses/BossBase';
-import { useGameStore } from '../../state/useGameStore';
+import {
+  useGameStore,
+  type LobbySiphonTargetId,
+} from '../../state/useGameStore';
+import type { EntityId } from '../components';
 import type { ECSWorld, ISystem } from '../World';
 
 export interface LobbySiphonAnchorConfig {
-  readonly targetId: 'marina' | 'serena' | 'miku';
+  readonly targetId: LobbySiphonTargetId;
   readonly daisPos: {
     readonly x: number;
     readonly y: number;
@@ -54,7 +58,7 @@ export interface IFinisherCallbacks {
   onLobbySiphonTick?: (
     charge: number,
     elapsed: number,
-    targetId: 'marina' | 'serena' | 'miku',
+    targetId: LobbySiphonTargetId,
     tetherTension?: number,
   ) => void;
 }
@@ -89,6 +93,8 @@ export class FinisherSystem implements ISystem {
   private readonly scene: THREE.Scene;
   private readonly mageRig: DarkMageRig;
   private bossRig: BossRigAdapter;
+  private readonly bossRigs = new Map<EntityId, BossRigAdapter>();
+  private targetBossEntityId: EntityId | null = null;
   private lobbyBossRig: BossRigAdapter | null = null;
   private readonly audio: IAudioTrigger;
   private readonly vfx: IVfxSpawner;
@@ -535,9 +541,48 @@ export class FinisherSystem implements ISystem {
     return 1;
   }
 
+  public setBossRigs(rigs: ReadonlyMap<EntityId, BossRigAdapter>): void {
+    this.bossRigs.clear();
+    rigs.forEach((rig, id) => {
+      this.bossRigs.set(id, rig);
+    });
+  }
+
+  public setTargetBossEntityId(entityId: EntityId | null): void {
+    this.targetBossEntityId = entityId;
+    if (entityId !== null) {
+      const boundRig = this.bossRigs.get(entityId);
+      if (boundRig) {
+        this.bossRig = boundRig;
+      }
+    }
+  }
+
+  private getTargetSiphonableBoss() {
+    const candidates = this.world.query(
+      'bossPhase',
+      'siphonableBoss',
+      'transform',
+      'health',
+    );
+    if (this.targetBossEntityId !== null) {
+      const exact = candidates.find((b) => b.id === this.targetBossEntityId);
+      if (exact) return exact;
+    }
+    return (
+      candidates.find((b) => b.bossPhase.canBeSiphoned && b.bossPhase.isStaggered) ??
+      candidates.find((b) => b.bossPhase.canBeSiphoned && !b.bossPhase.isDefeated) ??
+      candidates[0]
+    );
+  }
+
   private getActiveBossRig(state: GameState): BossRigAdapter {
     if (state === GAME_STATES.LOBBY_SIPHON && this.lobbyBossRig) {
       return this.lobbyBossRig;
+    }
+    if (this.targetBossEntityId !== null) {
+      const bound = this.bossRigs.get(this.targetBossEntityId);
+      if (bound) return bound;
     }
     return this.bossRig;
   }
@@ -551,7 +596,7 @@ export class FinisherSystem implements ISystem {
     ) {
       return;
     }
-    const boss = this.world.queryFirst('siphonableBoss');
+    const boss = this.getTargetSiphonableBoss();
     if (
       !boss ||
       boss.siphonableBoss.tauntCooldown > 0 ||
@@ -607,10 +652,13 @@ export class FinisherSystem implements ISystem {
    * Initializes the 3-beat Mid-Fight 360° Frontal Guard-Break Stolen Kiss sequence
    * from live ECS positions, computing the Beat 3 frontal breakaway destination.
    */
-  public startStolenKiss(): void {
+  public startStolenKiss(targetBossEntityId?: EntityId): void {
     this.resetState();
+    if (targetBossEntityId !== undefined) {
+      this.setTargetBossEntityId(targetBossEntityId);
+    }
     const player = this.world.queryFirst('playerTag', 'transform');
-    const boss = this.world.queryFirst('bossPhase', 'transform');
+    const boss = this.getTargetSiphonableBoss();
     if (!player || !boss) return;
 
     this.stolenKissElapsed = 0;
@@ -921,7 +969,7 @@ export class FinisherSystem implements ISystem {
     }
 
     const player = this.world.queryFirst('playerTag', 'transform', 'playerIntent');
-    const boss = this.world.queryFirst('bossPhase', 'siphonableBoss', 'transform');
+    const boss = this.getTargetSiphonableBoss();
     if (!player || !boss) return;
 
     const activeRig = this.getActiveBossRig(state);
@@ -1020,7 +1068,9 @@ export class FinisherSystem implements ISystem {
             this.audio.playSiphonClimax(activeRealm);
           }
           const store = useGameStore.getState();
-          if (this.lobbyAnchor.targetId === 'miku') {
+          if (this.lobbyAnchor.targetId === 'yennefer') {
+            store.setYenneferCoreCharge(0);
+          } else if (this.lobbyAnchor.targetId === 'miku') {
             store.setMikuCoreCharge(0);
           } else if (this.lobbyAnchor.targetId === 'serena') {
             store.setSerenaCoreCharge(0);
@@ -1037,7 +1087,9 @@ export class FinisherSystem implements ISystem {
           ) {
             this.lobbyChargeSyncAccum = 0;
             const store = useGameStore.getState();
-            if (this.lobbyAnchor.targetId === 'miku') {
+            if (this.lobbyAnchor.targetId === 'yennefer') {
+              store.setYenneferCoreCharge(this.lobbyCharge);
+            } else if (this.lobbyAnchor.targetId === 'miku') {
               store.setMikuCoreCharge(this.lobbyCharge);
             } else if (this.lobbyAnchor.targetId === 'serena') {
               store.setSerenaCoreCharge(this.lobbyCharge);
@@ -1414,7 +1466,9 @@ export class FinisherSystem implements ISystem {
       ) {
         this.lobbyChargeSyncAccum = 0;
         const store = useGameStore.getState();
-        if (this.lobbyAnchor.targetId === 'miku') {
+        if (this.lobbyAnchor.targetId === 'yennefer') {
+          store.setYenneferCoreCharge(this.lobbyCharge);
+        } else if (this.lobbyAnchor.targetId === 'miku') {
           store.setMikuCoreCharge(this.lobbyCharge);
         } else if (this.lobbyAnchor.targetId === 'serena') {
           store.setSerenaCoreCharge(this.lobbyCharge);
@@ -1668,7 +1722,7 @@ export class FinisherSystem implements ISystem {
       'health',
       'stamina',
     );
-    const boss = this.world.queryFirst('bossPhase', 'transform', 'health');
+    const boss = this.getTargetSiphonableBoss();
     if (!player || !boss) return;
 
     const activeRealm = this.resolveActiveRealm(

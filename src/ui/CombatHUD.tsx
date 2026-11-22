@@ -40,6 +40,7 @@ export function CombatHUD({ controller }: CombatHUDProps) {
   const canExecuteFinisher = useGameStore((s) => s.canExecuteFinisher);
   const isBossExposed = useGameStore((s) => s.isBossExposed);
   const canExecuteStolenKiss = useGameStore((s) => s.canExecuteStolenKiss);
+  const activeBosses = useGameStore((s) => s.activeBosses);
   const encoreTier = useGameStore((s) => s.encoreTier);
   const activeRealm = useGameStore((s) => s.activeRealm);
   const chamberWave = useGameStore((s) => s.chamberWave);
@@ -263,6 +264,97 @@ export function CombatHUD({ controller }: CombatHUDProps) {
                     : `CHAMBER WAVE ${Math.max(1, chamberWave)} / ${totalChamberWaves} — SERVANTS REMAINING: ${servantsRemaining}`}
                 </div>
               </div>
+            </div>
+          ) : activeBosses.length > 1 ? (
+            /* Compact Stacked Multi-Boss HP Bars: Non-Siphonable (Steel-Silver) stacked above Siphonable Sovereign (Royal-Violet + Siphon Crest) */
+            <div className="absolute top-3.5 left-1/2 -translate-x-1/2 w-[320px] sm:w-[480px] md:w-[540px] max-w-[calc(100vw-2rem)] flex flex-col gap-2">
+              {[...activeBosses]
+                .sort((a, b) => Number(a.canBeSiphoned) - Number(b.canBeSiphoned))
+                .map((b) => {
+                  const pct = Math.max(
+                    0,
+                    Math.min(100, (b.hp / Math.max(1, b.maxHp)) * 100),
+                  );
+                  return (
+                    <div
+                      key={b.entityId}
+                      className="frost-panel rounded-xl px-3.5 py-2 sm:px-4 sm:py-2.5 border"
+                      style={{
+                        borderColor: b.canBeSiphoned
+                          ? `${PALETTE.hex.amethystTrim}88`
+                          : `${PALETTE.hex.steelSilver}66`,
+                        boxShadow: b.canBeSiphoned
+                          ? `0 8px 26px ${PALETTE.hex.amethystTrim}38`
+                          : `0 6px 20px rgba(15,23,42,0.55)`,
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {b.canBeSiphoned ? (
+                            <svg
+                              className="w-3.5 h-3.5 shrink-0"
+                              viewBox="0 0 16 16"
+                              fill={PALETTE.hex.glowViolet}
+                              aria-label="Siphon Crest"
+                            >
+                              <path d="M8 0.5L10.3 5.7L15.5 8L10.3 10.3L8 15.5L5.7 10.3L0.5 8L5.7 5.7L8 0.5Z" />
+                            </svg>
+                          ) : (
+                            <span
+                              className="w-2.5 h-2.5 rounded-sm rotate-45 shrink-0"
+                              style={{
+                                backgroundColor: PALETTE.hex.steelSilver,
+                                boxShadow: `0 0 8px ${PALETTE.hex.steelSilver}`,
+                              }}
+                            />
+                          )}
+                          <span className="font-display text-[11px] sm:text-xs font-bold tracking-[0.16em] text-sky-50 truncate">
+                            {b.displayName}
+                          </span>
+                          <span
+                            className="text-[9px] font-semibold tracking-[0.16em] uppercase px-1.5 py-0.5 rounded shrink-0"
+                            style={{
+                              backgroundColor: `${PALETTE.hex.abyssalCloak}CC`,
+                              color: b.isDissolving
+                                ? PALETTE.hex.ashEmber
+                                : b.isStaggered
+                                  ? PALETTE.hex.pulseLavender
+                                  : b.canBeSiphoned
+                                    ? PALETTE.hex.yenneferLilac
+                                    : PALETTE.hex.steelSilver,
+                            }}
+                          >
+                            {b.isDissolving
+                              ? 'ASH DISSOLVING'
+                              : b.isStaggered
+                                ? 'STAGGERED'
+                                : b.canBeSiphoned
+                                  ? 'SOVEREIGN'
+                                  : b.title}
+                          </span>
+                        </div>
+                        <span className="text-[10px] sm:text-[11px] font-mono font-semibold text-sky-100/90 whitespace-nowrap">
+                          {Math.ceil(b.hp)} / {b.maxHp}
+                        </span>
+                      </div>
+
+                      <div className="relative h-2.5 w-full rounded-full bg-slate-950/90 border border-slate-400/25 overflow-hidden p-[1px]">
+                        <div
+                          className="bar-fill relative h-full rounded-full transition-all duration-150"
+                          style={{
+                            width: `${pct.toFixed(1)}%`,
+                            background: b.canBeSiphoned
+                              ? `linear-gradient(90deg, ${PALETTE.hex.royalIndigo}, ${PALETTE.hex.amethystTrim}, ${PALETTE.hex.yenneferLilac})`
+                              : `linear-gradient(90deg, ${PALETTE.hex.mutedSlate}, ${PALETTE.hex.steelSilver}, ${PALETTE.hex.pureWhite})`,
+                            boxShadow: b.canBeSiphoned
+                              ? `0 0 12px ${PALETTE.hex.amethystTrim}`
+                              : `0 0 10px ${PALETTE.hex.steelSilver}`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
             </div>
           ) : (
             <div className="absolute top-4 left-1/2 -translate-x-1/2 w-[310px] sm:w-[460px] md:w-[540px] max-w-[calc(100vw-2rem)]">
