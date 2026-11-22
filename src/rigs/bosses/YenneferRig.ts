@@ -26,22 +26,38 @@ import {
   type MaterialBleachMetadata,
 } from './BossBase';
 
-interface HairStrand {
-  readonly root: THREE.Group;
-  readonly mid: THREE.Group;
+interface SCurveHairLock {
+  readonly rootPivot: THREE.Group;
+  readonly midPivot: THREE.Group;
   readonly phase: number;
   readonly spread: number;
+  readonly baseX: number;
+}
+
+interface CoatSkirtPanel {
+  readonly pivot: THREE.Group;
+  readonly basePitch: number;
+  readonly angle: number;
 }
 
 /**
  * Cel-shaded procedural humanoid rig for **Yennefer of Vengerberg — Sorceress of Obsidian & Lilac**
  * (siphonable Guest Sovereign in *The Wolf & The Raven* & Siphon Gallery Guest Pedestal 1).
  *
- * Honors the complete `BossRigAdapter` contract (LSP) with a `512x512` `CanvasTexture` anime face
- * (vivid violet eyes across COMBAT / STAGGER / SIPHON_KISS / DRAINED_FAINT), obsidian star choker
- * (`headAccessory`), full `[1]` & `[2]` finisher poses with resistance-to-limp physics,
- * `[R]` Umbral Beam shield-to-slump pose, 360° Frontal Stolen Kiss, Victory Floor Collapse,
- * Defeat Puppet pose, and Captive Guest Pedestal dais idle pose.
+ * Strictly honors clean cel-shading rules:
+ * - Procedural 3-step cel ramp (`ToonAssets.createThreeStepToonMaterial`)
+ * - ZERO `BackSide` outline meshes on head, face, or hair strands
+ * - ZERO negative `scale.x = -1` mirroring on hair geometry — strictly positive scales &
+ *   `computeVertexNormals()` so wavy raven-black hair (`#111827`) exhibits crisp deep-violet (`#6D28D9`)
+ *   cel highlights with zero black artifacts
+ * - Warm porcelain skin (`#FDE4D6`), *Arcane Usurper* low-set anime proportions, luminous violet eyes
+ *   (`#A855F7`), haughty smirk (`[Sovereign Glare]`), `[Eyes-Closed Bliss]`, and `sovereignLipAnchor`
+ * - *The Witcher 3: Wild Hunt* attire: black velvet choker + 5-point obsidian star medallion,
+ *   high-collared dark-feather shoulder mantle (`#1E293B`/`#0F172A`), white ruffled blouse,
+ *   black laced corset bodice with silver trim, asymmetric split black-and-white coat-skirt,
+ *   and thigh-high black leather riding boots with silver buckles
+ * - Smooth core drain bleach (`100% -> 0%`) lerping violet eyes, obsidian star glow, and hair sheen
+ *   into exhausted ash-silver (`#94A3B8`).
  */
 export class YenneferRig extends BossBase {
   public readonly id = SPECIAL_SCENARIO_CONFIG.yenneferId;
@@ -49,6 +65,7 @@ export class YenneferRig extends BossBase {
   public readonly title = SPECIAL_SCENARIO_CONFIG.yenneferTitle;
   public readonly root = new THREE.Group();
   public readonly headAnchor = new THREE.Object3D();
+  public readonly sovereignLipAnchor: THREE.Object3D = this.headAnchor;
   public readonly headAccessory = new THREE.Object3D();
   public override readonly waistWrapRadius = FINISHER_CONFIG.mikuWaistWrapRadius;
   public readonly drainableMaterials: THREE.MeshToonMaterial[] = [];
@@ -72,64 +89,107 @@ export class YenneferRig extends BossBase {
   private readonly leftKneePivot = new THREE.Group();
   private readonly rightLegPivot = new THREE.Group();
   private readonly rightKneePivot = new THREE.Group();
-  private readonly hairStrands: HairStrand[] = [];
+
+  private readonly hairLocks: SCurveHairLock[] = [];
+  private readonly coatPanels: CoatSkirtPanel[] = [];
   private readonly auraRing: THREE.Mesh;
-  private readonly starChokerMesh: THREE.Mesh;
+  private readonly starMedallionGroup = new THREE.Group();
+  private readonly starCoreMat: THREE.MeshBasicMaterial;
+  private readonly starLight: THREE.PointLight;
+  private readonly hairMat: THREE.MeshToonMaterial;
 
   private readonly faceCanvas: HTMLCanvasElement;
   private readonly faceCtx: CanvasRenderingContext2D | null;
   private readonly faceTexture: THREE.CanvasTexture;
   private currentExpression: BossExpression = BOSS_EXPRESSIONS.COMBAT;
+  private currentDrainBleach = 0;
+  private lastDrawnEyeBleach = -1;
+  private lastSpiralPhase = 0;
   private hitFlashTimer = 0;
   private castFlourishTimer = 0;
   private accessoryFlickTimer = 0;
   private ascendHeight = 0;
   private captiveFaceTimer = 0;
 
+  // Reusable scratch colors (zero per-frame allocations)
+  private readonly violetEyeColor = new THREE.Color(PALETTE.yenneferVioletEye);
+  private readonly lilacStarColor = new THREE.Color(PALETTE.yenneferLilac);
+  private readonly hairHighlightColor = new THREE.Color(
+    PALETTE.yenneferHairHighlight,
+  );
+  private readonly ashSilverColor = new THREE.Color(PALETTE.drainedAshSilver);
+  private readonly scratchColor = new THREE.Color();
+
   constructor(scene: THREE.Scene) {
     super();
     this.root.name = 'YenneferRig';
     this.root.userData.managedByRig = true;
 
-    // 512x512 Procedural Anime Face CanvasTexture (vivid violet eyes & raven brows)
+    // 512x512 Procedural Anime Face CanvasTexture
     this.faceCanvas = document.createElement('canvas');
-    this.faceCanvas.width = 512;
-    this.faceCanvas.height = 512;
+    this.faceCanvas.width = ARENA_CONFIG.faceTextureSize;
+    this.faceCanvas.height = ARENA_CONFIG.faceTextureSize;
     this.faceCtx = this.faceCanvas.getContext('2d');
     this.faceTexture = new THREE.CanvasTexture(this.faceCanvas);
     this.faceTexture.colorSpace = THREE.SRGBColorSpace;
+    this.faceTexture.anisotropy = 4;
     this.ownedTextures.push(this.faceTexture);
-    this.drawFace(BOSS_EXPRESSIONS.COMBAT, 0);
 
+    // 3-Step Cel-Shaded Materials
+    const skinMat = this.trackMat(
+      ToonAssets.createThreeStepToonMaterial(PALETTE.yenneferSkin),
+    );
+    this.hairMat = this.trackDrainable(
+      ToonAssets.createThreeStepToonMaterial(PALETTE.yenneferRaven, {
+        emissive: PALETTE.yenneferHairHighlight,
+        emissiveIntensity: 0.28,
+      }),
+    );
     const velvetMat = this.trackDrainable(
-      ToonAssets.createToonMaterial(PALETTE.yenneferVelvet, {
-        emissive: PALETTE.amethystTrim,
-        emissiveIntensity: 0.16,
-      }),
-    );
-    const laceMat = this.trackDrainable(
-      ToonAssets.createToonMaterial(PALETTE.yenneferLace, {
-        emissive: PALETTE.yenneferLilac,
-        emissiveIntensity: 0.12,
-      }),
-    );
-    const ravenHairMat = this.trackDrainable(
-      ToonAssets.createToonMaterial(PALETTE.yenneferRaven, {
-        emissive: PALETTE.royalIndigo,
+      ToonAssets.createThreeStepToonMaterial(PALETTE.yenneferVelvet, {
+        emissive: PALETTE.yenneferHairHighlight,
         emissiveIntensity: 0.14,
       }),
     );
-    const lilacTrimMat = this.trackDrainable(
-      ToonAssets.createToonMaterial(PALETTE.yenneferLilac, {
-        emissive: PALETTE.amethystTrim,
-        emissiveIntensity: 0.42,
+    const featherDarkMat = this.trackDrainable(
+      ToonAssets.createThreeStepToonMaterial(PALETTE.yenneferFeatherDark, {
+        emissive: PALETTE.yenneferHairHighlight,
+        emissiveIntensity: 0.16,
       }),
     );
-    const skinMat = this.trackMat(
-      ToonAssets.createToonMaterial(PALETTE.marinaSkin),
+    const featherSlateMat = this.trackDrainable(
+      ToonAssets.createThreeStepToonMaterial(PALETTE.yenneferFeatherSlate, {
+        emissive: PALETTE.amethystTrim,
+        emissiveIntensity: 0.12,
+      }),
+    );
+    const blouseWhiteMat = this.trackMat(
+      ToonAssets.createThreeStepToonMaterial(PALETTE.yenneferLace),
+    );
+    const silverTrimMat = this.trackMat(
+      ToonAssets.createThreeStepToonMaterial(PALETTE.silverRune, {
+        emissive: PALETTE.iceHighlights,
+        emissiveIntensity: 0.14,
+      }),
+    );
+    const bootLeatherMat = this.trackMat(
+      ToonAssets.createThreeStepToonMaterial(PALETTE.abyssalCloak),
+    );
+    this.starCoreMat = this.trackMat(
+      new THREE.MeshBasicMaterial({ color: PALETTE.yenneferLilac }),
     );
     const faceMat = this.trackMat(
-      new THREE.MeshBasicMaterial({ map: this.faceTexture }),
+      new THREE.MeshToonMaterial({
+        map: this.faceTexture,
+        gradientMap: ToonAssets.getThreeStepToonGradientMap(),
+        transparent: true,
+        emissive: new THREE.Color(PALETTE.pureWhite),
+        emissiveMap: this.faceTexture,
+        emissiveIntensity: 0.36,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+      }),
     );
     const auraMat = this.trackMat(
       new THREE.MeshBasicMaterial({
@@ -146,153 +206,35 @@ export class YenneferRig extends BossBase {
     this.root.add(this.bodyPivot);
     this.bodyPivot.add(this.torsoGroup);
 
-    // Attach front-facing pooled chest telegraph onto upper torso
+    // Attach pooled front-facing chest telegraph for 360° Frontal Guard-Break Stolen Kiss
     this.attachBlindspotGlint(this.torsoGroup);
 
-    // Slender Sorceress Corset, Feathered Mantle & Flowing Black-and-White Skirt
-    const waistMesh = this.outlined(
-      new THREE.CylinderGeometry(0.14, 0.17, 0.24, 12),
-      velvetMat,
-    );
-    waistMesh.position.y = 0.06;
-    this.torsoGroup.add(waistMesh);
-
-    const bodice = this.outlined(
-      new THREE.CylinderGeometry(0.19, 0.14, 0.44, 12),
-      velvetMat,
-    );
-    bodice.position.y = 0.36;
-    this.torsoGroup.add(bodice);
-
-    // White Lace Bust Trim & Feathered Raven Collar
-    const laceCollar = this.outlined(
-      new THREE.TorusGeometry(0.175, 0.032, 8, 18),
-      laceMat,
-    );
-    laceCollar.rotation.x = Math.PI / 2;
-    laceCollar.position.y = 0.56;
-    this.torsoGroup.add(laceCollar);
-
-    const skirt = this.outlined(
-      new THREE.CylinderGeometry(0.18, 0.44, 0.86, 16, 1, true),
-      velvetMat,
-    );
-    skirt.position.y = -0.34;
-    this.torsoGroup.add(skirt);
-
-    const skirtTrim = new THREE.Mesh(
-      this.trackGeo(new THREE.TorusGeometry(0.43, 0.022, 6, 24)),
-      lilacTrimMat,
-    );
-    skirtTrim.rotation.x = Math.PI / 2;
-    skirtTrim.position.y = -0.76;
-    this.torsoGroup.add(skirtTrim);
-
-    // Head, 512x512 Anime Face, Obsidian Star Choker & Cascading Raven Waves
-    this.headGroup.position.set(0, 0.64, 0);
-    this.torsoGroup.add(this.headGroup);
-
-    const neck = this.outlined(
-      new THREE.CylinderGeometry(0.052, 0.06, 0.11, 8),
+    // Build Witcher 3 Attire Torso, Mantle, Corset & Split Coat-Skirt
+    this.buildTorsoAndWitcherAttire(
       skinMat,
-    );
-    neck.position.y = 0.04;
-    this.headGroup.add(neck);
-
-    // Obsidian Star Choker (`headAccessory` for [F] Taunt Flick)
-    this.headAccessory.position.set(0, 0.055, 0.058);
-    this.headGroup.add(this.headAccessory);
-    const chokerBand = new THREE.Mesh(
-      this.trackGeo(new THREE.TorusGeometry(0.058, 0.01, 6, 16)),
       velvetMat,
+      featherDarkMat,
+      featherSlateMat,
+      blouseWhiteMat,
+      silverTrimMat,
     );
-    chokerBand.rotation.x = Math.PI / 2;
-    chokerBand.position.set(0, 0, -0.058);
-    this.starChokerMesh = new THREE.Mesh(
-      this.trackGeo(new THREE.OctahedronGeometry(0.032, 0)),
-      lilacTrimMat,
-    );
-    this.headAccessory.add(chokerBand, this.starChokerMesh);
 
-    const headSphere = this.outlined(
-      new THREE.SphereGeometry(0.138, 16, 14),
+    // Build Head, Anime Face, Obsidian Star Choker & Clean Sculpted Raven Curls (ZERO BackSide outlines / ZERO negative scales!)
+    this.starLight = new THREE.PointLight(PALETTE.yenneferVioletEye, 1.3, 2.4, 2);
+    this.buildHeadFaceAndRavenHair(
       skinMat,
+      faceMat,
+      velvetMat,
+      silverTrimMat,
     );
-    headSphere.position.y = 0.18;
-    headSphere.scale.set(0.94, 1.03, 0.96);
-    this.headGroup.add(headSphere);
 
-    // Curved Front Anime Face Plate
-    const facePlateGeo = this.trackGeo(
-      new THREE.SphereGeometry(
-        0.141,
-        16,
-        14,
-        -Math.PI * 0.36,
-        Math.PI * 0.72,
-        Math.PI * 0.24,
-        Math.PI * 0.56,
-      ),
-    );
-    const facePlate = new THREE.Mesh(facePlateGeo, faceMat);
-    facePlate.position.y = 0.18;
-    facePlate.rotation.y = Math.PI * 0.5;
-    facePlate.scale.set(0.94, 1.03, 0.96);
-    this.headGroup.add(facePlate);
+    // Build Arms with Ruffled White Blouse Cuffs
+    this.buildArm(-1, velvetMat, blouseWhiteMat, silverTrimMat, skinMat);
+    this.buildArm(1, velvetMat, blouseWhiteMat, silverTrimMat, skinMat);
 
-    // Exact Lip Contact Anchor
-    this.headAnchor.position.set(0, 0.125, 0.136);
-    this.headGroup.add(this.headAnchor);
-
-    // Raven-Black Hair Crown & Cascading Wavy Ribbons
-    const hairCrown = this.outlined(
-      new THREE.SphereGeometry(0.152, 14, 12, 0, Math.PI * 2, 0, Math.PI * 0.65),
-      ravenHairMat,
-    );
-    hairCrown.position.set(0, 0.2, -0.015);
-    this.headGroup.add(hairCrown);
-
-    const strandGeo1 = this.trackGeo(new THREE.CylinderGeometry(0.052, 0.042, 0.38, 8));
-    const strandGeo2 = this.trackGeo(new THREE.ConeGeometry(0.044, 0.36, 8));
-    const strandSpecs = [
-      { x: -0.11, z: -0.04, spread: -0.32, phase: 0.0 },
-      { x: -0.06, z: -0.11, spread: -0.14, phase: 1.1 },
-      { x: 0.0, z: -0.13, spread: 0.0, phase: 2.2 },
-      { x: 0.06, z: -0.11, spread: 0.14, phase: 3.3 },
-      { x: 0.11, z: -0.04, spread: 0.32, phase: 4.4 },
-    ];
-    for (let i = 0; i < strandSpecs.length; i++) {
-      const sp = strandSpecs[i]!;
-      const rootSeg = new THREE.Group();
-      rootSeg.position.set(sp.x, 0.18, sp.z);
-      const upper = this.outlined(strandGeo1, ravenHairMat);
-      upper.position.y = -0.18;
-      rootSeg.add(upper);
-
-      const midSeg = new THREE.Group();
-      midSeg.position.set(0, -0.36, 0);
-      const lower = this.outlined(strandGeo2, ravenHairMat);
-      lower.position.y = -0.18;
-      lower.rotation.x = Math.PI;
-      midSeg.add(lower);
-      rootSeg.add(midSeg);
-
-      this.headGroup.add(rootSeg);
-      this.hairStrands.push({
-        root: rootSeg,
-        mid: midSeg,
-        phase: sp.phase,
-        spread: sp.spread,
-      });
-    }
-
-    // Slender Arms with Lace Cuffs
-    this.buildArm(-1, velvetMat, laceMat, skinMat);
-    this.buildArm(1, velvetMat, laceMat, skinMat);
-
-    // Slender Legs & High Velvet Boots
-    this.buildLeg(-1, velvetMat);
-    this.buildLeg(1, velvetMat);
+    // Build Legs with Thigh-High Black Leather Riding Boots & Silver Buckles
+    this.buildLeg(-1, skinMat, bootLeatherMat, silverTrimMat);
+    this.buildLeg(1, skinMat, bootLeatherMat, silverTrimMat);
 
     // Lilac-Violet Chaos Aura Ring
     this.auraRing = new THREE.Mesh(
@@ -303,6 +245,7 @@ export class YenneferRig extends BossBase {
     this.auraRing.position.y = 0.04;
     this.root.add(this.auraRing);
 
+    this.drawFace(BOSS_EXPRESSIONS.COMBAT, 0, 0);
     scene.add(this.root);
   }
 
@@ -327,127 +270,583 @@ export class YenneferRig extends BossBase {
     return mat;
   }
 
-  private outlined(
+  private outlinedAttire(
     geo: THREE.BufferGeometry,
     mat: THREE.Material,
+    outlineScale: number | { x: number; y: number; z: number } = 1.045,
   ): THREE.Group {
     this.trackGeo(geo);
-    return ToonAssets.createOutlinedMesh(
-      geo,
-      mat,
-      ARENA_CONFIG.defaultOutlineScale,
-      true,
-    ).group;
+    return ToonAssets.createOutlinedMesh(geo, mat, outlineScale, true).group;
+  }
+
+  private buildTorsoAndWitcherAttire(
+    skinMat: THREE.MeshToonMaterial,
+    velvetMat: THREE.MeshToonMaterial,
+    featherDarkMat: THREE.MeshToonMaterial,
+    featherSlateMat: THREE.MeshToonMaterial,
+    blouseWhiteMat: THREE.MeshToonMaterial,
+    silverTrimMat: THREE.MeshToonMaterial,
+  ): void {
+    // Fitted Black Laced Corset Bodice & White Ruffled Blouse
+    const pelvis = this.outlinedAttire(
+      new THREE.CylinderGeometry(0.13, 0.155, 0.2, 12),
+      velvetMat,
+    );
+    pelvis.position.y = 0.04;
+    pelvis.scale.set(1.08, 1.0, 0.82);
+    this.torsoGroup.add(pelvis);
+
+    const corset = this.outlinedAttire(
+      new THREE.CylinderGeometry(0.165, 0.12, 0.34, 14),
+      velvetMat,
+    );
+    corset.position.y = 0.28;
+    corset.scale.set(1.06, 1.0, 0.82);
+    this.torsoGroup.add(corset);
+
+    // Silver Corset Front Lacing & Trim Bars
+    const laceGeo = this.trackGeo(new THREE.BoxGeometry(0.088, 0.012, 0.014));
+    for (let i = 0; i < 4; i++) {
+      const bar = new THREE.Mesh(laceGeo, silverTrimMat);
+      bar.position.set(0, 0.18 + i * 0.056, 0.135);
+      bar.rotation.z = (i % 2 === 0 ? 1 : -1) * 0.22;
+      this.torsoGroup.add(bar);
+    }
+
+    // White Ruffled Blouse Upper Chest & Collarbone Reveal
+    const blouseBust = this.outlinedAttire(
+      new THREE.CylinderGeometry(0.15, 0.16, 0.16, 14),
+      blouseWhiteMat,
+    );
+    blouseBust.position.set(0, 0.43, 0.01);
+    blouseBust.scale.set(1.04, 1.0, 0.84);
+    this.torsoGroup.add(blouseBust);
+
+    // Sculpted Bust Ruffle Placket
+    const ruffleGeo = this.trackGeo(new THREE.TorusGeometry(0.042, 0.014, 6, 12));
+    for (let i = 0; i < 3; i++) {
+      const ruff = new THREE.Mesh(ruffleGeo, blouseWhiteMat);
+      ruff.position.set(0, 0.38 + i * 0.045, 0.132);
+      ruff.scale.set(1.2, 0.55, 0.7);
+      this.torsoGroup.add(ruff);
+    }
+
+    const collarboneSkin = new THREE.Mesh(
+      this.trackGeo(new THREE.CylinderGeometry(0.095, 0.125, 0.09, 12)),
+      skinMat,
+    );
+    collarboneSkin.position.y = 0.5;
+    collarboneSkin.scale.set(1.12, 1.0, 0.76);
+    this.torsoGroup.add(collarboneSkin);
+
+    // High-Collared Dark-Feather Shoulder Mantle (#1E293B / #0F172A layered feather plates)
+    const featherGeo = this.trackGeo(new THREE.BoxGeometry(0.082, 0.22, 0.022));
+    const featherCount = 11;
+    for (let i = 0; i < featherCount; i++) {
+      const t = i / (featherCount - 1) - 0.5; // -0.5 .. +0.5 around back & shoulders
+      const ang = Math.PI + t * Math.PI * 1.42;
+      const mat = i % 2 === 0 ? featherDarkMat : featherSlateMat;
+
+      // Upper high-collar upright feathers framing the nape & shoulders
+      const upperFeather = new THREE.Mesh(featherGeo, mat);
+      upperFeather.position.set(
+        Math.sin(ang) * 0.15,
+        0.54 + Math.cos(t * Math.PI) * 0.05,
+        Math.cos(ang) * 0.13,
+      );
+      upperFeather.rotation.y = ang;
+      upperFeather.rotation.x = -0.34;
+      this.torsoGroup.add(upperFeather);
+
+      // Lower draped feather mantle tier flaring over the clavicles
+      const lowerFeather = new THREE.Mesh(featherGeo, i % 2 === 0 ? featherSlateMat : featherDarkMat);
+      lowerFeather.scale.set(1.18, 0.92, 1.0);
+      lowerFeather.position.set(
+        Math.sin(ang) * 0.225,
+        0.455,
+        Math.cos(ang) * 0.165,
+      );
+      lowerFeather.rotation.y = ang;
+      lowerFeather.rotation.x = -0.82;
+      this.torsoGroup.add(lowerFeather);
+    }
+
+    // Silver-buckled Corset Waist Belt
+    const waistBelt = this.outlinedAttire(
+      new THREE.CylinderGeometry(0.132, 0.138, 0.06, 14),
+      velvetMat,
+    );
+    waistBelt.scale.set(1.08, 1.0, 0.84);
+    waistBelt.position.y = 0.12;
+    this.torsoGroup.add(waistBelt);
+
+    const beltBuckle = new THREE.Mesh(
+      this.trackGeo(new THREE.BoxGeometry(0.068, 0.054, 0.024)),
+      silverTrimMat,
+    );
+    beltBuckle.position.set(0, 0.12, 0.122);
+    this.torsoGroup.add(beltBuckle);
+
+    // Asymmetric Split Black-and-White Coat-Skirt (flares cleanly during combat & kneeling)
+    const panelCount = 10;
+    for (let i = 0; i < panelCount; i++) {
+      const ang = (i / panelCount) * Math.PI * 2;
+      // Leave narrow asymmetric front slit so her white underskirt & riding boots show cleanly
+      if (Math.cos(ang) > 0.86) continue;
+
+      const pivot = new THREE.Group();
+      pivot.position.set(
+        Math.sin(ang) * 0.125,
+        0.095,
+        Math.cos(ang) * 0.105,
+      );
+      pivot.rotation.y = ang;
+      this.torsoGroup.add(pivot);
+
+      const isFrontSide = Math.cos(ang) > 0.15;
+      const isLeftAsym = Math.sin(ang) < 0;
+      const len = isFrontSide ? (isLeftAsym ? 0.54 : 0.62) : 0.74;
+      const isWhitePanel = isFrontSide && i % 2 === 1;
+      const panelMat = isWhitePanel ? blouseWhiteMat : velvetMat;
+
+      const panelMesh = this.outlinedAttire(
+        new THREE.BoxGeometry(0.165, len, 0.022),
+        panelMat,
+        { x: 1.04, y: 1.015, z: 1.3 },
+      );
+      panelMesh.position.set(0, -len * 0.5, 0.085);
+      panelMesh.rotation.x = -0.24;
+      pivot.add(panelMesh);
+
+      const silverHem = new THREE.Mesh(
+        this.trackGeo(new THREE.BoxGeometry(0.168, 0.026, 0.026)),
+        silverTrimMat,
+      );
+      silverHem.position.set(0, -len + 0.015, 0.168);
+      silverHem.rotation.x = -0.24;
+      pivot.add(silverHem);
+
+      this.coatPanels.push({ pivot, basePitch: -0.24, angle: ang });
+    }
+  }
+
+  /**
+   * Builds Yennefer's clean cel-shaded head, anime face plate, obsidian star choker,
+   * side-parted wavy raven bangs above the brow line, and layered S-curved cascading curls.
+   *
+   * STRICT CLEAN CEL-SHADING RULE:
+   * - ZERO BackSide outline meshes on head, face, or hair strands
+   * - ZERO negative scale.x = -1 mirroring on any hair strand
+   * - Explicit computeVertexNormals() on all sculpted hair geometry.
+   */
+  private buildHeadFaceAndRavenHair(
+    skinMat: THREE.MeshToonMaterial,
+    faceMat: THREE.MeshToonMaterial,
+    velvetMat: THREE.MeshToonMaterial,
+    silverTrimMat: THREE.MeshToonMaterial,
+  ): void {
+    this.headGroup.position.set(0, 0.515, 0.008);
+    this.torsoGroup.add(this.headGroup);
+
+    const neckGeo = this.trackGeo(new THREE.CylinderGeometry(0.048, 0.056, 0.11, 10));
+    neckGeo.computeVertexNormals();
+    const neck = new THREE.Mesh(neckGeo, skinMat);
+    neck.position.y = 0.045;
+    this.headGroup.add(neck);
+
+    // Black Velvet Choker + Glowing Silver-and-Violet 5-Point Obsidian Star Medallion (`headAccessory`)
+    const chokerBand = new THREE.Mesh(
+      this.trackGeo(new THREE.TorusGeometry(0.056, 0.011, 8, 20)),
+      velvetMat,
+    );
+    chokerBand.rotation.x = Math.PI / 2;
+    chokerBand.position.set(0, 0.058, 0);
+    this.headGroup.add(chokerBand);
+
+    this.headAccessory.position.set(0, 0.056, 0.062);
+    this.headGroup.add(this.headAccessory);
+    this.headAccessory.add(this.starMedallionGroup);
+
+    // Build crisp 5-point Obsidian Star Medallion from positive extruded star shape
+    const starShape = new THREE.Shape();
+    const outerR = 0.036;
+    const innerR = 0.015;
+    for (let i = 0; i < 10; i++) {
+      const rad = i % 2 === 0 ? outerR : innerR;
+      const a = (i / 10) * Math.PI * 2 + Math.PI / 2;
+      const sx = Math.cos(a) * rad;
+      const sy = Math.sin(a) * rad;
+      if (i === 0) starShape.moveTo(sx, sy);
+      else starShape.lineTo(sx, sy);
+    }
+    starShape.closePath();
+
+    const starGeo = this.trackGeo(
+      new THREE.ExtrudeGeometry(starShape, {
+        depth: 0.01,
+        bevelEnabled: true,
+        bevelThickness: 0.003,
+        bevelSize: 0.003,
+        bevelSegments: 1,
+      }),
+    );
+    starGeo.center();
+    starGeo.computeVertexNormals();
+
+    const starSilverFrame = new THREE.Mesh(starGeo, silverTrimMat);
+    const starVioletCore = new THREE.Mesh(
+      this.trackGeo(new THREE.OctahedronGeometry(0.014, 0)),
+      this.starCoreMat,
+    );
+    starVioletCore.position.z = 0.006;
+    this.starLight.position.set(0, 0, 0.05);
+    this.starMedallionGroup.add(starSilverFrame, starVioletCore, this.starLight);
+
+    // Clean Porcelain Head Sphere (NO BackSide outline!)
+    const headCenterY = 0.185;
+    const headGeo = this.trackGeo(new THREE.SphereGeometry(0.122, 24, 20));
+    headGeo.computeVertexNormals();
+    const headMesh = new THREE.Mesh(headGeo, skinMat);
+    headMesh.scale.set(0.94, 1.02, 0.96);
+    headMesh.position.y = headCenterY;
+    headMesh.castShadow = true;
+    this.headGroup.add(headMesh);
+
+    // Exact Lip Contact Anchor (`headAnchor` & `sovereignLipAnchor`)
+    this.headAnchor.position.set(0, headCenterY - 0.044, 0.116);
+    this.headGroup.add(this.headAnchor);
+
+    // Curved Transparent Anime Face Overlay Shell (matching MarinaRig UV orientation)
+    const faceShellGeo = this.trackGeo(
+      new THREE.SphereGeometry(
+        0.124,
+        28,
+        20,
+        Math.PI * 0.15,
+        Math.PI * 0.7,
+        Math.PI * 0.2,
+        Math.PI * 0.62,
+      ),
+    );
+    faceShellGeo.computeVertexNormals();
+    const faceShell = new THREE.Mesh(faceShellGeo, faceMat);
+    faceShell.scale.set(0.94, 1.02, 0.96);
+    faceShell.position.y = headCenterY;
+    this.headGroup.add(faceShell);
+
+    // Sculpted Raven-Black Hair Crown Cap (strictly positive scale, ZERO outlines!)
+    const crownGeo = this.trackGeo(
+      new THREE.SphereGeometry(
+        0.132,
+        24,
+        18,
+        0,
+        Math.PI * 2,
+        0,
+        Math.PI * 0.6,
+      ),
+    );
+    crownGeo.computeVertexNormals();
+    const hairCrown = new THREE.Mesh(crownGeo, this.hairMat);
+    hairCrown.scale.set(0.98, 1.05, 1.05);
+    hairCrown.rotation.x = -0.18;
+    hairCrown.position.set(0, headCenterY + 0.014, -0.008);
+    hairCrown.castShadow = true;
+    this.headGroup.add(hairCrown);
+
+    // Side-Parted Wavy Raven Bangs positioned cleanly ABOVE her brow line (y >= 0.256)
+    // Every strand built from explicit CatmullRomCurve3 TubeGeometry with positive scale & computeVertexNormals()
+    const bangCurves: readonly THREE.Vector3[][] = [
+      // Deep left-to-right side-part sweep above right brow
+      [
+        new THREE.Vector3(-0.048, 0.305, 0.065),
+        new THREE.Vector3(0.012, 0.285, 0.114),
+        new THREE.Vector3(0.072, 0.262, 0.104),
+        new THREE.Vector3(0.112, 0.215, 0.068),
+      ],
+      // Secondary softer front wave tucked cleanly above brow line
+      [
+        new THREE.Vector3(-0.042, 0.302, 0.072),
+        new THREE.Vector3(-0.004, 0.278, 0.118),
+        new THREE.Vector3(0.044, 0.264, 0.112),
+      ],
+      // Left side-part framing wave sweeping left of brow
+      [
+        new THREE.Vector3(-0.05, 0.302, 0.064),
+        new THREE.Vector3(-0.088, 0.272, 0.098),
+        new THREE.Vector3(-0.116, 0.218, 0.064),
+      ],
+      // Left temple S-curl framing cheek
+      [
+        new THREE.Vector3(-0.105, 0.245, 0.042),
+        new THREE.Vector3(-0.128, 0.155, 0.056),
+        new THREE.Vector3(-0.114, 0.055, 0.042),
+        new THREE.Vector3(-0.132, -0.045, 0.054),
+      ],
+      // Right temple S-curl framing cheek
+      [
+        new THREE.Vector3(0.105, 0.245, 0.042),
+        new THREE.Vector3(0.128, 0.155, 0.056),
+        new THREE.Vector3(0.114, 0.055, 0.042),
+        new THREE.Vector3(0.132, -0.045, 0.054),
+      ],
+    ];
+
+    for (let i = 0; i < bangCurves.length; i++) {
+      const pts = bangCurves[i]!;
+      const curve = new THREE.CatmullRomCurve3(pts);
+      const radius = i < 3 ? 0.026 : 0.024;
+      const tubeGeo = this.trackGeo(new THREE.TubeGeometry(curve, 14, radius, 8, false));
+      tubeGeo.computeVertexNormals();
+      const strandMesh = new THREE.Mesh(tubeGeo, this.hairMat);
+      strandMesh.scale.set(1.0, 1.0, 0.72); // Strictly positive scales!
+      strandMesh.castShadow = true;
+      this.headGroup.add(strandMesh);
+    }
+
+    // Layered S-Curved Cascading Back Hair Curls past her shoulder blades with sinusoidal wind sway
+    const curlCount = 7;
+    for (let i = 0; i < curlCount; i++) {
+      const t = i / (curlCount - 1) - 0.5; // -0.5 .. +0.5
+      const baseX = t * 0.22;
+      const baseZ = -0.095 - Math.cos(t * 1.65) * 0.028;
+      const lenScale = 1.0 - Math.abs(t) * 0.16;
+
+      const rootPivot = new THREE.Group();
+      rootPivot.position.set(baseX, headCenterY + 0.02, baseZ);
+      this.headGroup.add(rootPivot);
+
+      // Upper S-curve segment (positive local curve, no mirror scaling!)
+      const upperCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(t * 0.022, -0.11 * lenScale, -0.036),
+        new THREE.Vector3(-t * 0.014, -0.23 * lenScale, -0.012),
+        new THREE.Vector3(t * 0.018, -0.34 * lenScale, -0.04),
+      ]);
+      const upperGeo = this.trackGeo(
+        new THREE.TubeGeometry(upperCurve, 12, 0.034, 8, false),
+      );
+      upperGeo.computeVertexNormals();
+      const upperMesh = new THREE.Mesh(upperGeo, this.hairMat);
+      upperMesh.castShadow = true;
+      rootPivot.add(upperMesh);
+
+      const midPivot = new THREE.Group();
+      midPivot.position.set(t * 0.018, -0.34 * lenScale, -0.04);
+      rootPivot.add(midPivot);
+
+      // Lower cascading S-curve curl past shoulder blades
+      const lowerCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(-t * 0.018, -0.11 * lenScale, 0.022),
+        new THREE.Vector3(t * 0.02, -0.22 * lenScale, -0.026),
+        new THREE.Vector3(0, -0.32 * lenScale, 0.014),
+      ]);
+      const lowerGeo = this.trackGeo(
+        new THREE.TubeGeometry(lowerCurve, 12, 0.027, 8, false),
+      );
+      lowerGeo.computeVertexNormals();
+      const lowerMesh = new THREE.Mesh(lowerGeo, this.hairMat);
+      lowerMesh.castShadow = true;
+      midPivot.add(lowerMesh);
+
+      // Tapered curled tip (positive cone, rotated smoothly)
+      const tipGeo = this.trackGeo(new THREE.ConeGeometry(0.026, 0.11, 7));
+      tipGeo.computeVertexNormals();
+      const tipMesh = new THREE.Mesh(tipGeo, this.hairMat);
+      tipMesh.rotation.x = Math.PI;
+      tipMesh.position.set(0, -0.36 * lenScale, 0.014);
+      midPivot.add(tipMesh);
+
+      this.hairLocks.push({
+        rootPivot,
+        midPivot,
+        phase: i * 0.85,
+        spread: t,
+        baseX,
+      });
+    }
   }
 
   private buildArm(
     side: -1 | 1,
     velvetMat: THREE.MeshToonMaterial,
-    laceMat: THREE.MeshToonMaterial,
+    blouseWhiteMat: THREE.MeshToonMaterial,
+    silverTrimMat: THREE.MeshToonMaterial,
     skinMat: THREE.MeshToonMaterial,
   ): void {
     const shoulder = side < 0 ? this.leftShoulderPivot : this.rightShoulderPivot;
     const elbow = side < 0 ? this.leftElbowPivot : this.rightElbowPivot;
     const hand = side < 0 ? this.leftHandAnchor : this.rightHandAnchor;
 
-    shoulder.position.set(side * 0.22, 0.54, 0);
+    shoulder.position.set(side * 0.215, 0.435, 0);
     this.torsoGroup.add(shoulder);
 
-    const upper = this.outlined(
-      new THREE.CylinderGeometry(0.046, 0.04, 0.3, 8),
+    const upper = this.outlinedAttire(
+      new THREE.CylinderGeometry(0.045, 0.038, 0.26, 10),
       velvetMat,
+      1.07,
     );
-    upper.position.y = -0.15;
+    upper.position.y = -0.13;
     shoulder.add(upper);
 
-    elbow.position.set(0, -0.3, 0);
+    elbow.position.set(0, -0.26, 0);
     shoulder.add(elbow);
 
-    const forearm = this.outlined(
-      new THREE.CylinderGeometry(0.038, 0.034, 0.28, 8),
+    const forearm = this.outlinedAttire(
+      new THREE.CylinderGeometry(0.037, 0.032, 0.22, 10),
       velvetMat,
+      1.07,
     );
-    forearm.position.y = -0.14;
+    forearm.position.y = -0.11;
     elbow.add(forearm);
 
-    const cuff = new THREE.Mesh(
-      this.trackGeo(new THREE.TorusGeometry(0.04, 0.012, 6, 12)),
-      laceMat,
+    // Flared White Ruffled Lace Cuff & Silver Wrist Band
+    const laceCuff = new THREE.Mesh(
+      this.trackGeo(new THREE.CylinderGeometry(0.036, 0.068, 0.085, 12, 1, true)),
+      blouseWhiteMat,
     );
-    cuff.rotation.x = Math.PI / 2;
-    cuff.position.y = -0.26;
-    elbow.add(cuff);
+    laceCuff.position.y = -0.21;
+    elbow.add(laceCuff);
 
-    const palm = this.outlined(
-      new THREE.SphereGeometry(0.036, 8, 8),
+    const silverWrist = new THREE.Mesh(
+      this.trackGeo(new THREE.TorusGeometry(0.036, 0.007, 6, 14)),
+      silverTrimMat,
+    );
+    silverWrist.rotation.x = Math.PI / 2;
+    silverWrist.position.y = -0.175;
+    elbow.add(silverWrist);
+
+    const palm = new THREE.Mesh(
+      this.trackGeo(new THREE.BoxGeometry(0.045, 0.072, 0.046)),
       skinMat,
     );
-    palm.position.y = -0.3;
+    palm.position.set(0, -0.255, 0.008);
     elbow.add(palm);
 
-    hand.position.set(0, -0.31, 0);
+    hand.position.set(0, -0.295, 0.018);
     elbow.add(hand);
   }
 
-  private buildLeg(side: -1 | 1, velvetMat: THREE.MeshToonMaterial): void {
+  private buildLeg(
+    side: -1 | 1,
+    skinMat: THREE.MeshToonMaterial,
+    bootLeatherMat: THREE.MeshToonMaterial,
+    silverTrimMat: THREE.MeshToonMaterial,
+  ): void {
     const legPivot = side < 0 ? this.leftLegPivot : this.rightLegPivot;
     const kneePivot = side < 0 ? this.leftKneePivot : this.rightKneePivot;
 
-    legPivot.position.set(side * 0.1, -0.04, 0);
+    legPivot.position.set(side * 0.095, -0.02, 0);
     this.bodyPivot.add(legPivot);
 
-    const thigh = this.outlined(
-      new THREE.CylinderGeometry(0.068, 0.056, 0.42, 8),
-      velvetMat,
+    // Upper Thigh + Thigh-High Black Leather Riding Boot Cuff
+    const upperThigh = new THREE.Mesh(
+      this.trackGeo(new THREE.CylinderGeometry(0.064, 0.056, 0.16, 10)),
+      skinMat,
     );
-    thigh.position.y = -0.21;
-    legPivot.add(thigh);
+    upperThigh.position.y = -0.08;
+    legPivot.add(upperThigh);
 
-    kneePivot.position.set(0, -0.42, 0);
+    const bootThigh = this.outlinedAttire(
+      new THREE.CylinderGeometry(0.059, 0.048, 0.29, 10),
+      bootLeatherMat,
+      1.06,
+    );
+    bootThigh.position.y = -0.295;
+    legPivot.add(bootThigh);
+
+    // Silver Boot-Top Buckle Strap
+    const thighStrap = new THREE.Mesh(
+      this.trackGeo(new THREE.TorusGeometry(0.058, 0.008, 6, 14)),
+      silverTrimMat,
+    );
+    thighStrap.rotation.x = Math.PI / 2;
+    thighStrap.position.y = -0.165;
+    legPivot.add(thighStrap);
+
+    kneePivot.position.set(0, -0.43, 0);
     legPivot.add(kneePivot);
 
-    const boot = this.outlined(
-      new THREE.CylinderGeometry(0.052, 0.042, 0.44, 8),
-      velvetMat,
+    const bootShin = this.outlinedAttire(
+      new THREE.CylinderGeometry(0.047, 0.036, 0.42, 10),
+      bootLeatherMat,
+      1.06,
     );
-    boot.position.y = -0.22;
-    kneePivot.add(boot);
+    bootShin.position.y = -0.21;
+    kneePivot.add(bootShin);
+
+    // Silver Ankle Riding Buckle
+    const ankleBuckle = new THREE.Mesh(
+      this.trackGeo(new THREE.BoxGeometry(0.024, 0.028, 0.022)),
+      silverTrimMat,
+    );
+    ankleBuckle.position.set(side * 0.036, -0.34, 0.018);
+    kneePivot.add(ankleBuckle);
+
+    const bootFoot = this.outlinedAttire(
+      new THREE.BoxGeometry(0.068, 0.056, 0.14),
+      bootLeatherMat,
+      1.06,
+    );
+    bootFoot.position.set(0, -0.43, 0.034);
+    kneePivot.add(bootFoot);
   }
 
-  private drawFace(expression: BossExpression, spiralPhase: number): void {
+  /**
+   * Draws Yennefer's 512x512 *Arcane Usurper* low-set anime face texture with
+   * live core-drain eye bleach (#A855F7 -> #94A3B8), dark lashes, catchlights,
+   * subtle rose blush, and haughty smirk (`[Sovereign Glare]`) / `[Eyes-Closed Bliss]`.
+   */
+  private drawFace(
+    expression: BossExpression,
+    spiralPhase: number,
+    bleach: number,
+  ): void {
     const ctx = this.faceCtx;
     if (!ctx) return;
 
-    ctx.fillStyle = PALETTE.hex.marinaSkin;
-    ctx.fillRect(0, 0, 512, 512);
+    ctx.clearRect(0, 0, 512, 512);
 
-    // Subtle Sorceress Blush
+    // Interpolate iris violet (#A855F7) -> exhausted ash-silver (#94A3B8) smoothly
+    this.scratchColor
+      .copy(this.violetEyeColor)
+      .lerp(this.ashSilverColor, THREE.MathUtils.clamp(bleach, 0, 1));
+    const irisHex = `#${this.scratchColor.getHexString()}`;
+
+    this.scratchColor
+      .copy(this.lilacStarColor)
+      .lerp(this.ashSilverColor, THREE.MathUtils.clamp(bleach, 0, 1));
+    const lowerIrisHex = `#${this.scratchColor.getHexString()}`;
+
+    // Low-set anime vertical placement matching MarinaRig
+    const eyeY = 278;
+    const eyeXs = [174, 338];
+
+    // Subtle Sorceress Rose Blush
     const blushAlpha =
       expression === BOSS_EXPRESSIONS.SIPHON_KISS ||
       expression === BOSS_EXPRESSIONS.DRAINED_FAINT
         ? 0.34
         : expression === BOSS_EXPRESSIONS.STAGGER
-          ? 0.24
-          : 0.1;
+          ? 0.25
+          : 0.14;
     ctx.fillStyle = `rgba(244, 63, 94, ${blushAlpha})`;
     ctx.beginPath();
-    ctx.ellipse(152, 294, 42, 22, 0, 0, Math.PI * 2);
-    ctx.ellipse(360, 294, 42, 22, 0, 0, Math.PI * 2);
+    ctx.ellipse(150, 326, 38, 17, 0, 0, Math.PI * 2);
+    ctx.ellipse(362, 326, 38, 17, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    const eyeXs = [174, 338];
-    const eyeY = 236;
-
     if (expression === BOSS_EXPRESSIONS.DRAINED_FAINT) {
-      // Spinning @_@ dizzy violet spirals
-      ctx.strokeStyle = PALETTE.hex.yenneferVioletEye;
+      // Spinning @_@ dizzy spirals (bleaching toward ash-silver)
+      ctx.strokeStyle = irisHex;
       ctx.lineWidth = 6;
       for (let e = 0; e < eyeXs.length; e++) {
         const cx = eyeXs[e]!;
         ctx.beginPath();
         for (let a = 0; a < 18; a++) {
           const theta = a * 0.55 + spiralPhase;
-          const r = 4 + a * 1.9;
+          const r = 4 + a * 1.85;
           const px = cx + Math.cos(theta) * r;
           const py = eyeY + Math.sin(theta) * r;
           if (a === 0) ctx.moveTo(px, py);
@@ -456,7 +855,7 @@ export class YenneferRig extends BossBase {
         ctx.stroke();
       }
     } else if (expression === BOSS_EXPRESSIONS.SIPHON_KISS) {
-      // Tightly shut ecstatic lashes during Siphon Kiss
+      // [Eyes-Closed Bliss] curved dark lashes
       ctx.strokeStyle = PALETTE.hex.yenneferRaven;
       ctx.lineWidth = 9;
       ctx.lineCap = 'round';
@@ -468,78 +867,105 @@ export class YenneferRig extends BossBase {
         ctx.stroke();
       }
     } else {
-      // Vivid Violet Anime Eyes
+      // [Sovereign Glare] / Stagger Luminous Violet Anime Eyes
       for (let e = 0; e < eyeXs.length; e++) {
         const cx = eyeXs[e]!;
+        const isStagger = expression === BOSS_EXPRESSIONS.STAGGER;
+
         ctx.fillStyle = PALETTE.hex.pureWhite;
         ctx.beginPath();
-        ctx.ellipse(cx, eyeY, 44, 34, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx, eyeY, 44, isStagger ? 36 : 30, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = PALETTE.hex.yenneferVioletEye;
+        ctx.fillStyle = irisHex;
         ctx.beginPath();
-        ctx.ellipse(cx, eyeY + 2, 28, 30, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx, eyeY + 2, 27, isStagger ? 26 : 27, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = PALETTE.hex.yenneferLilac;
+        ctx.fillStyle = lowerIrisHex;
         ctx.beginPath();
-        ctx.ellipse(cx, eyeY + 12, 18, 12, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx, eyeY + 13, 17, 10, 0, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.fillStyle = PALETTE.hex.yenneferRaven;
         ctx.beginPath();
-        ctx.arc(cx, eyeY + 2, 12, 0, Math.PI * 2);
+        ctx.arc(cx, eyeY + 2, isStagger ? 9 : 11.5, 0, Math.PI * 2);
         ctx.fill();
 
+        // Crisp white specular catchlights
         ctx.fillStyle = PALETTE.hex.pureWhite;
         ctx.beginPath();
-        ctx.arc(cx - 10, eyeY - 10, 7, 0, Math.PI * 2);
-        ctx.arc(cx + 11, eyeY + 10, 3.5, 0, Math.PI * 2);
+        ctx.arc(cx - 11, eyeY - 9, 7.5, 0, Math.PI * 2);
+        ctx.arc(cx + 11, eyeY + 10, 3.6, 0, Math.PI * 2);
         ctx.fill();
 
-        // Sharp winged raven eyeliner
+        // Sharp winged raven eyeliner & upper lash arc
         ctx.strokeStyle = PALETTE.hex.yenneferRaven;
-        ctx.lineWidth = 10;
+        ctx.lineWidth = 10.5;
         ctx.lineCap = 'round';
         ctx.beginPath();
-        ctx.moveTo(cx - 48, eyeY - 8);
-        ctx.quadraticCurveTo(cx, eyeY - 42, cx + 48, eyeY - 8);
+        ctx.moveTo(cx - 48, eyeY - 6);
+        ctx.quadraticCurveTo(cx, eyeY - 38, cx + 48, eyeY - 6);
         ctx.stroke();
       }
     }
 
-    // Raven Brows
+    // Arching Raven Brows (haughty angle in Sovereign Glare)
     ctx.strokeStyle = PALETTE.hex.yenneferRaven;
-    ctx.lineWidth = 7;
-    const browTilt = expression === BOSS_EXPRESSIONS.COMBAT ? 12 : -10;
-    ctx.beginPath();
-    ctx.moveTo(132, 178 - browTilt * 0.5);
-    ctx.lineTo(212, 178 + browTilt * 0.5);
-    ctx.moveTo(380, 178 - browTilt * 0.5);
-    ctx.lineTo(300, 178 + browTilt * 0.5);
-    ctx.stroke();
-
-    // Lips
-    ctx.fillStyle = PALETTE.hex.deepLipBerry;
-    ctx.beginPath();
-    if (
-      expression === BOSS_EXPRESSIONS.STAGGER ||
-      expression === BOSS_EXPRESSIONS.DRAINED_FAINT
-    ) {
-      ctx.ellipse(256, 346, 18, 12, 0, 0, Math.PI * 2);
-    } else if (expression === BOSS_EXPRESSIONS.SIPHON_KISS) {
-      ctx.ellipse(256, 346, 14, 9, 0, 0, Math.PI * 2);
+    ctx.lineWidth = 6.5;
+    ctx.lineCap = 'round';
+    const browY = 224;
+    if (expression === BOSS_EXPRESSIONS.COMBAT) {
+      ctx.beginPath();
+      ctx.moveTo(130, browY - 4);
+      ctx.quadraticCurveTo(174, browY - 14, 214, browY + 4);
+      ctx.moveTo(382, browY - 8);
+      ctx.quadraticCurveTo(338, browY - 18, 298, browY + 4);
+      ctx.stroke();
     } else {
-      ctx.ellipse(256, 344, 22, 6, 0, 0, Math.PI * 2);
+      ctx.beginPath();
+      ctx.moveTo(132, browY + 6);
+      ctx.lineTo(212, browY - 6);
+      ctx.moveTo(380, browY + 6);
+      ctx.lineTo(300, browY - 6);
+      ctx.stroke();
     }
+
+    // Delicate nose dot
+    ctx.fillStyle = 'rgba(180, 120, 108, 0.55)';
+    ctx.beginPath();
+    ctx.arc(256, 336, 3.2, 0, Math.PI * 2);
     ctx.fill();
 
+    // Mouth: Haughty Smirk in COMBAT, parted lips in STAGGER/SIPHON_KISS/DRAINED_FAINT
+    if (expression === BOSS_EXPRESSIONS.COMBAT) {
+      ctx.strokeStyle = PALETTE.hex.deepLipBerry;
+      ctx.lineWidth = 5.5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(232, 376);
+      ctx.quadraticCurveTo(258, 382, 286, 368);
+      ctx.stroke();
+    } else if (expression === BOSS_EXPRESSIONS.SIPHON_KISS) {
+      ctx.fillStyle = PALETTE.hex.lipRose;
+      ctx.beginPath();
+      ctx.ellipse(256, 376, 15, 9, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = PALETTE.hex.deepLipBerry;
+      ctx.beginPath();
+      ctx.ellipse(256, 376, 17, 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     this.faceTexture.needsUpdate = true;
+    this.lastDrawnEyeBleach = bleach;
+    this.lastSpiralPhase = spiralPhase;
   }
 
   public setExpression(expression: BossExpression, spiralPhase = 0): void {
     this.currentExpression = expression;
-    this.drawFace(expression, spiralPhase);
+    this.drawFace(expression, spiralPhase, this.currentDrainBleach);
   }
 
   public setPhaseVisuals(phase: BossPhase): void {
@@ -578,6 +1004,27 @@ export class YenneferRig extends BossBase {
     return this.rightHandAnchor.getWorldPosition(outVec);
   }
 
+  public getSovereignLipWorldPosition(outVec: THREE.Vector3): THREE.Vector3 {
+    this.root.updateMatrixWorld(true);
+    return this.sovereignLipAnchor.getWorldPosition(outVec);
+  }
+
+  private animateRavenCurls(
+    elapsed: number,
+    swayAmp: number,
+    basePitch: number,
+  ): void {
+    for (let i = 0; i < this.hairLocks.length; i++) {
+      const lock = this.hairLocks[i]!;
+      const wave1 = Math.sin(elapsed * 2.7 + lock.phase) * swayAmp;
+      const wave2 = Math.sin(elapsed * 2.7 + lock.phase - 0.9) * swayAmp * 1.35;
+      lock.rootPivot.rotation.x = basePitch + wave1;
+      lock.rootPivot.rotation.z = lock.spread * 0.16 + wave1 * 0.45;
+      lock.midPivot.rotation.x = 0.12 + wave2;
+      lock.midPivot.rotation.z = wave2 * 0.35;
+    }
+  }
+
   public updateCombatPose(
     dt: number,
     state: GameState,
@@ -594,7 +1041,7 @@ export class YenneferRig extends BossBase {
           ? 1.0
           : 0.0;
 
-    const hover = Math.sin(elapsed * 2.5) * 0.055 * (1 - s);
+    const hover = Math.sin(elapsed * 2.4) * 0.055 * (1 - s);
     const flourish =
       this.castFlourishTimer > 0
         ? Math.sin((this.castFlourishTimer / 0.45) * Math.PI)
@@ -602,27 +1049,19 @@ export class YenneferRig extends BossBase {
 
     this.bodyPivot.position.set(
       0,
-      THREE.MathUtils.lerp(0.96 + hover + this.ascendHeight, 0.48, s),
+      THREE.MathUtils.lerp(0.94 + hover + this.ascendHeight, 0.48, s),
       0,
     );
     this.bodyPivot.rotation.set(0, 0, 0);
-    this.torsoGroup.rotation.set(
-      THREE.MathUtils.lerp(0.04, 0.24, s),
-      0,
-      0,
-    );
-    this.headGroup.rotation.set(
-      THREE.MathUtils.lerp(0.02, 0.28, s),
-      0,
-      0,
-    );
+    this.torsoGroup.rotation.set(THREE.MathUtils.lerp(0.03, 0.22, s), 0, 0);
+    this.headGroup.rotation.set(THREE.MathUtils.lerp(0.02, 0.26, s), 0, 0);
 
-    this.leftLegPivot.rotation.set(THREE.MathUtils.lerp(0.08, -0.78, s), 0, -0.06);
+    this.leftLegPivot.rotation.set(THREE.MathUtils.lerp(0.06, -0.78, s), 0, -0.06);
     this.rightLegPivot.rotation.set(THREE.MathUtils.lerp(-0.08, -0.78, s), 0, 0.06);
-    this.leftKneePivot.rotation.x = THREE.MathUtils.lerp(0.18, 1.56, s);
-    this.rightKneePivot.rotation.x = THREE.MathUtils.lerp(0.24, 1.56, s);
+    this.leftKneePivot.rotation.x = THREE.MathUtils.lerp(0.16, 1.56, s);
+    this.rightKneePivot.rotation.x = THREE.MathUtils.lerp(0.22, 1.56, s);
 
-    const castArmX = -0.42 - flourish * 0.88;
+    const castArmX = -0.44 - flourish * 0.88;
     const castArmZ = 0.28 + flourish * 0.34;
     this.leftShoulderPivot.rotation.set(
       THREE.MathUtils.lerp(castArmX, 0.14, s),
@@ -637,7 +1076,6 @@ export class YenneferRig extends BossBase {
     this.leftElbowPivot.rotation.set(THREE.MathUtils.lerp(-0.48, -0.4, s), 0, 0);
     this.rightElbowPivot.rotation.set(THREE.MathUtils.lerp(-0.48, -0.4, s), 0, 0);
 
-    // Exhausted shoulder heave while 360° frontal guard-break window is open
     this.applyExhaustedExposureHeave(
       this.torsoGroup,
       this.headGroup,
@@ -649,14 +1087,13 @@ export class YenneferRig extends BossBase {
       s,
     );
 
-    // Wavy Raven Hair Sway
-    for (let i = 0; i < this.hairStrands.length; i++) {
-      const hs = this.hairStrands[i]!;
-      const wave = Math.sin(elapsed * 2.6 + hs.phase) * 0.09 * (1 - s * 0.65);
-      hs.root.rotation.x = 0.18 + wave;
-      hs.mid.rotation.x = 0.16 + wave * 1.25;
-      hs.root.rotation.z = hs.spread * 0.24 + wave * 0.4;
+    // Coat-skirt flare & sinusoidal raven curl wind sway
+    for (let i = 0; i < this.coatPanels.length; i++) {
+      const cp = this.coatPanels[i]!;
+      const wave = Math.sin(elapsed * 2.8 + cp.angle * 2) * 0.05 * (1 - s);
+      cp.pivot.rotation.x = wave - s * 0.38;
     }
+    this.animateRavenCurls(elapsed, 0.09 * (1 - s * 0.65), 0.14);
 
     this.auraRing.visible = s < 0.85;
     this.auraRing.rotation.z = elapsed * 0.9;
@@ -688,7 +1125,7 @@ export class YenneferRig extends BossBase {
       this.accessoryFlickTimer > 0
         ? Math.sin(this.accessoryFlickTimer * 28) * 0.45 * this.accessoryFlickTimer
         : 0;
-    this.starChokerMesh.rotation.z = flickRot;
+    this.starMedallionGroup.rotation.z = flickRot;
 
     const pullBackZ =
       -res.torsoPullBack * FINISHER_RESISTANCE_CONFIG.maxHipPullBackOffset;
@@ -716,8 +1153,8 @@ export class YenneferRig extends BossBase {
     this.headGroup.rotation.set(headPitch, headYaw, headRoll);
     this.headAnchor.position.set(
       0,
-      0.125,
-      0.136 + (headChoreography?.bossFaceNormalOffset ?? 0),
+      0.141,
+      0.116 + (headChoreography?.bossFaceNormalOffset ?? 0),
     );
 
     this.leftLegPivot.rotation.set(-0.78, 0, -0.08);
@@ -730,12 +1167,11 @@ export class YenneferRig extends BossBase {
     this.leftElbowPivot.rotation.set(arm.leftElbowX, 0, arm.leftElbowZ);
     this.rightElbowPivot.rotation.set(arm.rightElbowX, 0, arm.rightElbowZ);
 
-    const hairSway = isSurge ? 0.12 : 0.05;
-    for (let i = 0; i < this.hairStrands.length; i++) {
-      const hs = this.hairStrands[i]!;
-      hs.root.rotation.x = (isDip ? 0.48 : 0.14) + Math.sin(time * 3.1 + hs.phase) * hairSway;
-      hs.mid.rotation.x = 0.22 + Math.cos(time * 2.8 + hs.phase) * hairSway;
+    for (let i = 0; i < this.coatPanels.length; i++) {
+      this.coatPanels[i]!.pivot.rotation.x = -0.38;
     }
+    this.animateRavenCurls(time, isSurge ? 0.11 : 0.045, isDip ? 0.44 : 0.12);
+    this.root.updateMatrixWorld(true);
   }
 
   public applyBeamFinisherPose(drainProgress: number, time: number): void {
@@ -753,6 +1189,7 @@ export class YenneferRig extends BossBase {
     this.leftElbowPivot.rotation.set(p.leftElbowX, 0, p.leftElbowZ);
     this.rightShoulderPivot.rotation.set(p.rightShoulderX, 0, p.rightShoulderZ);
     this.rightElbowPivot.rotation.set(p.rightElbowX, 0, 0);
+    this.animateRavenCurls(time, 0.12, 0.24);
   }
 
   public applyStolenKissPose(
@@ -768,7 +1205,7 @@ export class YenneferRig extends BossBase {
     this.bodyPivot.rotation.set(0, 0, 0);
     this.torsoGroup.rotation.set(p.torsoX, 0, p.torsoZ);
     this.headGroup.rotation.set(p.headX, p.headY, p.headZ);
-    this.headAnchor.position.set(0, 0.125, 0.136 + p.headFaceNormalOffset);
+    this.headAnchor.position.set(0, 0.141, 0.116 + p.headFaceNormalOffset);
 
     this.leftLegPivot.rotation.set(0.06, 0, -0.06);
     this.rightLegPivot.rotation.set(-0.08, 0, 0.06);
@@ -779,6 +1216,8 @@ export class YenneferRig extends BossBase {
     this.leftElbowPivot.rotation.set(p.leftElbowX, 0, p.leftElbowZ);
     this.rightShoulderPivot.rotation.set(p.rightShoulderX, 0, p.rightShoulderZ);
     this.rightElbowPivot.rotation.set(p.rightElbowX, 0, p.rightElbowZ);
+    this.animateRavenCurls(time, 0.08, 0.16);
+    this.root.updateMatrixWorld(true);
   }
 
   public applyVictoryCollapsePose(time: number): void {
@@ -799,6 +1238,7 @@ export class YenneferRig extends BossBase {
       this.rightElbowPivot,
       0.06,
     );
+    this.animateRavenCurls(time, 0.025, 0.26);
   }
 
   public applyVictoryDioramaPose(time: number): void {
@@ -813,9 +1253,6 @@ export class YenneferRig extends BossBase {
     this.rightElbowPivot.rotation.set(-0.34, 0, 0);
   }
 
-  /**
-   * Captive Siphon Gallery Guest Pedestal 1 kneeling pose synced to live `coreCharge` (0 -> 1).
-   */
   public applyCaptiveDaisPose(charge: number, time: number, dt: number): void {
     const c = THREE.MathUtils.clamp(charge, 0, 1);
     this.auraRing.visible = false;
@@ -856,14 +1293,16 @@ export class YenneferRig extends BossBase {
     this.leftKneePivot.rotation.x = 1.56;
     this.rightKneePivot.rotation.x = 1.56;
 
-    // Raised bound wrists for the twin crystal tether conduits
     this.leftShoulderPivot.rotation.set(-0.92, 0.22, -0.78);
     this.rightShoulderPivot.rotation.set(-0.92, -0.22, 0.78);
     this.leftElbowPivot.rotation.set(-0.46, 0, 0);
     this.rightElbowPivot.rotation.set(-0.46, 0, 0);
+    this.animateRavenCurls(time, 0.035, 0.16);
 
     this.captiveFaceTimer += dt;
-    if (this.captiveFaceTimer >= SIPHON_GALLERY_CONFIG.captiveFaceRedrawIntervalSec) {
+    if (
+      this.captiveFaceTimer >= SIPHON_GALLERY_CONFIG.captiveFaceRedrawIntervalSec
+    ) {
       this.captiveFaceTimer = 0;
       const targetExpr =
         c < SIPHON_GALLERY_CONFIG.captiveLowChargeThreshold
@@ -878,18 +1317,44 @@ export class YenneferRig extends BossBase {
     }
   }
 
+  /**
+   * Core Drain Bleach (100% -> 0%): smoothly lerps Yennefer's violet eyes, obsidian star glow,
+   * and deep-violet hair sheen into exhausted ash-silver (#94A3B8).
+   */
   public applyDrainBleach(drainProgress: number): void {
+    const t = THREE.MathUtils.clamp(drainProgress, 0, 1);
+    this.currentDrainBleach = t;
+
     applyMaterialBleach(
       this.drainableMaterials,
       this.originalColors,
       this.bleachMetadata,
-      drainProgress,
+      t,
     );
+
+    // Lerp hair deep-violet highlight sheen (#6D28D9 -> #94A3B8)
+    this.hairMat.emissive
+      .copy(this.hairHighlightColor)
+      .lerp(this.ashSilverColor, t);
+    this.hairMat.emissiveIntensity = THREE.MathUtils.lerp(0.28, 0.06, t);
+
+    // Lerp obsidian 5-point star medallion glow into muted ash-silver
+    this.starCoreMat.color
+      .copy(this.lilacStarColor)
+      .lerp(this.ashSilverColor, t);
+    this.starLight.intensity = 1.3 * (1 - t);
+
+    // Redraw violet eyes on canvas whenever bleach shifts noticeably
+    if (Math.abs(t - this.lastDrawnEyeBleach) >= 0.04) {
+      this.drawFace(this.currentExpression, this.lastSpiralPhase, t);
+    }
   }
 
   public resetForEncounter(_encoreTier: number): void {
     this.resetAshDissolve();
     this.resetBlindspotState();
+    this.currentDrainBleach = 0;
+    this.lastDrawnEyeBleach = -1;
     this.hitFlashTimer = 0;
     this.castFlourishTimer = 0;
     this.accessoryFlickTimer = 0;
@@ -900,6 +1365,8 @@ export class YenneferRig extends BossBase {
       this.originalColors,
       this.bleachMetadata,
     );
+    this.starCoreMat.color.copy(this.lilacStarColor);
+    this.starLight.intensity = 1.3;
     this.setExpression(BOSS_EXPRESSIONS.COMBAT, 0);
   }
 

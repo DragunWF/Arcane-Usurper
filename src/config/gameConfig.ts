@@ -97,6 +97,7 @@ export const ENVIRONMENT_IDS = Object.freeze({
   SUNKEN_SUMMIT: 'SUNKEN_SUMMIT',
   HARMONIC_CHAMBER: 'HARMONIC_CHAMBER',
   HARMONIC_SUMMIT: 'HARMONIC_SUMMIT',
+  SKELLIGE_PEAK: 'SKELLIGE_PEAK',
 } as const);
 
 export type EnvironmentId =
@@ -369,32 +370,54 @@ export const PALETTE = Object.freeze({
   mikuEyeDeepTeal: 0x065f46,
   mikuBootDark: 0x0b0f1a,
 
-  // Special Scenarios — Astral Rift, Wolf & Raven (Geralt & Yennefer) & Ash Dissolve
+  // Special Scenarios — Astral Rift, Wolf & Raven (Geralt & Yennefer) & Skellige Peak
   riftAmber: 0xf59e0b,
   steelSilver: 0xcbd5e1,
   ashEmber: 0xf97316,
   ashCharcoal: 0x1e293b,
-  yenneferRaven: 0x0b0a12,
+  yenneferSkin: 0xfde4d6,
+  yenneferRaven: 0x111827,
+  yenneferHairHighlight: 0x6d28d9,
   yenneferLilac: 0xc084fc,
-  yenneferVioletEye: 0x9333ea,
+  yenneferVioletEye: 0xa855f7,
   yenneferVelvet: 0x111118,
+  yenneferFeatherDark: 0x0f172a,
+  yenneferFeatherSlate: 0x1e293b,
   yenneferLace: 0xf1f5f9,
-  geraltArmor: 0x1f2430,
-  geraltLeather: 0x3b2f2f,
+  geraltArmor: 0x1e293b,
+  geraltChainmail: 0x64748b,
+  geraltLeather: 0x2b2320,
   geraltSteel: 0xd1d5db,
-  geraltHairSilver: 0xe2e8f0,
+  geraltHairSilver: 0xf1f5f9,
   geraltAmberEye: 0xf59e0b,
+  geraltIgniOrange: 0xf97316,
+  geraltQuenGold: 0xfacc15,
+  geraltYrdenViolet: 0x9333ea,
+  skelligeTwilightSky: 0x120e29,
+  skelligeHorizonViolet: 0x2e1065,
+  skelligeObsidianRock: 0x131722,
+  skelligeSnowDust: 0xdbeafe,
 
   // CSS Hex Strings for Canvas2D, Tailwind inline styles, and SVG tokens
   hex: Object.freeze({
     riftAmber: '#F59E0B',
     steelSilver: '#CBD5E1',
     ashEmber: '#F97316',
+    yenneferSkin: '#FDE4D6',
+    yenneferHairHighlight: '#6D28D9',
     yenneferLilac: '#C084FC',
-    yenneferVioletEye: '#9333EA',
-    yenneferRaven: '#0B0A12',
+    yenneferVioletEye: '#A855F7',
+    yenneferRaven: '#111827',
     geraltAmberEye: '#F59E0B',
     geraltSteel: '#D1D5DB',
+    geraltScar: '#B91C1C',
+    geraltIgniOrange: '#F97316',
+    geraltQuenGold: '#FACC15',
+    geraltYrdenViolet: '#9333EA',
+    skelligeTwilightSky: '#120E29',
+    skelligeHorizonViolet: '#2E1065',
+    skelligeObsidianRock: '#131722',
+    skelligeSnowDust: '#DBEAFE',
     midnightSky: '#040711',
     glacialNavy: '#0B132B',
     iceFloor: '#1E3A5F',
@@ -3185,8 +3208,10 @@ export interface SpecialScenarioDefinition {
 export const SPECIAL_SCENARIO_CONFIG = Object.freeze({
   ashDissolveDurationSec: 1.6,
   ashEmberBurstIntervalSec: 0.18,
-  duoSpacingOffsetX: 3.4,
-  duoSpacingOffsetZ: 1.6,
+  geraltAshParticleCount: 36,
+  duoSpacingOffsetX: 2.35,
+  duoSpacingOffsetZ: 0.0,
+  duoIntroDurationSec: 1.35,
   bossToBossMinSeparation: 2.35,
   maxSimultaneousBosses: 4,
   guestPedestalPassiveRechargePerSec: 0.018,
@@ -3277,3 +3302,34 @@ export const SPECIAL_SCENARIOS: readonly SpecialScenarioDefinition[] =
       bosses: Object.freeze([]),
     }),
   ]);
+
+// ============================================================================
+// SKELLIGE OBSIDIAN PEAK ARENA (SPECIAL SCENARIO: THE WOLF & THE RAVEN)
+// ============================================================================
+
+export const SKELLIGE_PEAK_CONFIG = Object.freeze({
+  arenaRadius: 18,
+  playerClampRadius: 16.8,
+  floorTextureSize: 1024,
+  skyDomeRadius: 135,
+  monolithCount: 10,
+  monolithRingRadius: 17.5,
+  monolithCollisionRadius: 1.05,
+  monolithHeight: 7.4,
+  distantPeakCount: 16,
+  distantPeakMinRadius: 46,
+  distantPeakMaxRadius: 86,
+  snowCount: 420,
+  snowAreaRadius: 28,
+  snowMaxHeight: 20,
+  snowWindX: 3.6,
+  snowWindZ: 1.25,
+  lighting: Object.freeze({
+    hemiIntensity: 1.18,
+    keyIntensity: 1.85,
+    amethystRimIntensity: 2.1,
+    stormRimIntensity: 1.55,
+    fogDensity: 0.0112,
+    shadowExtent: 26,
+  } as const),
+} as const);

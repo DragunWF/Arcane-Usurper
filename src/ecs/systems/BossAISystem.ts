@@ -676,6 +676,12 @@ export class BossAISystem implements ISystem {
       start(ctx) {
         const bp = ctx.bossEntity.bossPhase;
         ctx.bossRig.triggerCastFlourish();
+        if (
+          'triggerSignFlash' in ctx.bossRig &&
+          typeof ctx.bossRig.triggerSignFlash === 'function'
+        ) {
+          ctx.bossRig.triggerSignFlash('IGNI');
+        }
         ctx.audio.playIceLance();
         const speedScale =
           bp.phase >= BOSS_PHASES.PHASE_2
@@ -843,6 +849,12 @@ export class BossAISystem implements ISystem {
       start(ctx) {
         const bp = ctx.bossEntity.bossPhase;
         ctx.bossRig.triggerCastFlourish();
+        if (
+          'triggerSignFlash' in ctx.bossRig &&
+          typeof ctx.bossRig.triggerSignFlash === 'function'
+        ) {
+          ctx.bossRig.triggerSignFlash('IGNI');
+        }
         ctx.audio.playIceLance();
         ctx.clearActiveClones();
 
@@ -1092,6 +1104,12 @@ export class BossAISystem implements ISystem {
       start(ctx) {
         const bp = ctx.bossEntity.bossPhase;
         ctx.bossRig.triggerCastFlourish();
+        if (
+          'triggerSignFlash' in ctx.bossRig &&
+          typeof ctx.bossRig.triggerSignFlash === 'function'
+        ) {
+          ctx.bossRig.triggerSignFlash('IGNI');
+        }
         ctx.audio.playIceLance();
 
         const predX =
@@ -2231,6 +2249,12 @@ export class BossAISystem implements ISystem {
         bp.dashVelX = (dx / dist) * cfg.geraltLungeSpeed;
         bp.dashVelZ = (dz / dist) * cfg.geraltLungeSpeed;
         ctx.bossRig.triggerCastFlourish();
+        if (
+          'triggerSignFlash' in ctx.bossRig &&
+          typeof ctx.bossRig.triggerSignFlash === 'function'
+        ) {
+          ctx.bossRig.triggerSignFlash('QUEN');
+        }
         ctx.audio.playLaserSlash();
 
         // Cast a wide steel-silver crescent slash along the lunge vector
@@ -2282,6 +2306,12 @@ export class BossAISystem implements ISystem {
           ctx.playerPos.z - bPos.z,
         );
         ctx.bossRig.triggerCastFlourish();
+        if (
+          'triggerSignFlash' in ctx.bossRig &&
+          typeof ctx.bossRig.triggerSignFlash === 'function'
+        ) {
+          ctx.bossRig.triggerSignFlash('IGNI');
+        }
         ctx.audio.playIceLance();
 
         const count = cfg.geraltIgniCount;
@@ -2329,6 +2359,12 @@ export class BossAISystem implements ISystem {
         const bp = ctx.bossEntity.bossPhase;
         const bPos = ctx.bossEntity.transform.position;
         ctx.bossRig.triggerCastFlourish();
+        if (
+          'triggerSignFlash' in ctx.bossRig &&
+          typeof ctx.bossRig.triggerSignFlash === 'function'
+        ) {
+          ctx.bossRig.triggerSignFlash('YRDEN');
+        }
         ctx.audio.playIceShatter(0.85);
         const origin = new THREE.Vector3(bPos.x, 0.2, bPos.z);
         const novaGroup = ctx.vfx.createFrostRingNovaGroup(origin);
@@ -2393,6 +2429,12 @@ export class BossAISystem implements ISystem {
       start(ctx) {
         const bp = ctx.bossEntity.bossPhase;
         ctx.bossRig.triggerCastFlourish();
+        if (
+          'triggerSignFlash' in ctx.bossRig &&
+          typeof ctx.bossRig.triggerSignFlash === 'function'
+        ) {
+          ctx.bossRig.triggerSignFlash('IGNI');
+        }
         ctx.audio.playIceLance();
         const fan = [-0.55, -0.28, 0, 0.28, 0.55];
         for (let i = 0; i < fan.length; i++) {

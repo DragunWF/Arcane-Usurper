@@ -117,6 +117,9 @@ export class GameEngine implements IGameController {
   private readonly activeBossRigMap = new Map<EntityId, BossRigAdapter>();
   private activeScenarioId: string | null = null;
   private activeTargetBossEntityId: EntityId | null = null;
+  private duoIntroTimer = 0;
+  private readonly scratchIntroCamPos = new THREE.Vector3();
+  private readonly scratchIntroLookAt = new THREE.Vector3();
 
   private readonly inputSystem: InputSystem;
   private readonly movementSystem: MovementSystem;
@@ -967,9 +970,16 @@ export class GameEngine implements IGameController {
     this.finisherSystem.setTargetBossEntityId(primarySiphonEntityId);
     this.dioramaSystem.setTargetBossEntityId(primarySiphonEntityId);
 
-    // Arena atmosphere (Skellige Peak snowy summit)
-    this.sceneManager.setEnvironment(ENVIRONMENT_IDS.SUMMIT);
-    this.sceneManager.setPhaseAtmosphere(BOSS_PHASES.PHASE_2);
+    // Arena atmosphere: Skellige Obsidian Peak for 'skellige_peak' scenarios (zero minion stage)
+    if (scenario.arenaId === 'skellige_peak') {
+      this.sceneManager.setEnvironment(ENVIRONMENT_IDS.SKELLIGE_PEAK);
+    } else {
+      this.sceneManager.setEnvironment(ENVIRONMENT_IDS.SUMMIT);
+      this.sceneManager.setPhaseAtmosphere(BOSS_PHASES.PHASE_2);
+    }
+
+    // Trigger dramatic side-by-side duo intro camera frame
+    this.duoIntroTimer = SPECIAL_SCENARIO_CONFIG.duoIntroDurationSec;
 
     const player = this.world.queryFirst(
       'playerTag',
@@ -2362,6 +2372,27 @@ export class GameEngine implements IGameController {
           null,
           this.sceneManager,
         );
+
+        // Smooth dramatic duo intro frame for Special Scenarios (Geralt & Yennefer side-by-side)
+        if (this.duoIntroTimer > 0 && this.state === GAME_STATES.BOSS_COMBAT) {
+          this.duoIntroTimer = Math.max(0, this.duoIntroTimer - dt);
+          const u =
+            this.duoIntroTimer / SPECIAL_SCENARIO_CONFIG.duoIntroDurationSec;
+          const introWeight = u * u * (3 - 2 * u);
+          this.scratchIntroCamPos.set(
+            0,
+            2.15,
+            BOSS_CONFIG.spawnZ + 6.4,
+          );
+          this.scratchIntroLookAt.set(0, 1.35, BOSS_CONFIG.spawnZ);
+          this.cameraRig.camera.position.lerp(
+            this.scratchIntroCamPos,
+            introWeight,
+          );
+          if (introWeight > 0.08) {
+            this.cameraRig.camera.lookAt(this.scratchIntroLookAt);
+          }
+        }
       }
 
       // Hood-clip prevention: hide the Dark Mage rig only while the gaze camera sits at his eye anchor

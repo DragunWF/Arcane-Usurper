@@ -22,9 +22,36 @@ export interface GlacialFloorTextures {
 }
 
 let sharedGradientMap: THREE.DataTexture | null = null;
+let sharedThreeStepGradientMap: THREE.DataTexture | null = null;
 let sharedOutlineMaterial: THREE.MeshBasicMaterial | null = null;
 let sharedSnowTexture: THREE.CanvasTexture | null = null;
 let sharedSparkTexture: THREE.CanvasTexture | null = null;
+
+/**
+ * Builds a crisp 3-step cel-shading gradient map for clean stylized hair & anime rigs.
+ */
+export function getThreeStepToonGradientMap(): THREE.DataTexture {
+  if (sharedThreeStepGradientMap) return sharedThreeStepGradientMap;
+
+  const bands = [96, 184, 255] as const;
+  const data = new Uint8Array(bands.length * 4);
+  for (let i = 0; i < bands.length; i++) {
+    const v = bands[i] ?? 255;
+    data[i * 4 + 0] = v;
+    data[i * 4 + 1] = v;
+    data[i * 4 + 2] = v;
+    data[i * 4 + 3] = 255;
+  }
+
+  const tex = new THREE.DataTexture(data, bands.length, 1, THREE.RGBAFormat);
+  tex.minFilter = THREE.NearestFilter;
+  tex.magFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.needsUpdate = true;
+
+  sharedThreeStepGradientMap = tex;
+  return sharedThreeStepGradientMap;
+}
 
 /**
  * Builds a crisp 4-band cel-shading gradient map for THREE.MeshToonMaterial.
@@ -62,6 +89,22 @@ export function getOutlineMaterial(): THREE.MeshBasicMaterial {
     side: THREE.BackSide,
   });
   return sharedOutlineMaterial;
+}
+
+export function createThreeStepToonMaterial(
+  color: number,
+  options: ToonMaterialOptions = {},
+): THREE.MeshToonMaterial {
+  return new THREE.MeshToonMaterial({
+    color,
+    gradientMap: getThreeStepToonGradientMap(),
+    emissive: options.emissive !== undefined ? options.emissive : PALETTE.pureBlack,
+    emissiveIntensity:
+      options.emissiveIntensity !== undefined ? options.emissiveIntensity : 0.0,
+    side: options.side !== undefined ? options.side : THREE.FrontSide,
+    transparent: Boolean(options.transparent),
+    opacity: options.opacity !== undefined ? options.opacity : 1.0,
+  });
 }
 
 /**
@@ -423,8 +466,10 @@ export function createAuroraTexture(): THREE.CanvasTexture {
 
 export const ToonAssets = Object.freeze({
   getToonGradientMap,
+  getThreeStepToonGradientMap,
   getOutlineMaterial,
   createToonMaterial,
+  createThreeStepToonMaterial,
   createOutlinedMesh,
   getSnowTexture,
   getSparkTexture,

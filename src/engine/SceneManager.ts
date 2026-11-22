@@ -11,6 +11,7 @@ import {
   PALETTE,
   SERENA_CONFIG,
   SIPHON_GALLERY_CONFIG,
+  SKELLIGE_PEAK_CONFIG,
   SUNKEN_CHAMBER_CONFIG,
   type BossPhase,
   type EnvironmentId,
@@ -20,6 +21,7 @@ import { CyberBackstageLevel } from '../levels/CyberBackstageLevel';
 import { IcePalaceLevel } from '../levels/IcePalaceLevel';
 import { MageTowerLevel } from '../levels/MageTowerLevel';
 import { PearlAmphitheaterLevel } from '../levels/PearlAmphitheaterLevel';
+import { SkelligePeakLevel } from '../levels/SkelligePeakLevel';
 import { SunkenAqueductLevel } from '../levels/SunkenAqueductLevel';
 import { ToonAssets } from './ToonAssets';
 
@@ -341,11 +343,18 @@ export class SceneManager implements IArenaGeometry {
   public readonly pearlAmphitheaterLevel: PearlAmphitheaterLevel;
   public readonly cyberBackstageLevel: CyberBackstageLevel;
   public readonly astralConcertStageLevel: AstralConcertStageLevel;
+  public readonly skelligePeakLevel: SkelligePeakLevel;
 
   private readonly _summitBounds: CircularArenaBounds = Object.freeze({
     kind: ARENA_BOUNDS_KINDS.CIRCULAR,
     radius: ARENA_CONFIG.radius,
     clampRadius: ARENA_CONFIG.playerClampRadius,
+  });
+
+  private readonly _skelligeBounds: CircularArenaBounds = Object.freeze({
+    kind: ARENA_BOUNDS_KINDS.CIRCULAR,
+    radius: SKELLIGE_PEAK_CONFIG.arenaRadius,
+    clampRadius: SKELLIGE_PEAK_CONFIG.playerClampRadius,
   });
 
   private readonly _sunkenSummitBounds: CircularArenaBounds = Object.freeze({
@@ -471,6 +480,9 @@ export class SceneManager implements IArenaGeometry {
     if (this._activeEnvironment === ENVIRONMENT_IDS.HARMONIC_SUMMIT) {
       return this._harmonicSummitBounds;
     }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SKELLIGE_PEAK) {
+      return this._skelligeBounds;
+    }
     if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
       return this.isLobbyGalleryUnlocked
         ? this._compositeLobbyBounds
@@ -509,6 +521,9 @@ export class SceneManager implements IArenaGeometry {
     if (this._activeEnvironment === ENVIRONMENT_IDS.HARMONIC_SUMMIT) {
       return this.astralConcertStageLevel.cameraColliders;
     }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SKELLIGE_PEAK) {
+      return this.skelligePeakLevel.cameraColliders;
+    }
     if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
       return this.mageTowerLevel.cameraColliders;
     }
@@ -531,6 +546,9 @@ export class SceneManager implements IArenaGeometry {
     if (this._activeEnvironment === ENVIRONMENT_IDS.HARMONIC_SUMMIT) {
       return this.astralConcertStageLevel.pillarColliders;
     }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SKELLIGE_PEAK) {
+      return this.skelligePeakLevel.pillarColliders;
+    }
     if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
       return this.mageTowerLevel.pillarColliders;
     }
@@ -552,6 +570,9 @@ export class SceneManager implements IArenaGeometry {
     }
     if (this._activeEnvironment === ENVIRONMENT_IDS.HARMONIC_SUMMIT) {
       return this.astralConcertStageLevel.pillarMeshes;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SKELLIGE_PEAK) {
+      return this.skelligePeakLevel.pillarMeshes;
     }
     if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
       return this.mageTowerLevel.pillarMeshes;
@@ -622,6 +643,11 @@ export class SceneManager implements IArenaGeometry {
     this.astralConcertStageLevel = new AstralConcertStageLevel();
     this.astralConcertStageLevel.root.visible = false;
     this.scene.add(this.astralConcertStageLevel.root);
+
+    // Build Special Scenario Arena: Skellige Obsidian Peak (The Wolf & The Raven)
+    this.skelligePeakLevel = new SkelligePeakLevel();
+    this.skelligePeakLevel.root.visible = false;
+    this.scene.add(this.skelligePeakLevel.root);
   }
 
   /**
@@ -1150,6 +1176,7 @@ export class SceneManager implements IArenaGeometry {
     const isSunkenSummit = env === ENVIRONMENT_IDS.SUNKEN_SUMMIT;
     const isHarmonicChamber = env === ENVIRONMENT_IDS.HARMONIC_CHAMBER;
     const isHarmonicSummit = env === ENVIRONMENT_IDS.HARMONIC_SUMMIT;
+    const isSkelligePeak = env === ENVIRONMENT_IDS.SKELLIGE_PEAK;
 
     this.arenaGroup.visible = isSummit;
     this.icePalaceLevel.root.visible = isChamber;
@@ -1158,6 +1185,7 @@ export class SceneManager implements IArenaGeometry {
     this.pearlAmphitheaterLevel.root.visible = isSunkenSummit;
     this.cyberBackstageLevel.root.visible = isHarmonicChamber;
     this.astralConcertStageLevel.root.visible = isHarmonicSummit;
+    this.skelligePeakLevel.root.visible = isSkelligePeak;
 
     if (isLobby) {
       const LL = LOBBY_CONFIG.lighting;
@@ -1304,6 +1332,38 @@ export class SceneManager implements IArenaGeometry {
         this.frostRim.color.setHex(PALETTE.harmonicEmerald);
         this.frostRim.intensity = ML.rimIntensity;
       }
+    } else if (isSkelligePeak) {
+      const SKL = SKELLIGE_PEAK_CONFIG.lighting;
+      this.scene.background = new THREE.Color(PALETTE.skelligeTwilightSky);
+      this.scene.fog = new THREE.FogExp2(
+        PALETTE.skelligeTwilightSky,
+        SKL.fogDensity,
+      );
+
+      if (this.hemiLight) {
+        this.hemiLight.color.setHex(PALETTE.pulseLavender);
+        this.hemiLight.groundColor.setHex(PALETTE.skelligeObsidianRock);
+        this.hemiLight.intensity = SKL.hemiIntensity;
+      }
+      if (this.moonLight) {
+        this.moonLight.color.setHex(PALETTE.skelligeSnowDust);
+        this.moonLight.intensity = SKL.keyIntensity;
+        this.moonLight.position.set(-14, 28, -16);
+        const d = SKL.shadowExtent;
+        this.moonLight.shadow.camera.left = -d;
+        this.moonLight.shadow.camera.right = d;
+        this.moonLight.shadow.camera.top = d;
+        this.moonLight.shadow.camera.bottom = -d;
+        this.moonLight.shadow.camera.updateProjectionMatrix();
+      }
+      if (this.amethystRim) {
+        this.amethystRim.color.setHex(PALETTE.amethystTrim);
+        this.amethystRim.intensity = SKL.amethystRimIntensity;
+      }
+      if (this.frostRim) {
+        this.frostRim.color.setHex(PALETTE.riftAmber);
+        this.frostRim.intensity = SKL.stormRimIntensity;
+      }
     } else if (isChamber) {
       const CL = CHAMBER_CONFIG.lighting;
       this.scene.background = new THREE.Color(PALETTE.chamberVoid);
@@ -1445,6 +1505,10 @@ export class SceneManager implements IArenaGeometry {
       this.astralConcertStageLevel.update(dt, elapsed);
       return;
     }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SKELLIGE_PEAK) {
+      this.skelligePeakLevel.update(dt, elapsed);
+      return;
+    }
 
     this.auroraIntensityScale +=
       (this.targetAuroraScale - this.auroraIntensityScale) *
@@ -1538,6 +1602,7 @@ export class SceneManager implements IArenaGeometry {
     this.pearlAmphitheaterLevel.dispose();
     this.cyberBackstageLevel.dispose();
     this.astralConcertStageLevel.dispose();
+    this.skelligePeakLevel.dispose();
     this.renderer.dispose();
     if (this.renderer.domElement.parentElement) {
       this.renderer.domElement.parentElement.removeChild(
