@@ -284,6 +284,7 @@ export interface GameStoreState {
   bossExpression: BossExpression;
   isBossStaggered: boolean;
   canExecuteFinisher: boolean;
+  isBossExposed: boolean;
   canExecuteStolenKiss: boolean;
 
   // Interactive Finisher & Diorama State
@@ -324,6 +325,7 @@ export interface GameStoreState {
   setBossExpression: (expression: BossExpression) => void;
   setBossStaggered: (staggered: boolean) => void;
   setCanExecuteFinisher: (canExecute: boolean) => void;
+  setBossExposed: (exposed: boolean) => void;
   setCanExecuteStolenKiss: (canExecute: boolean) => void;
   setChamberWaveProgress: (
     chamberWave: number,
@@ -429,6 +431,7 @@ const INITIAL_STATE = {
   bossExpression: BOSS_EXPRESSIONS.COMBAT as BossExpression,
   isBossStaggered: false,
   canExecuteFinisher: false,
+  isBossExposed: false,
   canExecuteStolenKiss: false,
 
   siphonProgress: 0,
@@ -508,6 +511,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
     })),
 
   setCanExecuteFinisher: (canExecuteFinisher) => set({ canExecuteFinisher }),
+  setBossExposed: (isBossExposed) => set({ isBossExposed }),
   setCanExecuteStolenKiss: (canExecuteStolenKiss) =>
     set({ canExecuteStolenKiss }),
 
@@ -670,6 +674,7 @@ export const useGameStore = create<GameStoreState>((set) => ({
         bossExpression: BOSS_EXPRESSIONS.COMBAT,
         isBossStaggered: false,
         canExecuteFinisher: false,
+        isBossExposed: false,
         canExecuteStolenKiss: false,
         siphonProgress: 0,
         finisherMode: FINISHER_MODES.KISS,

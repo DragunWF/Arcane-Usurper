@@ -360,7 +360,7 @@ export class BossAISystem implements ISystem {
         bp.activePatternId = null;
         bp.attackCooldown = profile.getCooldown(bp.phase);
 
-        // Open Mid-Fight Stolen Kiss blindspot window after heavy channeled/signature patterns
+        // Open Mid-Fight Stolen Kiss 360° frontal guard-break window after heavy patterns
         if (
           !bp.isStaggered &&
           boss.health.current > STOLEN_KISS_CONFIG.minRemainingBossHp &&
@@ -369,7 +369,9 @@ export class BossAISystem implements ISystem {
             STOLEN_KISS_CONFIG.heavyExposurePatterns as readonly string[]
           ).includes(finishedPatternId)
         ) {
-          this.bossRig.triggerBlindspotExposure();
+          if (this.bossRig.triggerBlindspotExposure()) {
+            this.audio.playStolenKissWindowChime();
+          }
         }
 
         const encoreTier =

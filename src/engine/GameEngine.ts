@@ -358,6 +358,8 @@ export class GameEngine implements IGameController {
         onLobbySealedPortalHit: (realmIndex, hitPoint) =>
           this.lobbySystem.handleSealedPortalHit(realmIndex, hitPoint),
         getCameraForwardXZ: (outVec) => this.cameraRig.getForwardXZ(outVec),
+        onBossExposureChange: (exposed) =>
+          useGameStore.getState().setBossExposed(exposed),
         onStolenKissAvailabilityChange: (available) =>
           useGameStore.getState().setCanExecuteStolenKiss(available),
         onTriggerStolenKiss: () => this.startStolenKiss(),
@@ -1018,8 +1020,8 @@ export class GameEngine implements IGameController {
   }
 
   /**
-   * Transitions from BOSS_COMBAT into the 3-beat Mid-Fight Over-the-Shoulder Stolen Kiss
-   * when triggered inside the Sovereign's active blindspot recovery cone.
+   * Transitions from BOSS_COMBAT into the 3-beat Mid-Fight 360° Frontal Guard-Break
+   * Stolen Kiss when triggered within maxTriggerDistance during the Sovereign's exposure window.
    */
   private startStolenKiss(): void {
     if (this.state !== GAME_STATES.BOSS_COMBAT) return;
@@ -1029,6 +1031,7 @@ export class GameEngine implements IGameController {
     this.bossAISystem.clearAllBossHazards();
 
     const store = useGameStore.getState();
+    store.setBossExposed(false);
     store.setCanExecuteStolenKiss(false);
     store.setGameState(GAME_STATES.STOLEN_KISS);
 
@@ -1066,6 +1069,7 @@ export class GameEngine implements IGameController {
 
     const store = useGameStore.getState();
     store.setGameState(GAME_STATES.BOSS_COMBAT);
+    store.setBossExposed(false);
     store.setCanExecuteStolenKiss(false);
     this.renderSyncSystem.flushHudSnapshot();
     this.bossAISystem.evaluateHealthThresholds();

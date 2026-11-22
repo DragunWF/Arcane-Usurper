@@ -604,7 +604,8 @@ export class FinisherSystem implements ISystem {
   }
 
   /**
-   * Initializes the 3-beat Mid-Fight Over-the-Shoulder Stolen Kiss sequence from live ECS positions.
+   * Initializes the 3-beat Mid-Fight 360° Frontal Guard-Break Stolen Kiss sequence
+   * from live ECS positions, computing the Beat 3 frontal breakaway destination.
    */
   public startStolenKiss(): void {
     this.resetState();
@@ -620,12 +621,12 @@ export class FinisherSystem implements ISystem {
     this.stolenKissMageStartX = player.transform.position.x;
     this.stolenKissMageStartZ = player.transform.position.z;
 
-    const backX = -Math.sin(this.stolenKissBossYaw);
-    const backZ = -Math.cos(this.stolenKissBossYaw);
+    const fwdX = Math.sin(this.stolenKissBossYaw);
+    const fwdZ = Math.cos(this.stolenKissBossYaw);
     const rawPushX =
-      this.stolenKissBossX + backX * STOLEN_KISS_CONFIG.breakawayPushDistance;
+      this.stolenKissBossX + fwdX * STOLEN_KISS_CONFIG.breakawayPushDistance;
     const rawPushZ =
-      this.stolenKissBossZ + backZ * STOLEN_KISS_CONFIG.breakawayPushDistance;
+      this.stolenKissBossZ + fwdZ * STOLEN_KISS_CONFIG.breakawayPushDistance;
     const radial = Math.hypot(rawPushX, rawPushZ);
     const maxR = BOSS_CONFIG.innerTerraceLimit;
     if (radial > maxR) {
@@ -1680,10 +1681,11 @@ export class FinisherSystem implements ISystem {
     const bx = this.stolenKissBossX;
     const bz = this.stolenKissBossZ;
     const bossYaw = this.stolenKissBossYaw;
-    const backX = -Math.sin(bossYaw);
-    const backZ = -Math.cos(bossYaw);
-    const rearX = bx + backX * cfg.rearOffsetDistance;
-    const rearZ = bz + backZ * cfg.rearOffsetDistance;
+    const fwdX = Math.sin(bossYaw);
+    const fwdZ = Math.cos(bossYaw);
+    const frontX = bx + fwdX * cfg.frontOffsetDistance;
+    const frontZ = bz + fwdZ * cfg.frontOffsetDistance;
+    const mageFaceYaw = bossYaw + Math.PI;
 
     let beat: 1 | 2 | 3 = 1;
     let beatProgress = 0;
@@ -1708,7 +1710,7 @@ export class FinisherSystem implements ISystem {
     }
     this.stolenKissBeat = beat;
 
-    // 1. Pose Sovereign FIRST so her tilted-back headAnchor reflects exact world coordinates
+    // 1. Pose Sovereign FIRST so her upturned chin & headAnchor reflect exact world coordinates
     boss.transform.position.x = bx;
     boss.transform.position.y = 0;
     boss.transform.position.z = bz;
@@ -1724,20 +1726,20 @@ export class FinisherSystem implements ISystem {
       .applyQuaternion(this.scratchBossHeadQuat)
       .normalize();
 
-    // 2. Position & Pose Dark Mage across Beats 1-3
+    // 2. Position & Pose Dark Mage directly in front of her (facing her) across Beats 1-3
     if (beat === 1) {
       const ease = beatProgress * beatProgress * (3 - 2 * beatProgress);
-      const mx = THREE.MathUtils.lerp(this.stolenKissMageStartX, rearX, ease);
-      const mz = THREE.MathUtils.lerp(this.stolenKissMageStartZ, rearZ, ease);
+      const mx = THREE.MathUtils.lerp(this.stolenKissMageStartX, frontX, ease);
+      const mz = THREE.MathUtils.lerp(this.stolenKissMageStartZ, frontZ, ease);
       player.transform.position.x = mx;
       player.transform.position.y = 0;
       player.transform.position.z = mz;
-      player.transform.rotationY = bossYaw;
+      player.transform.rotationY = mageFaceYaw;
 
       this.scratchMageAnchor.set(mx, 0, mz);
-      this.mageRig.setStaffPlanted(true, this.scratchMageAnchor, bossYaw);
+      this.mageRig.setStaffPlanted(true, this.scratchMageAnchor, mageFaceYaw);
       this.mageRig.root.position.set(mx, 0, mz);
-      this.mageRig.root.rotation.set(0, bossYaw, 0);
+      this.mageRig.root.rotation.set(0, mageFaceYaw, 0);
       this.mageRig.applyStolenKissPose(
         1,
         beatProgress,
@@ -1753,15 +1755,15 @@ export class FinisherSystem implements ISystem {
         this.audio.playStolenKissSiphonChord(activeRealm);
       }
 
-      player.transform.position.x = rearX;
+      player.transform.position.x = frontX;
       player.transform.position.y = 0;
-      player.transform.position.z = rearZ;
-      player.transform.rotationY = bossYaw;
+      player.transform.position.z = frontZ;
+      player.transform.rotationY = mageFaceYaw;
 
-      this.scratchMageAnchor.set(rearX, 0, rearZ);
-      this.mageRig.setStaffPlanted(true, this.scratchMageAnchor, bossYaw);
-      this.mageRig.root.position.set(rearX, 0, rearZ);
-      this.mageRig.root.rotation.set(0, bossYaw, 0);
+      this.scratchMageAnchor.set(frontX, 0, frontZ);
+      this.mageRig.setStaffPlanted(true, this.scratchMageAnchor, mageFaceYaw);
+      this.mageRig.root.position.set(frontX, 0, frontZ);
+      this.mageRig.root.rotation.set(0, mageFaceYaw, 0);
       this.mageRig.applyStolenKissPose(
         2,
         beatProgress,
@@ -1775,7 +1777,7 @@ export class FinisherSystem implements ISystem {
       this.stolenKissEssenceAccum += dt;
       if (this.stolenKissEssenceAccum >= cfg.essenceEmitIntervalSec) {
         this.stolenKissEssenceAccum = 0;
-        this.scratchMageChest.set(rearX, 1.05, rearZ);
+        this.scratchMageChest.set(frontX, 1.05, frontZ);
         this.emitStolenKissEssence(
           this.scratchBossHead,
           this.scratchMageChest,
@@ -1899,12 +1901,12 @@ export class FinisherSystem implements ISystem {
 
       const pushEase = 1 - Math.pow(1 - beatProgress, 3);
       const mx = THREE.MathUtils.lerp(
-        rearX,
+        frontX,
         this.stolenKissPushEndX,
         pushEase,
       );
       const mz = THREE.MathUtils.lerp(
-        rearZ,
+        frontZ,
         this.stolenKissPushEndZ,
         pushEase,
       );

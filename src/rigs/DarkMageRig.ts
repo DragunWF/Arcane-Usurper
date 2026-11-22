@@ -1593,13 +1593,13 @@ export class DarkMageRig {
   }
 
   /**
-   * Dedicated 3-beat Mid-Fight Over-the-Shoulder Stolen Kiss choreography:
-   * - Beat 1 (Rear Wrap & Chin Tilt): left forearm wraps across her waist/midriff; right hand
-   *   hooks under her chin tilting her head backward and over her right shoulder.
-   * - Beat 2 (Over-the-Shoulder Siphon): leans hooded head down over her right shoulder and
-   *   solves exact lip-to-lip contact against bossLipWorldPos + gentle kissPulseAmp cadence.
-   * - Beat 3 (Startled Breakaway): recoils backward into a sliding defensive stance with staff
-   *   back in hand as the Sovereign's shockwave pushes him away.
+   * Dedicated 3-beat Mid-Fight 360° Frontal Guard-Break Stolen Kiss choreography:
+   * - Beat 1 (Step-In & Chin Catch): steps directly in front of the winded Sovereign,
+   *   wraps left arm around her waist pulling her forward, and hooks right hand under her chin.
+   * - Beat 2 (Angled Siphon Kiss): tilts hooded head (~12° roll) into a forceful angled
+   *   lip lock and solves exact mouthAnchor ↔ bossLipWorldPos contact (+ kissPulseAmp cadence).
+   * - Beat 3 (Startled Breakaway): recoils backward away from her front into a sliding
+   *   defensive stance with staff back in hand as her shockwave launches him away.
    */
   public applyStolenKissPose(
     beat: 1 | 2 | 3,
@@ -1627,59 +1627,61 @@ export class DarkMageRig {
 
     if (beat === 1 || beat === 2) {
       const k = beat === 2 ? 1.0 : ease;
-      const leanExtra = beat === 2 ? 0.1 : 0;
+      const leanExtra = beat === 2 ? 0.08 : 0;
 
-      // Braced close rear stance (left leg slightly forward, right leg braced behind)
+      // Braced close frontal lunge stance (left leg stepped forward, right leg braced behind)
       this.bodyPivot.position.set(0, cfg.mageStandingBodyY, 0);
       this.bodyPivot.rotation.set(0, 0, 0);
-      this.leftLegPivot.rotation.set(-0.12 * k, 0, -0.07);
-      this.rightLegPivot.rotation.set(0.14 * k, 0, 0.07);
-      this.leftKneePivot.rotation.x = 0.22 * k;
-      this.rightKneePivot.rotation.x = 0.18 * k;
+      this.leftLegPivot.rotation.set(-0.18 * k, 0, -0.08);
+      this.rightLegPivot.rotation.set(0.18 * k, 0, 0.08);
+      this.leftKneePivot.rotation.x = 0.24 * k;
+      this.rightKneePivot.rotation.x = 0.16 * k;
 
-      // Lean chest & hooded head gently down over her right (+X) shoulder
+      // Lean torso slightly forward and tilt hooded head into the forceful ~12° angled kiss
       this.torsoGroup.rotation.set(
-        THREE.MathUtils.lerp(0.06, 0.22 + leanExtra, k) +
-          (beat === 2 ? pulse * 0.018 : 0),
-        THREE.MathUtils.lerp(0, -0.14, k),
-        THREE.MathUtils.lerp(0, 0.08, k),
+        THREE.MathUtils.lerp(0.04, 0.16 + leanExtra, k) +
+          (beat === 2 ? pulse * 0.016 : 0),
+        THREE.MathUtils.lerp(0, -0.06, k),
+        THREE.MathUtils.lerp(0, 0.04, k),
       );
+      const headRollTarget =
+        beat === 2 ? cfg.mageHeadTiltRollRad : cfg.mageHeadTiltRollRad * 0.45;
       this.headGroup.rotation.set(
-        THREE.MathUtils.lerp(0.05, 0.42 + leanExtra * 0.6, k) +
-          (beat === 2 ? pulse * 0.032 : 0),
-        THREE.MathUtils.lerp(0, -0.26, k),
-        THREE.MathUtils.lerp(0, -0.18, k),
+        THREE.MathUtils.lerp(0.06, 0.26 + leanExtra * 0.4, k) +
+          (beat === 2 ? pulse * 0.03 : 0),
+        THREE.MathUtils.lerp(0, -0.06, k),
+        THREE.MathUtils.lerp(0, headRollTarget, k),
       );
 
-      // Left forearm wraps across her waist/midriff from behind to pin her back against his chest
+      // Left arm wraps decisively around her waist to pull her torso forward into his hold
       this.leftShoulderPivot.rotation.set(
-        THREE.MathUtils.lerp(-0.2, -1.04, k),
+        THREE.MathUtils.lerp(-0.22, -0.96, k),
         THREE.MathUtils.lerp(0, 0.34, k),
-        THREE.MathUtils.lerp(0.14, 0.28 + wrapOffset, k),
+        THREE.MathUtils.lerp(0.14, 0.24 + wrapOffset, k),
       );
       this.leftElbowPivot.rotation.set(
-        THREE.MathUtils.lerp(-0.22, -1.16, k),
+        THREE.MathUtils.lerp(-0.24, -1.08, k),
         0,
-        THREE.MathUtils.lerp(0, 0.72 - wrapOffset * 0.4, k),
+        THREE.MathUtils.lerp(0, 0.56 - wrapOffset * 0.3, k),
       );
 
-      // Right hand reaches over/beside her right shoulder to hook cleanly under her tilted chin
+      // Right hand reaches up cleanly from the front to hook under her chin
       this.rightShoulderPivot.rotation.set(
-        THREE.MathUtils.lerp(-0.32, -1.36, k),
-        THREE.MathUtils.lerp(0, -0.24, k),
+        THREE.MathUtils.lerp(-0.28, -1.24, k),
+        THREE.MathUtils.lerp(0, -0.26, k),
         THREE.MathUtils.lerp(-0.12, -0.18, k),
       );
       this.rightElbowPivot.rotation.set(
-        THREE.MathUtils.lerp(-0.58, -1.08, k),
+        THREE.MathUtils.lerp(-0.48, -1.14, k),
         0,
-        THREE.MathUtils.lerp(0, -0.44, k),
+        THREE.MathUtils.lerp(0, -0.34, k),
       );
 
       // Subtle billowing cloak & hood tail
       const wave = Math.sin(time * 4.2) * 0.04;
-      this.frontLeftRobe.rotation.x = -0.06 + wave;
-      this.frontRightRobe.rotation.x = -0.06 - wave;
-      this.backRobePivot.rotation.x = 0.18 + Math.abs(wave);
+      this.frontLeftRobe.rotation.x = -0.08 + wave;
+      this.frontRightRobe.rotation.x = -0.08 - wave;
+      this.backRobePivot.rotation.x = 0.2 + Math.abs(wave);
       this.hoodTailPivot.rotation.x = -Math.PI * 0.72 + 0.08 + wave;
       this.hoodTailPivot.rotation.z = wave * 0.9;
 
@@ -1713,9 +1715,10 @@ export class DarkMageRig {
           ),
           THREE.MathUtils.clamp(this.scratchLipDelta.z, -maxCorr, maxCorr),
         );
+        this.root.updateMatrixWorld(true);
       }
     } else {
-      // Beat 3: Startled breakaway recoil stance sliding backward with staff back in right hand
+      // Beat 3: Startled breakaway recoil stance sliding backward away from her front
       const arch = Math.sin(ease * Math.PI);
       this.bodyPivot.position.set(
         0,

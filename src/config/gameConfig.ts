@@ -3008,30 +3008,28 @@ export const SIPHON_BEAM_CONFIG = Object.freeze({
 } as const);
 
 // ============================================================================
-// MID-FIGHT OVER-THE-SHOULDER STOLEN KISS ([E] BLINDSPOT SIPHON) CONFIGURATION
+// MID-FIGHT 360° FRONTAL GUARD-BREAK STOLEN KISS ([E]) CONFIGURATION
 // ============================================================================
 
 export const STOLEN_KISS_CONFIG = Object.freeze({
-  // Exposure Window, Rear Blindspot Cone & Cooldown
+  // 360° Proximity Exposure Window & Cooldown
   triggerKey: 'KeyE',
-  exposureDurationSec: 1.4,
-  cooldownSec: 14.0,
-  maxRearDistance: 2.4,
-  rearConeMinDot: 0.55,
-  exposedBossTurnScale: 0.16,
+  exposureDurationSec: 1.8,
+  cooldownSec: 10.0,
+  maxTriggerDistance: 2.8,
+  exposedBossTurnScale: 0.28,
 
-  // Three-Beat Timing (1.80s total: Wrap -> Over-the-Shoulder Siphon -> Breakaway)
+  // Three-Beat Timing (1.80s total: Step-In & Chin Catch -> Angled Siphon Kiss -> Breakaway Blast)
   totalDurationSec: 1.8,
   wrapEndSec: 0.3,
   siphonEndSec: 1.45,
 
-  // Over-the-Shoulder Kinematics
-  rearOffsetDistance: 0.42,
-  targetSpineArchRad: -0.22,
-  targetHeadPitchRad: -0.61,
-  targetHeadYawRad: 0.38,
-  kissPulseAmp: 0.012,
-  kissPulseFreqHz: 3.2,
+  // Frontal Guard-Break Kinematics
+  frontOffsetDistance: 0.48,
+  mageHeadTiltRollRad: 0.21,
+  targetSpinePullRad: 0.12,
+  kissPulseAmp: 0.013,
+  kissPulseFreqHz: 3.4,
   bossStandingBodyY: 0.9,
   mageStandingBodyY: 0.92,
   lipLockMaxCorrection: 0.28,
@@ -3047,25 +3045,31 @@ export const STOLEN_KISS_CONFIG = Object.freeze({
   breakawayShockwaveDuration: 0.55,
   breakawayCameraShake: 0.24,
 
-  // Pooled Blindspot Diamond Glint & Lip-to-Cloak Essence Particles
-  blindspotDiamondRadius: 0.14,
-  blindspotLocalY: 0.42,
-  blindspotLocalZ: -0.26,
-  blindspotParticleCount: 6,
-  blindspotPulseFreqHz: 5.2,
+  // Pooled Front-Facing Chest Telegraph Glint & Exhausted Shoulder Heave
+  telegraphDiamondRadius: 0.14,
+  telegraphLocalY: 0.36,
+  telegraphLocalZ: 0.24,
+  telegraphParticleCount: 6,
+  telegraphPulseFreqHz: 5.2,
+  exhaustedHeaveFreqHz: 3.8,
+  exhaustedTorsoPitchRad: 0.14,
+  exhaustedShoulderDropRad: 0.26,
+  exhaustedShoulderHeaveAmpRad: 0.11,
+
+  // Pooled Lip-to-Cloak Essence Particles
   essenceParticlePoolSize: 20,
   essenceEmitIntervalSec: 0.055,
   essenceParticleLifetimeSec: 0.46,
   essenceParticleRadius: 0.036,
 
-  // Tight 3/4 Front-Side Close-Up Camera Framing
-  cameraFrontOffset: 1.56,
-  cameraSideOffset: 1.38,
-  cameraHeightOffset: 1.56,
-  cameraFocusY: 1.36,
+  // Tight 3/4 Side-Profile Close-Up Camera Framing
+  cameraFrontOffset: 0.62,
+  cameraSideOffset: 1.85,
+  cameraHeightOffset: 1.54,
+  cameraFocusY: 1.38,
   cameraLerpSpeed: 10.5,
 
-  // Heavy Channeled / Signature Patterns Triggering Blindspot Recovery Exposure
+  // Heavy Channeled / Signature Patterns Triggering Frontal Guard-Break Exposure
   heavyExposurePatterns: Object.freeze([
     'TWIN_GLACIAL_LASER',
     'SNOWFLAKE_CURTAIN',
@@ -3080,6 +3084,9 @@ export const STOLEN_KISS_CONFIG = Object.freeze({
   ] as const),
 
   // Procedural Web Audio Cues
+  windowChimeBaseHz: 587.33,
+  windowChimeGain: 0.17,
+  windowChimeDurationSec: 0.68,
   wrapWhooshDurationSec: 0.34,
   wrapWhooshStartHz: 260,
   wrapWhooshEndHz: 780,

@@ -1358,6 +1358,16 @@ export class SerenaRig extends BossBase {
       0,
       0,
     );
+    this.applyExhaustedExposureHeave(
+      this.torsoGroup,
+      this.headGroup,
+      this.leftShoulderPivot,
+      this.rightShoulderPivot,
+      this.leftElbowPivot,
+      this.rightElbowPivot,
+      elapsed,
+      s,
+    );
 
     // Flowing Aquamarine Hair
     const hairSpeed = 2.6 + (this.phaseLevel - 1) * 0.7;

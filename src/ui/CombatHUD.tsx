@@ -38,6 +38,7 @@ export function CombatHUD({ controller }: CombatHUDProps) {
   const bossPhaseSubtitle = useGameStore((s) => s.bossPhaseSubtitle);
   const isBossStaggered = useGameStore((s) => s.isBossStaggered);
   const canExecuteFinisher = useGameStore((s) => s.canExecuteFinisher);
+  const isBossExposed = useGameStore((s) => s.isBossExposed);
   const canExecuteStolenKiss = useGameStore((s) => s.canExecuteStolenKiss);
   const encoreTier = useGameStore((s) => s.encoreTier);
   const activeRealm = useGameStore((s) => s.activeRealm);
@@ -452,16 +453,37 @@ export function CombatHUD({ controller }: CombatHUDProps) {
               </div>
             )}
 
-          {/* Lower-Center Blindspot Ambush Prompt (BOSS_COMBAT rear cone during blindspotExposureTimer > 0) */}
-          {gameState === GAME_STATES.BOSS_COMBAT && canExecuteStolenKiss && (
-            <div className="fixed bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 pointer-events-auto z-30">
-              <button
-                type="button"
-                onClick={() => controller?.triggerStolenKiss()}
-                className="ascend-btn px-6 sm:px-8 py-3 rounded-xl font-display text-xs sm:text-sm font-bold tracking-[0.2em] text-fuchsia-100 uppercase cursor-pointer animate-pulse shadow-[0_0_28px_rgba(139,92,246,0.7)]"
-              >
-                [E] STOLEN KISS
-              </button>
+          {/* Lower-Center 2-Stage Frontal Guard-Break Ambush Indicator (BOSS_COMBAT during exposureTimer > 0) */}
+          {gameState === GAME_STATES.BOSS_COMBAT && isBossExposed && (
+            <div
+              className={`fixed bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 z-30 ${
+                canExecuteStolenKiss
+                  ? 'pointer-events-auto'
+                  : 'pointer-events-none'
+              }`}
+            >
+              {canExecuteStolenKiss ? (
+                <button
+                  type="button"
+                  onClick={() => controller?.triggerStolenKiss()}
+                  className="ascend-btn px-6 sm:px-8 py-3 rounded-xl font-display text-xs sm:text-sm font-bold tracking-[0.2em] text-fuchsia-100 uppercase cursor-pointer animate-pulse shadow-[0_0_28px_rgba(139,92,246,0.75)]"
+                >
+                  [E] STOLEN KISS
+                </button>
+              ) : (
+                <div className="frost-panel px-5 sm:px-7 py-2.5 rounded-xl border border-violet-400/75 bg-violet-950/80 shadow-[0_0_24px_rgba(139,92,246,0.55)] flex items-center gap-2.5 animate-pulse">
+                  <span
+                    className="w-2.5 h-2.5 rotate-45 rounded-[2px] shrink-0"
+                    style={{
+                      backgroundColor: PALETTE.hex.amethystTrim,
+                      boxShadow: `0 0 12px ${PALETTE.hex.amethystTrim}`,
+                    }}
+                  />
+                  <span className="font-display text-[11px] sm:text-xs font-bold tracking-[0.18em] text-violet-100 uppercase whitespace-nowrap">
+                    SOVEREIGN EXPOSED &mdash; BLINK IN [SPACE]
+                  </span>
+                </div>
+              )}
             </div>
           )}
 

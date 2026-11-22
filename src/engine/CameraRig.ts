@@ -981,8 +981,8 @@ export class CameraRig {
   }
 
   /**
-   * Tight 3/4 front-side close-up camera for the Mid-Fight Over-the-Shoulder Stolen Kiss,
-   * framing the Sovereign's tilted-back face over her shoulder and the Dark Mage leaning in from behind.
+   * Tight 3/4 side-profile close-up camera for the Mid-Fight Frontal Guard-Break Stolen Kiss,
+   * framing both the Sovereign's startled chin-caught face and the Dark Mage's ~12°-tilted hood.
    */
   public updateStolenKissCamera(
     dt: number,
@@ -996,23 +996,23 @@ export class CameraRig {
 
     const fwdX = Math.sin(bossYaw);
     const fwdZ = Math.cos(bossYaw);
-    // Right-hand side of the Sovereign (+X in boss local space): cross(up, fwd) = (fwdZ, 0, -fwdX)
+    // Lateral right axis (+X in boss local space): cross(up, fwd) = (fwdZ, 0, -fwdX)
     const rightX = fwdZ;
     const rightZ = -fwdX;
 
-    const zoomScale = beat === 2 ? 0.9 : beat === 3 ? 1.42 : 1.02;
-    this.desiredLookAt.set(
-      bossPos.x - fwdX * 0.14 + rightX * 0.08,
-      bossPos.y + cfg.cameraFocusY,
-      bossPos.z - fwdZ * 0.14 + rightZ * 0.08,
-    );
+    // Midpoint between the Sovereign and the Dark Mage standing directly in front of her
+    const midX = bossPos.x + fwdX * (cfg.frontOffsetDistance * 0.5);
+    const midZ = bossPos.z + fwdZ * (cfg.frontOffsetDistance * 0.5);
+
+    const zoomScale = beat === 2 ? 0.88 : beat === 3 ? 1.48 : 1.0;
+    this.desiredLookAt.set(midX, bossPos.y + cfg.cameraFocusY, midZ);
     this.desiredPos.set(
-      bossPos.x +
-        (fwdX * cfg.cameraFrontOffset + rightX * cfg.cameraSideOffset) *
+      midX +
+        (rightX * cfg.cameraSideOffset + fwdX * cfg.cameraFrontOffset) *
           zoomScale,
       bossPos.y + cfg.cameraHeightOffset + (beat === 3 ? 0.25 : 0),
-      bossPos.z +
-        (fwdZ * cfg.cameraFrontOffset + rightZ * cfg.cameraSideOffset) *
+      midZ +
+        (rightZ * cfg.cameraSideOffset + fwdZ * cfg.cameraFrontOffset) *
           zoomScale,
     );
 

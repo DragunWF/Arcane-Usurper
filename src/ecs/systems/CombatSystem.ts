@@ -57,6 +57,7 @@ export interface ICombatCallbacks {
     hitPoint: THREE.Vector3,
   ) => void;
   getCameraForwardXZ?: (outVec: THREE.Vector3) => THREE.Vector3;
+  onBossExposureChange?: (exposed: boolean) => void;
   onStolenKissAvailabilityChange?: (available: boolean) => void;
   onTriggerStolenKiss?: () => void;
 }
@@ -80,7 +81,7 @@ export class CombatSystem implements ISystem {
   private readonly vBoltDir = new THREE.Vector3();
   private readonly vBossPos = new THREE.Vector3();
   private readonly vBurstPos = new THREE.Vector3();
-  private readonly vCamFwdXZ = new THREE.Vector3();
+  private lastBossExposed = false;
   private lastStolenKissEligible = false;
 
   constructor(
@@ -122,11 +123,14 @@ export class CombatSystem implements ISystem {
   }
 
   /**
-   * Evaluates rear blindspot ambush eligibility during BOSS_COMBAT when the Sovereign's
-   * recovery exposure window (`blindspotExposureTimer > 0`) is open, updating the contextual
-   * `[E] STOLEN KISS` HUD prompt and triggering the ambush on `[E]` press.
+   * Evaluates 360° frontal guard-break ambush eligibility during BOSS_COMBAT whenever
+   * the Sovereign's recovery exposure window (`exposureTimer > 0`) is open:
+   * - Stage 1 (exposed, out of range): notifies HUD to display `SOVEREIGN EXPOSED — BLINK IN [SPACE]`
+   * - Stage 2 (exposed, within `maxTriggerDistance` from any angle): snaps HUD to `[E] STOLEN KISS`
+   *   and triggers the 3-beat frontal ambush immediately on `[E]` press.
    */
   private evaluateStolenKissBlindspot(state: GameState): void {
+    let isExposed = false;
     let eligible = false;
     const player = this.world.queryFirst(
       'playerTag',
@@ -141,42 +145,21 @@ export class CombatSystem implements ISystem {
       boss &&
       !boss.bossPhase.isStaggered &&
       boss.health.current > STOLEN_KISS_CONFIG.minRemainingBossHp &&
-      this.bossRig.blindspotExposureTimer > 0
+      this.bossRig.exposureTimer > 0
     ) {
+      isExposed = true;
       const dx = player.transform.position.x - boss.transform.position.x;
       const dz = player.transform.position.z - boss.transform.position.z;
       const dist = Math.hypot(dx, dz);
 
-      if (dist > 0.05 && dist <= STOLEN_KISS_CONFIG.maxRearDistance) {
-        const invDist = 1 / dist;
-        const bossToPlayerX = dx * invDist;
-        const bossToPlayerZ = dz * invDist;
-        const bossYaw = boss.transform.rotationY;
-        const bossBackX = -Math.sin(bossYaw);
-        const bossBackZ = -Math.cos(bossYaw);
-        const behindDot =
-          bossToPlayerX * bossBackX + bossToPlayerZ * bossBackZ;
-
-        if (behindDot >= STOLEN_KISS_CONFIG.rearConeMinDot) {
-          const toBossX = -bossToPlayerX;
-          const toBossZ = -bossToPlayerZ;
-          const pYaw = player.transform.rotationY;
-          const playerFacingDot =
-            Math.sin(pYaw) * toBossX + Math.cos(pYaw) * toBossZ;
-          let camFacingDot = -1;
-          if (this.callbacks.getCameraForwardXZ) {
-            this.callbacks.getCameraForwardXZ(this.vCamFwdXZ);
-            camFacingDot =
-              this.vCamFwdXZ.x * toBossX + this.vCamFwdXZ.z * toBossZ;
-          }
-          if (
-            playerFacingDot >= STOLEN_KISS_CONFIG.rearConeMinDot ||
-            camFacingDot >= STOLEN_KISS_CONFIG.rearConeMinDot
-          ) {
-            eligible = true;
-          }
-        }
+      if (dist <= STOLEN_KISS_CONFIG.maxTriggerDistance) {
+        eligible = true;
       }
+    }
+
+    if (isExposed !== this.lastBossExposed) {
+      this.lastBossExposed = isExposed;
+      this.callbacks.onBossExposureChange?.(isExposed);
     }
 
     if (eligible !== this.lastStolenKissEligible) {
@@ -185,7 +168,9 @@ export class CombatSystem implements ISystem {
     }
 
     if (eligible && player?.playerIntent.stolenKissRequested) {
+      this.lastBossExposed = false;
       this.lastStolenKissEligible = false;
+      this.callbacks.onBossExposureChange?.(false);
       this.callbacks.onStolenKissAvailabilityChange?.(false);
       this.callbacks.onTriggerStolenKiss?.();
     }

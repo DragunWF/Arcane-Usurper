@@ -1517,6 +1517,16 @@ export class MarinaRig extends BossBase {
       staggerElbowX,
       s,
     );
+    this.applyExhaustedExposureHeave(
+      this.torsoGroup,
+      this.headGroup,
+      this.leftShoulderPivot,
+      this.rightShoulderPivot,
+      this.leftElbowPivot,
+      this.rightElbowPivot,
+      elapsed,
+      s,
+    );
 
     // Pleated Skirt Panels
     for (let i = 0; i < this.skirtPanels.length; i++) {

@@ -1465,6 +1465,16 @@ export class MikuRig extends BossBase {
     );
     this.leftElbowPivot.rotation.x = THREE.MathUtils.lerp(combatElbowX, -0.26, s);
     this.rightElbowPivot.rotation.x = THREE.MathUtils.lerp(combatElbowX, -0.26, s);
+    this.applyExhaustedExposureHeave(
+      this.torsoGroup,
+      this.headGroup,
+      this.leftShoulderPivot,
+      this.rightShoulderPivot,
+      this.leftElbowPivot,
+      this.rightElbowPivot,
+      elapsed,
+      s,
+    );
 
     // Necktie flutter
     this.necktiePivot.rotation.x =

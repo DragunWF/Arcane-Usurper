@@ -46,6 +46,7 @@ export interface IAudioTrigger {
   startBeamSiphonLoop(realm: SiphonRealmId): void;
   updateBeamSiphonLoop(drainProgress: number, dt: number): void;
   stopBeamSiphonLoop(): void;
+  playStolenKissWindowChime(): void;
   playStolenKissWrap(): void;
   playStolenKissSiphonChord(realm: SiphonRealmId): void;
   playStolenKissBreakaway(realm: SiphonRealmId): void;
@@ -2964,7 +2965,53 @@ export class SoundEngine implements IAudioTrigger {
   }
 
   /**
-   * Beat 1 of Mid-Fight Stolen Kiss: velvet rear-wrap whoosh & low embrace thump.
+   * Crisp, resonant royal-violet harmonic bell chime firing once on the rising edge
+   * when a Sovereign enters her frontal guard-break exposure window.
+   */
+  public playStolenKissWindowChime(): void {
+    if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
+    const cfg = STOLEN_KISS_CONFIG;
+    const now = this.ctx.currentTime;
+    const dur = cfg.windowChimeDurationSec;
+    const baseHz = cfg.windowChimeBaseHz;
+    const partials: readonly {
+      readonly ratio: number;
+      readonly gainScale: number;
+      readonly delay: number;
+      readonly type: OscillatorType;
+    }[] = [
+      { ratio: 1.0, gainScale: 1.0, delay: 0, type: 'sine' },
+      { ratio: 1.5, gainScale: 0.62, delay: 0.04, type: 'triangle' },
+      { ratio: 2.0, gainScale: 0.48, delay: 0.08, type: 'sine' },
+      { ratio: 3.0, gainScale: 0.24, delay: 0.08, type: 'sine' },
+    ];
+
+    for (let i = 0; i < partials.length; i++) {
+      const p = partials[i];
+      if (!p) continue;
+      const start = now + p.delay;
+      const osc = this.ctx.createOscillator();
+      const env = this.ctx.createGain();
+      osc.type = p.type;
+      osc.frequency.setValueAtTime(baseHz * p.ratio, start);
+      env.gain.setValueAtTime(AUDIO_CONFIG.minGainFloor, start);
+      env.gain.linearRampToValueAtTime(
+        cfg.windowChimeGain * p.gainScale,
+        start + 0.012,
+      );
+      env.gain.exponentialRampToValueAtTime(
+        AUDIO_CONFIG.minGainFloor,
+        start + dur,
+      );
+      osc.connect(env);
+      env.connect(this.sfxGain);
+      osc.start(start);
+      osc.stop(start + dur + 0.04);
+    }
+  }
+
+  /**
+   * Beat 1 of Mid-Fight Stolen Kiss: velvet step-in & chin-catch whoosh.
    */
   public playStolenKissWrap(): void {
     if (!this.canPlaySfx() || !this.ctx || !this.sfxGain) return;
