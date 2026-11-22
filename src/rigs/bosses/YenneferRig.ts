@@ -1131,6 +1131,11 @@ export class YenneferRig extends BossBase {
     }
   }
 
+  public override enterIncapacitatedStaggerHold(): void {
+    super.enterIncapacitatedStaggerHold();
+    this.setMaelstromCharge(0);
+  }
+
   public triggerRiftArrivePulse(): void {
     this.riftArrivePulseTimer = 0.45;
   }

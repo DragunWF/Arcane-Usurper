@@ -157,6 +157,7 @@ export interface HazardZoneComponent {
   hitCooldown: number;
   hasHitPlayer: boolean;
   hasTriggered: boolean;
+  ownerEntityId?: EntityId | null;
 }
 
 export interface BossPhaseStateComponent {
@@ -312,3 +313,42 @@ export type Entity = {
  */
 export type EntityWith<K extends ComponentKey> = Entity &
   Required<Pick<ComponentMap, K>>;
+
+/**
+ * Minimal structural view of a boss entity for zero-allocation finisher gate checks.
+ */
+export interface BossFinisherGateCandidate {
+  readonly id: EntityId;
+  readonly bossPhase: {
+    readonly canBeSiphoned: boolean;
+    readonly isDefeated: boolean;
+  };
+  readonly health: {
+    readonly current: number;
+  };
+}
+
+/**
+ * Zero-allocation N-boss finisher readiness check (DRY / OCP).
+ * Returns `true` only when every non-siphonable boss (`canBeSiphoned === false`)
+ * in `activeBosses` (excluding `targetSovereign` if provided) has `isDefeated === true`
+ * and `health.current <= 0`.
+ */
+export function areAllOtherBossesDefeated(
+  activeBosses: readonly BossFinisherGateCandidate[],
+  targetSovereign?: { readonly id: EntityId } | null,
+): boolean {
+  const targetId = targetSovereign ? targetSovereign.id : null;
+  for (let i = 0; i < activeBosses.length; i++) {
+    const boss = activeBosses[i];
+    if (!boss) continue;
+    if (targetId !== null && boss.id === targetId) continue;
+    if (
+      !boss.bossPhase.canBeSiphoned &&
+      (!boss.bossPhase.isDefeated || boss.health.current > 0)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}

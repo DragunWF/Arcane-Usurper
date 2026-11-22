@@ -6,6 +6,7 @@ import {
   PALETTE,
   PLAYER_CONFIG,
   PORTAL_STATES,
+  SPECIAL_SCENARIO_CONFIG,
   WOLF_AND_RAVEN_CONFIG,
 } from '../config/gameConfig';
 import type { IGameController } from '../engine/GameEngine';
@@ -39,6 +40,10 @@ export function CombatHUD({ controller }: CombatHUDProps) {
   const bossPhaseSubtitle = useGameStore((s) => s.bossPhaseSubtitle);
   const isBossStaggered = useGameStore((s) => s.isBossStaggered);
   const canExecuteFinisher = useGameStore((s) => s.canExecuteFinisher);
+  const isSovereignFinisherLocked = useGameStore(
+    (s) => s.isSovereignFinisherLocked,
+  );
+  const isNearLockedSovereign = useGameStore((s) => s.isNearLockedSovereign);
   const isBossExposed = useGameStore((s) => s.isBossExposed);
   const canExecuteStolenKiss = useGameStore((s) => s.canExecuteStolenKiss);
   const activeBosses = useGameStore((s) => s.activeBosses);
@@ -98,6 +103,20 @@ export function CombatHUD({ controller }: CombatHUDProps) {
     Math.min(100, (playerStamina / Math.max(1, playerMaxStamina)) * 100),
   );
   const bossHpPct = Math.max(0, Math.min(100, (bossHp / Math.max(1, bossMaxHp)) * 100));
+
+  let hasLivingNonSiphonableBoss = false;
+  for (let i = 0; i < activeBosses.length; i++) {
+    const entry = activeBosses[i];
+    if (entry && !entry.canBeSiphoned && (!entry.isDefeated || entry.hp > 0)) {
+      hasLivingNonSiphonableBoss = true;
+      break;
+    }
+  }
+  const canShowFinisherPrompts =
+    gameState === GAME_STATES.STAGGER &&
+    canExecuteFinisher &&
+    !hasLivingNonSiphonableBoss &&
+    !isSovereignFinisherLocked;
 
   const isChamberMode =
     gameState === GAME_STATES.CHAMBER_COMBAT ||
@@ -353,20 +372,24 @@ export function CombatHUD({ controller }: CombatHUDProps) {
                               backgroundColor: `${PALETTE.hex.abyssalCloak}CC`,
                               color: b.isDissolving
                                 ? PALETTE.hex.ashEmber
-                                : b.isStaggered
-                                  ? PALETTE.hex.pulseLavender
-                                  : b.canBeSiphoned
-                                    ? PALETTE.hex.yenneferLilac
-                                    : PALETTE.hex.steelSilver,
+                                : b.isStaggered && hasLivingNonSiphonableBoss
+                                  ? PALETTE.hex.riftAmber
+                                  : b.isStaggered
+                                    ? PALETTE.hex.pulseLavender
+                                    : b.canBeSiphoned
+                                      ? PALETTE.hex.yenneferLilac
+                                      : PALETTE.hex.steelSilver,
                             }}
                           >
                             {b.isDissolving
                               ? 'FALLEN'
-                              : b.isStaggered
-                                ? 'STAGGERED'
-                                : b.canBeSiphoned
-                                  ? 'SOVEREIGN'
-                                  : b.title}
+                              : b.isStaggered && hasLivingNonSiphonableBoss
+                                ? SPECIAL_SCENARIO_CONFIG.finisherLockedBossBarTag
+                                : b.isStaggered
+                                  ? 'STAGGERED'
+                                  : b.canBeSiphoned
+                                    ? 'SOVEREIGN'
+                                    : b.title}
                           </span>
                         </div>
                         <span className="text-[10px] sm:text-[11px] font-mono font-semibold text-sky-100/90 whitespace-nowrap">
@@ -388,6 +411,19 @@ export function CombatHUD({ controller }: CombatHUDProps) {
                           }}
                         />
                       </div>
+
+                      {b.canBeSiphoned &&
+                        b.isStaggered &&
+                        hasLivingNonSiphonableBoss && (
+                          <div
+                            className="mt-1.5 flex items-center justify-center gap-1.5 text-[9px] sm:text-[10px] font-display font-bold tracking-[0.18em] uppercase"
+                            style={{ color: PALETTE.hex.riftAmber }}
+                          >
+                            <span>
+                              {SPECIAL_SCENARIO_CONFIG.finisherLockedCueText}
+                            </span>
+                          </div>
+                        )}
                     </div>
                   );
                 })}
@@ -643,8 +679,38 @@ export function CombatHUD({ controller }: CombatHUDProps) {
             </div>
           )}
 
-          {/* Lower-Center Dual Amethyst Finisher Prompts (STAGGER within 8.5m) */}
-          {gameState === GAME_STATES.STAGGER && canExecuteFinisher && (
+          {/* Lower-Center Locked Siphon Proximity Cue (Sovereign staggered at 0 HP while non-siphonable foes remain) */}
+          {gameState === GAME_STATES.BOSS_COMBAT &&
+            isSovereignFinisherLocked &&
+            isNearLockedSovereign && (
+              <div className="fixed bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 pointer-events-none z-30 max-w-[calc(100vw-2rem)]">
+                <div
+                  className="frost-panel px-5 sm:px-7 py-2.5 rounded-xl border flex items-center gap-2.5"
+                  style={{
+                    borderColor: `${PALETTE.hex.riftAmber}99`,
+                    backgroundColor: `${PALETTE.hex.abyssalCloak}DD`,
+                    boxShadow: `0 0 24px ${PALETTE.hex.riftAmber}44`,
+                  }}
+                >
+                  <span
+                    className="w-2.5 h-2.5 rotate-45 rounded-[2px] shrink-0"
+                    style={{
+                      backgroundColor: PALETTE.hex.riftAmber,
+                      boxShadow: `0 0 10px ${PALETTE.hex.riftAmber}`,
+                    }}
+                  />
+                  <span
+                    className="font-display text-[11px] sm:text-xs font-bold tracking-[0.18em] uppercase whitespace-nowrap"
+                    style={{ color: PALETTE.hex.pureWhite }}
+                  >
+                    {SPECIAL_SCENARIO_CONFIG.finisherLockedCueText}
+                  </span>
+                </div>
+              </div>
+            )}
+
+          {/* Lower-Center Dual Amethyst Finisher Prompts (STAGGER within 8.5m, strictly gated on all non-siphonable foes defeated) */}
+          {canShowFinisherPrompts && (
             <div className="fixed bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 pointer-events-auto z-30 flex flex-col sm:flex-row items-center gap-3 max-w-[calc(100vw-2rem)]">
               <button
                 type="button"

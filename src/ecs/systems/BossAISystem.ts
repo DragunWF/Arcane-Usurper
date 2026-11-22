@@ -24,7 +24,12 @@ import type { BossRigAdapter } from '../../rigs/bosses/BossBase';
 import type { GeraltRig } from '../../rigs/bosses/GeraltRig';
 import type { MarinaRig } from '../../rigs/bosses/MarinaRig';
 import type { YenneferRig } from '../../rigs/bosses/YenneferRig';
-import type { BossPhaseStateComponent, EntityId, EntityWith } from '../components';
+import {
+  areAllOtherBossesDefeated,
+  type BossPhaseStateComponent,
+  type EntityId,
+  type EntityWith,
+} from '../components';
 import type { ECSWorld, ISystem } from '../World';
 
 export interface BossPatternProfile {
@@ -76,6 +81,7 @@ export interface IBossAICallbacks {
   addCameraShake: (amount: number) => void;
   onPhaseChanged: (phase: BossPhase) => void;
   onStaggerTriggered: (bossEntityId?: EntityId) => void;
+  onSovereignStaggerLocked?: (bossEntityId: EntityId) => void;
   onDuoAllyVanquished?: (bannerTitle: string, bannerSubtext: string) => void;
   onPlayerMeleeHit?: (amount: number) => void;
 }
@@ -199,8 +205,58 @@ export class BossAISystem implements ISystem {
   }
 
   /**
+   * Clears only projectiles, clones, and hazard zones owned by a specific boss entity
+   * (used when a Sovereign drops to 0 HP while non-siphonable guardians are still fighting).
+   */
+  public clearBossOwnHazards(bossEntityId: EntityId): void {
+    const toDestroy: EntityId[] = [];
+    const projectiles = this.world.query('projectile');
+    for (let i = 0; i < projectiles.length; i++) {
+      const p = projectiles[i];
+      if (
+        p &&
+        p.projectile.faction === 'BOSS' &&
+        p.projectile.ownerEntityId === bossEntityId
+      ) {
+        toDestroy.push(p.id);
+      }
+    }
+
+    const hazards = this.world.query('hazardZone');
+    for (let i = 0; i < hazards.length; i++) {
+      const h = hazards[i];
+      if (
+        h &&
+        h.hazardZone.faction === 'BOSS' &&
+        h.hazardZone.ownerEntityId === bossEntityId
+      ) {
+        toDestroy.push(h.id);
+      }
+    }
+
+    const clones = this.world.query('cloneIllusion');
+    for (let i = 0; i < clones.length; i++) {
+      const c = clones[i];
+      if (c && c.cloneIllusion.ownerEntityId === bossEntityId) {
+        toDestroy.push(c.id);
+      }
+    }
+
+    for (let i = 0; i < toDestroy.length; i++) {
+      const id = toDestroy[i];
+      if (id !== undefined) this.world.destroyEntity(id);
+    }
+  }
+
+  /**
    * Evaluates HP ratios across all active bosses after CombatSystem applies damage,
    * triggering Phase 2, Phase 3, or lethal STAGGER strictly for `canBeSiphoned === true` bosses.
+   *
+   * Multi-boss finisher gate: if a Sovereign hits 0 HP while any non-siphonable boss
+   * (`canBeSiphoned === false`) is still alive, she stays locked in her kneeling staggered
+   * state (`GAME_STATES.BOSS_COMBAT` continues). The exact instant the final non-siphonable
+   * boss transitions to `isDefeated = true`, the waiting Sovereign immediately unlocks
+   * `GAME_STATES.STAGGER` for `[E]` / `[R]` finishers.
    */
   public evaluateHealthThresholds(): void {
     const bosses = this.world.query('bossPhase', 'health', 'transform');
@@ -229,9 +285,11 @@ export class BossAISystem implements ISystem {
       ) {
         bossPhase.isStaggered = true;
         bossPhase.expression = BOSS_EXPRESSIONS.STAGGER;
-        this.clearAllBossHazards();
-        rig.setPhaseVisuals(BOSS_PHASES.PHASE_1);
-        rig.setAscendHeight(0);
+        bossPhase.activePatternId = null;
+        bossPhase.ascendHeight = 0;
+        bossPhase.dashTimer = 0;
+        bossPhase.pendingPhaseOpener = false;
+        rig.enterIncapacitatedStaggerHold();
 
         this.vfx.spawnFrostShatterBurst(
           new THREE.Vector3(
@@ -242,11 +300,19 @@ export class BossAISystem implements ISystem {
           38,
           11.0,
         );
-        rig.setExpression(BOSS_EXPRESSIONS.STAGGER);
         this.callbacks.addCameraShake(BOSS_CONFIG.staggerCameraShake);
         this.audio.playIceShatter(1.0);
-        this.callbacks.onStaggerTriggered(boss.id);
-        return;
+
+        if (areAllOtherBossesDefeated(bosses, boss)) {
+          this.clearAllBossHazards();
+          this.callbacks.onStaggerTriggered(boss.id);
+          return;
+        }
+
+        // Hold Sovereign kneeling at 0 HP while non-siphonable companions/guardians remain alive
+        this.clearBossOwnHazards(boss.id);
+        this.callbacks.onSovereignStaggerLocked?.(boss.id);
+        continue;
       }
 
       if (
@@ -269,6 +335,24 @@ export class BossAISystem implements ISystem {
           transform.position,
           BOSS_PHASES.PHASE_2,
         );
+      }
+    }
+
+    // Unlock a waiting 0 HP staggered Sovereign the exact instant the last non-siphonable foe falls
+    if (this.callbacks.getGameState() === GAME_STATES.BOSS_COMBAT) {
+      for (let i = 0; i < bosses.length; i++) {
+        const boss = bosses[i];
+        if (
+          boss &&
+          boss.bossPhase.canBeSiphoned &&
+          boss.bossPhase.isStaggered &&
+          !boss.bossPhase.isDefeated &&
+          areAllOtherBossesDefeated(bosses, boss)
+        ) {
+          this.clearAllBossHazards();
+          this.callbacks.onStaggerTriggered(boss.id);
+          return;
+        }
       }
     }
   }
@@ -400,14 +484,17 @@ export class BossAISystem implements ISystem {
             (rig as GeraltRig).setQuenVisual(false, 0);
             (rig as GeraltRig).setAmberBladeTrail(0);
             (rig as GeraltRig).setIgniChannel(0);
+            let enragedStandingAlly = false;
             for (let j = 0; j < bosses.length; j++) {
               const ally = bosses[j];
               if (
                 ally &&
                 ally.id !== boss.id &&
                 !ally.bossPhase.isDefeated &&
+                !ally.bossPhase.isStaggered &&
                 ally.bossPhase.canBeSiphoned
               ) {
+                enragedStandingAlly = true;
                 ally.bossPhase.isSoloEnraged = true;
                 ally.bossPhase.attackCooldown = Math.min(
                   ally.bossPhase.attackCooldown,
@@ -422,7 +509,9 @@ export class BossAISystem implements ISystem {
             }
             this.callbacks.onDuoAllyVanquished?.(
               WOLF_AND_RAVEN_CONFIG.geraltVanquishedBannerText,
-              WOLF_AND_RAVEN_CONFIG.geraltVanquishedSubtext,
+              enragedStandingAlly
+                ? WOLF_AND_RAVEN_CONFIG.geraltVanquishedSubtext
+                : WOLF_AND_RAVEN_CONFIG.geraltVanquishedFinisherReadySubtext,
             );
           }
         }
@@ -652,6 +741,7 @@ export class BossAISystem implements ISystem {
         hitCooldown: 0,
         hasHitPlayer: true,
         hasTriggered: true,
+        ownerEntityId: boss.id,
       },
       meshRef: { object3D: departMesh },
     });
@@ -698,6 +788,7 @@ export class BossAISystem implements ISystem {
         hitCooldown: 0,
         hasHitPlayer: true,
         hasTriggered: true,
+        ownerEntityId: boss.id,
       },
       meshRef: { object3D: arriveMesh },
     });
@@ -2830,6 +2921,7 @@ export class BossAISystem implements ISystem {
               hitCooldown: 0,
               hasHitPlayer: false,
               hasTriggered: false,
+              ownerEntityId: ctx.bossEntity.id,
             },
             meshRef: { object3D: boltGroup },
           });
@@ -2986,6 +3078,7 @@ export class BossAISystem implements ISystem {
               hitCooldown: 0,
               hasHitPlayer: false,
               hasTriggered: true,
+              ownerEntityId: ctx.bossEntity.id,
             },
             meshRef: { object3D: novaGroup },
           });

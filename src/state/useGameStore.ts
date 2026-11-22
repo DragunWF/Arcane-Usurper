@@ -321,6 +321,8 @@ export interface CombatHudSnapshot {
   siphonProgress?: number;
   tauntDizzyTimer?: number;
   canExecuteFinisher?: boolean;
+  isSovereignFinisherLocked?: boolean;
+  isNearLockedSovereign?: boolean;
   isPlayerYrdenSlowed?: boolean;
 }
 
@@ -385,6 +387,8 @@ export interface GameStoreState {
   bossExpression: BossExpression;
   isBossStaggered: boolean;
   canExecuteFinisher: boolean;
+  isSovereignFinisherLocked: boolean;
+  isNearLockedSovereign: boolean;
   isBossExposed: boolean;
   canExecuteStolenKiss: boolean;
 
@@ -560,6 +564,8 @@ const INITIAL_STATE = {
   bossExpression: BOSS_EXPRESSIONS.COMBAT as BossExpression,
   isBossStaggered: false,
   canExecuteFinisher: false,
+  isSovereignFinisherLocked: false,
+  isNearLockedSovereign: false,
   isBossExposed: false,
   canExecuteStolenKiss: false,
 
@@ -799,6 +805,10 @@ export const useGameStore = create<GameStoreState>((set) => ({
       tauntDizzyTimer: snapshot.tauntDizzyTimer ?? state.tauntDizzyTimer,
       canExecuteFinisher:
         snapshot.canExecuteFinisher ?? state.canExecuteFinisher,
+      isSovereignFinisherLocked:
+        snapshot.isSovereignFinisherLocked ?? state.isSovereignFinisherLocked,
+      isNearLockedSovereign:
+        snapshot.isNearLockedSovereign ?? state.isNearLockedSovereign,
       isPlayerYrdenSlowed:
         snapshot.isPlayerYrdenSlowed ?? state.isPlayerYrdenSlowed,
     })),
@@ -841,6 +851,8 @@ export const useGameStore = create<GameStoreState>((set) => ({
         bossExpression: BOSS_EXPRESSIONS.COMBAT,
         isBossStaggered: false,
         canExecuteFinisher: false,
+        isSovereignFinisherLocked: false,
+        isNearLockedSovereign: false,
         isBossExposed: false,
         canExecuteStolenKiss: false,
         duoEventBanner: null,

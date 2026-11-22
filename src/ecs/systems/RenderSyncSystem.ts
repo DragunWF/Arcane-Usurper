@@ -28,7 +28,10 @@ import {
   useGameStore,
   type ActiveBossHudEntry,
 } from '../../state/useGameStore';
-import type { EntityId } from '../components';
+import {
+  areAllOtherBossesDefeated,
+  type EntityId,
+} from '../components';
 import type { ECSWorld, ISystem } from '../World';
 
 export interface IRenderSyncCallbacks {
@@ -525,11 +528,13 @@ export class RenderSyncSystem implements ISystem {
   public flushHudSnapshot(): void {
     const player = this.world.queryFirst(
       'playerTag',
+      'transform',
       'health',
       'stamina',
       'playerCombat',
     );
     const allBosses = this.world.query('bossPhase', 'health');
+    const allOthersDefeated = areAllOtherBossesDefeated(allBosses);
     const activeBosses: ActiveBossHudEntry[] = [];
     let primaryBoss = allBosses.find(
       (b) => b.bossPhase.canBeSiphoned && !b.bossPhase.isDefeated,
@@ -538,9 +543,26 @@ export class RenderSyncSystem implements ISystem {
       primaryBoss = allBosses.find((b) => !b.bossPhase.isDefeated) ?? allBosses[0];
     }
 
+    let isSovereignFinisherLocked = false;
+    let isNearLockedSovereign = false;
     for (let i = 0; i < allBosses.length; i++) {
       const b = allBosses[i];
       if (!b || b.bossPhase.isDefeated) continue;
+      if (
+        !allOthersDefeated &&
+        b.bossPhase.canBeSiphoned &&
+        b.bossPhase.isStaggered
+      ) {
+        isSovereignFinisherLocked = true;
+        if (player && b.transform) {
+          const range = b.siphonableBoss?.finisherRange ?? BOSS_CONFIG.finisherRange;
+          const dx = player.transform.position.x - b.transform.position.x;
+          const dz = player.transform.position.z - b.transform.position.z;
+          if (dx * dx + dz * dz <= range * range) {
+            isNearLockedSovereign = true;
+          }
+        }
+      }
       activeBosses.push({
         entityId: b.id,
         bossId: b.bossPhase.bossId,
@@ -573,6 +595,8 @@ export class RenderSyncSystem implements ISystem {
       activeBosses,
       siphonProgress: siphonBoss?.siphonableBoss.siphonProgress,
       tauntDizzyTimer: siphonBoss?.siphonableBoss.tauntDizzyTimer,
+      isSovereignFinisherLocked,
+      isNearLockedSovereign,
       isPlayerYrdenSlowed: (player?.playerCombat.yrdenSlowTimer ?? 0) > 0,
     });
   }

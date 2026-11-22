@@ -3254,6 +3254,10 @@ export const SPECIAL_SCENARIO_CONFIG = Object.freeze({
   yenneferBoltDamage: 14,
   yenneferNovaDamage: 18,
   yenneferLaserDamage: 16,
+  finisherLockedCueText: 'DEFEAT ALL REMAINING FOES TO SIPHON',
+  finisherLockedBossBarTag: 'STAGGERED • LOCKED',
+  sovereignIncappedBannerText: 'SOVEREIGN INCAPACITATED',
+  sovereignIncappedBannerSubtext: 'DEFEAT ALL REMAINING FOES TO SIPHON',
 } as const);
 
 // ============================================================================
@@ -3365,6 +3369,7 @@ export const WOLF_AND_RAVEN_CONFIG = Object.freeze({
   soloEnrageSpeedMult: 1.3,
   geraltVanquishedBannerText: 'GERALT VANQUISHED',
   geraltVanquishedSubtext: 'YENNEFER ENTERS SOLO CHAOS ENRAGE',
+  geraltVanquishedFinisherReadySubtext: 'SOVEREIGN EXPOSED — SIPHON FINISHER UNLOCKED',
   vanquishedBannerMs: 3200,
 
   // Grounded Two-Stage Fallen-Body Collapse (non-siphonable bosses at 0 HP — remains visible in arena)

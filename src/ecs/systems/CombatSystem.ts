@@ -31,8 +31,13 @@ import type { IVfxSpawner } from '../../engine/VfxFactory';
 import type { DarkMageRig } from '../../rigs/DarkMageRig';
 import type { BossRigAdapter } from '../../rigs/bosses/BossBase';
 import type { GeraltRig } from '../../rigs/bosses/GeraltRig';
-import type { EntityId } from '../components';
+import {
+  areAllOtherBossesDefeated,
+  type EntityId,
+} from '../components';
 import type { ECSWorld, ISystem } from '../World';
+
+export { areAllOtherBossesDefeated };
 
 export interface ICombatCallbacks {
   getGameState: () => GameState;
@@ -124,6 +129,20 @@ export class CombatSystem implements ISystem {
 
   public getEligibleStolenKissBossId(): EntityId | null {
     return this.eligibleStolenKissBossId;
+  }
+
+  /**
+   * Zero-allocation N-boss finisher readiness check against live ECS boss entities.
+   * Returns `true` only when every non-siphonable boss (`canBeSiphoned === false`)
+   * in the arena has `isDefeated === true` and `health.current <= 0`.
+   */
+  public areAllOtherBossesDefeated(targetBossEntityId?: EntityId | null): boolean {
+    const activeBosses = this.world.query('bossPhase', 'health');
+    const targetRef =
+      targetBossEntityId !== undefined && targetBossEntityId !== null
+        ? { id: targetBossEntityId }
+        : null;
+    return areAllOtherBossesDefeated(activeBosses, targetRef);
   }
 
   public update(dt: number, _elapsed: number): void {

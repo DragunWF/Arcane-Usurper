@@ -34,8 +34,13 @@ import {
   useGameStore,
   type LobbySiphonTargetId,
 } from '../../state/useGameStore';
-import type { EntityId } from '../components';
+import {
+  areAllOtherBossesDefeated,
+  type EntityId,
+} from '../components';
 import type { ECSWorld, ISystem } from '../World';
+
+export { areAllOtherBossesDefeated };
 
 export interface LobbySiphonAnchorConfig {
   readonly targetId: LobbySiphonTargetId;
@@ -557,6 +562,18 @@ export class FinisherSystem implements ISystem {
         this.bossRig = boundRig;
       }
     }
+  }
+
+  /**
+   * Zero-allocation N-boss finisher input gate.
+   * Returns `true` only when every non-siphonable boss (`canBeSiphoned === false`)
+   * in the arena has `isDefeated === true` and `health.current <= 0`.
+   */
+  public canExecuteArenaFinisher(targetBossEntityId?: EntityId | null): boolean {
+    const activeBosses = this.world.query('bossPhase', 'health');
+    const resolvedId = targetBossEntityId ?? this.targetBossEntityId;
+    const targetRef = resolvedId !== null ? { id: resolvedId } : null;
+    return areAllOtherBossesDefeated(activeBosses, targetRef);
   }
 
   private getTargetSiphonableBoss() {

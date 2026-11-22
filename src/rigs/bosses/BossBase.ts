@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import {
+  BOSS_EXPRESSIONS,
+  BOSS_PHASES,
   DRAIN_THROTTLE_MODES,
   FINISHER_CONFIG,
   FINISHER_POSE_IDS,
@@ -318,6 +320,8 @@ export interface BossRigAdapter {
   /** Lethal stagger-collapse & ash/ember dissolution animation (0 -> 1 over ashDissolveDurationSec) for non-siphonable bosses. */
   applyAshDissolve(progress: number): void;
   resetAshDissolve(): void;
+  /** Clears active telegraph/exposure/ascend visuals and locks the boss into incapacitated STAGGER pose. */
+  enterIncapacitatedStaggerHold(): void;
   /** Strictly restricts root orientation to vertical yaw (rotation.x = 0, rotation.z = 0). */
   enforceVerticalYawOnly(targetYaw: number): void;
   /** Resets root orientation & skeletal pelvis/spine tilts cleanly upright after finisher/diorama exit. */
@@ -456,6 +460,13 @@ export abstract class BossBase implements BossRigAdapter {
       mat.transparent = false;
       mat.opacity = 1.0;
     }
+  }
+
+  public enterIncapacitatedStaggerHold(): void {
+    this.setPhaseVisuals(BOSS_PHASES.PHASE_1);
+    this.setAscendHeight(0);
+    this.resetBlindspotState();
+    this.setExpression(BOSS_EXPRESSIONS.STAGGER);
   }
 
   public enforceVerticalYawOnly(targetYaw: number): void {

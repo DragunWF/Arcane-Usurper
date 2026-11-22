@@ -23,7 +23,10 @@ import {
 import type { IAudioTrigger } from '../../engine/SoundEngine';
 import type { IVfxSpawner } from '../../engine/VfxFactory';
 import type { DarkMageRig } from '../../rigs/DarkMageRig';
-import type { EntityId } from '../components';
+import {
+  areAllOtherBossesDefeated,
+  type EntityId,
+} from '../components';
 import type { ECSWorld, ISystem } from '../World';
 
 export interface IMovementCallbacks {
@@ -465,21 +468,25 @@ export class MovementSystem implements ISystem {
     }
     if (!boss) return;
 
+    const allBosses = this.world.query('bossPhase', 'health');
+    const allOthersDefeated = areAllOtherBossesDefeated(allBosses, boss);
+
     const pPos = player.transform.position;
     const bPos = boss.transform.position;
     const dist = Math.hypot(pPos.x - bPos.x, pPos.z - bPos.z);
     const inRange = dist <= boss.siphonableBoss.finisherRange;
+    const canExecute = inRange && allOthersDefeated;
 
-    this.callbacks.onStaggerProximityChange(inRange);
+    this.callbacks.onStaggerProximityChange(canExecute);
 
-    if (inRange && !this.releasedLockForStagger) {
+    if (canExecute && !this.releasedLockForStagger) {
       this.releasedLockForStagger = true;
       this.callbacks.exitPointerLock();
     }
 
     const wantsBeam = player.playerIntent.beamFinisherExecuteRequested;
     const wantsKiss = player.playerIntent.finisherExecuteRequested;
-    if (inRange && (wantsKiss || wantsBeam)) {
+    if (canExecute && (wantsKiss || wantsBeam)) {
       const mode: FinisherMode = wantsBeam
         ? FINISHER_MODES.BEAM
         : FINISHER_MODES.KISS;

@@ -359,6 +359,15 @@ export class GameEngine implements IGameController {
         onPhaseChanged: (phase) => this.handleBossPhaseChanged(phase),
         onStaggerTriggered: (bossEntityId) =>
           this.handleBossStaggered(bossEntityId),
+        onSovereignStaggerLocked: () => {
+          useGameStore
+            .getState()
+            .triggerDuoEventBanner(
+              SPECIAL_SCENARIO_CONFIG.sovereignIncappedBannerText,
+              SPECIAL_SCENARIO_CONFIG.sovereignIncappedBannerSubtext,
+            );
+          this.renderSyncSystem.flushHudSnapshot();
+        },
         onDuoAllyVanquished: (title, subtext) => {
           useGameStore.getState().triggerDuoEventBanner(title, subtext);
         },
@@ -1444,7 +1453,10 @@ export class GameEngine implements IGameController {
   }
 
   public triggerFinisher(mode: FinisherMode = FINISHER_MODES.KISS): void {
-    if (this.state === GAME_STATES.STAGGER) {
+    if (
+      this.state === GAME_STATES.STAGGER &&
+      this.finisherSystem.canExecuteArenaFinisher(this.activeTargetBossEntityId)
+    ) {
       if (mode === FINISHER_MODES.BEAM) {
         this.inputSystem.queueBeamFinisherExecute();
       } else {
@@ -1885,6 +1897,13 @@ export class GameEngine implements IGameController {
     mode: FinisherMode = FINISHER_MODES.KISS,
     targetBossEntityId?: EntityId,
   ): void {
+    if (
+      !this.finisherSystem.canExecuteArenaFinisher(
+        targetBossEntityId ?? this.activeTargetBossEntityId,
+      )
+    ) {
+      return;
+    }
     if (targetBossEntityId !== undefined) {
       this.activeTargetBossEntityId = targetBossEntityId;
       const rig = this.activeBossRigMap.get(targetBossEntityId);
