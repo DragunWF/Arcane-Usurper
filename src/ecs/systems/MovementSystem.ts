@@ -12,6 +12,7 @@ import {
   SIPHON_BEAM_CONFIG,
   SPECIAL_SCENARIO_CONFIG,
   STOLEN_KISS_CONFIG,
+  WOLF_AND_RAVEN_CONFIG,
   type FinisherMode,
   type GameState,
 } from '../../config/gameConfig';
@@ -283,8 +284,17 @@ export class MovementSystem implements ISystem {
         playerIntent.moveRight,
         this.vMove,
       );
-      const targetVx = this.vMove.x * PLAYER_CONFIG.moveSpeed;
-      const targetVz = this.vMove.z * PLAYER_CONFIG.moveSpeed;
+      playerCombat.yrdenSlowTimer = Math.max(
+        0,
+        playerCombat.yrdenSlowTimer - dt,
+      );
+      const yrdenMult =
+        playerCombat.yrdenSlowTimer > 0
+          ? WOLF_AND_RAVEN_CONFIG.yrdenSlowFactor
+          : 1.0;
+      const effectiveWalkSpeed = PLAYER_CONFIG.moveSpeed * yrdenMult;
+      const targetVx = this.vMove.x * effectiveWalkSpeed;
+      const targetVz = this.vMove.z * effectiveWalkSpeed;
       const accel = Math.min(1, dt * PLAYER_CONFIG.accelLerp);
       velocity.vx += (targetVx - velocity.vx) * accel;
       velocity.vz += (targetVz - velocity.vz) * accel;
@@ -624,12 +634,14 @@ export class MovementSystem implements ISystem {
         continue;
       }
 
-      // Hold steady gracefully during sweeping beam or curtain patterns
+      // Hold steady gracefully during sweeping beam, curtain, or channeled storm patterns
       if (
         bossPhase.activePatternId === 'TWIN_GLACIAL_LASER' ||
         bossPhase.activePatternId === 'SNOWFLAKE_CURTAIN' ||
         bossPhase.activePatternId === 'MIKU_CRESCENDO_OVERDRIVE' ||
-        bossPhase.activePatternId === 'YENNEFER_OBSIDIAN_LASERS'
+        bossPhase.activePatternId === 'YENNEFER_OBSIDIAN_LASERS' ||
+        bossPhase.activePatternId === 'YENNEFER_CHAOS_MAELSTROM' ||
+        bossPhase.activePatternId === 'GERALT_IGNI_ARC'
       ) {
         continue;
       }
@@ -651,27 +663,48 @@ export class MovementSystem implements ISystem {
           : bossPhase.phase === BOSS_PHASES.PHASE_2
             ? BOSS_CONFIG.phase2.moveSpeedMultiplier
             : 1.0;
-      const effectiveSpeed = BOSS_CONFIG.moveSpeed * speedMult * encoreSpeedMult;
+      const roleSpeedMult =
+        bossPhase.bossId === SPECIAL_SCENARIO_CONFIG.geraltId
+          ? WOLF_AND_RAVEN_CONFIG.geraltMoveSpeedMult
+          : bossPhase.isSoloEnraged
+            ? WOLF_AND_RAVEN_CONFIG.soloEnrageSpeedMult
+            : 1.0;
+      const effectiveSpeed =
+        BOSS_CONFIG.moveSpeed * speedMult * roleSpeedMult * encoreSpeedMult;
 
-      // Aggressive melee bosses (non-siphonable Witcher) orbit tighter around the player
-      const orbitR = !bossPhase.canBeSiphoned
-        ? BOSS_CONFIG.orbitRadius * 0.62
-        : BOSS_CONFIG.orbitRadius;
+      // Geralt closes distance aggressively as Vanguard; Yennefer zones at range
+      const isGeralt = bossPhase.bossId === SPECIAL_SCENARIO_CONFIG.geraltId;
+      const isYennefer = bossPhase.bossId === SPECIAL_SCENARIO_CONFIG.yenneferId;
+
+      const orbitR = isGeralt
+        ? WOLF_AND_RAVEN_CONFIG.geraltVanguardOrbitRadius
+        : isYennefer
+          ? WOLF_AND_RAVEN_CONFIG.yenneferZoneOrbitRadius
+          : !bossPhase.canBeSiphoned
+            ? BOSS_CONFIG.orbitRadius * 0.62
+            : BOSS_CONFIG.orbitRadius;
       const angularRate =
         (effectiveSpeed / orbitR) * BOSS_CONFIG.orbitAngularFactor;
       bossPhase.orbitAngle += bossPhase.orbitDir * angularRate * dt;
 
-      const desiredX = Math.sin(bossPhase.orbitAngle) * orbitR;
-      const desiredZ = Math.cos(bossPhase.orbitAngle) * orbitR;
+      // Geralt anchors his Vanguard orbit directly around the Dark Mage to apply melee pressure
+      const orbitCenterX = isGeralt ? playerPos.x : 0;
+      const orbitCenterZ = isGeralt ? playerPos.z : 0;
+      const desiredX = orbitCenterX + Math.sin(bossPhase.orbitAngle) * orbitR;
+      const desiredZ = orbitCenterZ + Math.cos(bossPhase.orbitAngle) * orbitR;
 
       const toBossX = bossPos.x - playerPos.x;
       const toBossZ = bossPos.z - playerPos.z;
       const distToPlayer = Math.hypot(toBossX, toBossZ) || 1;
       let pushX = 0;
       let pushZ = 0;
-      const personalSpace = !bossPhase.canBeSiphoned
-        ? BOSS_CONFIG.personalSpaceRadius * 0.52
-        : BOSS_CONFIG.personalSpaceRadius;
+      const personalSpace = isGeralt
+        ? WOLF_AND_RAVEN_CONFIG.geraltVanguardPersonalSpace
+        : isYennefer
+          ? WOLF_AND_RAVEN_CONFIG.yenneferZonePersonalSpace
+          : !bossPhase.canBeSiphoned
+            ? BOSS_CONFIG.personalSpaceRadius * 0.52
+            : BOSS_CONFIG.personalSpaceRadius;
       if (distToPlayer < personalSpace) {
         pushX = (toBossX / distToPlayer) * BOSS_CONFIG.personalSpacePush;
         pushZ = (toBossZ / distToPlayer) * BOSS_CONFIG.personalSpacePush;

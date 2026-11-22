@@ -93,6 +93,11 @@ export class YenneferRig extends BossBase {
   private readonly hairLocks: SCurveHairLock[] = [];
   private readonly coatPanels: CoatSkirtPanel[] = [];
   private readonly auraRing: THREE.Mesh;
+  private readonly maelstromGroup = new THREE.Group();
+  private readonly maelstromOuterMat: THREE.MeshBasicMaterial;
+  private readonly maelstromInnerMat: THREE.MeshBasicMaterial;
+  private maelstromCharge = 0;
+  private riftArrivePulseTimer = 0;
   private readonly starMedallionGroup = new THREE.Group();
   private readonly starCoreMat: THREE.MeshBasicMaterial;
   private readonly starLight: THREE.PointLight;
@@ -244,6 +249,42 @@ export class YenneferRig extends BossBase {
     this.auraRing.rotation.x = -Math.PI / 2;
     this.auraRing.position.y = 0.04;
     this.root.add(this.auraRing);
+
+    // Pre-allocated Chaos Maelstrom Channeling Swirl Aura (zero hot-loop allocations)
+    this.maelstromOuterMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.amethystTrim,
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.maelstromInnerMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.yenneferLilac,
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.maelstromGroup.position.set(0, 1.02, 0);
+    this.maelstromGroup.visible = false;
+    const mOuter = new THREE.Mesh(
+      this.trackGeo(new THREE.TorusGeometry(1.18, 0.055, 8, 32)),
+      this.maelstromOuterMat,
+    );
+    mOuter.rotation.x = Math.PI / 2;
+    const mInner = new THREE.Mesh(
+      this.trackGeo(new THREE.TorusGeometry(0.78, 0.045, 8, 28)),
+      this.maelstromInnerMat,
+    );
+    mInner.rotation.x = Math.PI * 0.32;
+    this.maelstromGroup.add(mOuter, mInner);
+    this.root.add(this.maelstromGroup);
 
     this.drawFace(BOSS_EXPRESSIONS.COMBAT, 0, 0);
     scene.add(this.root);
@@ -994,6 +1035,17 @@ export class YenneferRig extends BossBase {
     this.accessoryFlickTimer = 0.65;
   }
 
+  public setMaelstromCharge(intensity: number): void {
+    this.maelstromCharge = THREE.MathUtils.clamp(intensity, 0, 1);
+    if (this.maelstromCharge <= 0.01) {
+      this.maelstromGroup.visible = false;
+    }
+  }
+
+  public triggerRiftArrivePulse(): void {
+    this.riftArrivePulseTimer = 0.45;
+  }
+
   public getLeftHandWorldPosition(outVec: THREE.Vector3): THREE.Vector3 {
     this.root.updateMatrixWorld(true);
     return this.leftHandAnchor.getWorldPosition(outVec);
@@ -1033,6 +1085,7 @@ export class YenneferRig extends BossBase {
   ): void {
     this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
     this.castFlourishTimer = Math.max(0, this.castFlourishTimer - dt);
+    this.riftArrivePulseTimer = Math.max(0, this.riftArrivePulseTimer - dt);
 
     const s =
       staggerProgressOverride !== null && staggerProgressOverride !== undefined
@@ -1097,6 +1150,21 @@ export class YenneferRig extends BossBase {
 
     this.auraRing.visible = s < 0.85;
     this.auraRing.rotation.z = elapsed * 0.9;
+
+    const maelstromVis = Math.max(
+      this.maelstromCharge,
+      this.riftArrivePulseTimer > 0 ? this.riftArrivePulseTimer / 0.45 : 0,
+    );
+    if (maelstromVis > 0.02 && s < 0.5) {
+      this.maelstromGroup.visible = true;
+      this.maelstromGroup.rotation.y = elapsed * (3.6 + maelstromVis * 4.5);
+      this.maelstromGroup.rotation.z = Math.sin(elapsed * 4.2) * 0.35;
+      this.maelstromGroup.scale.setScalar(0.7 + maelstromVis * 0.72);
+      this.maelstromOuterMat.opacity = maelstromVis * 0.85;
+      this.maelstromInnerMat.opacity = maelstromVis * 0.72;
+    } else {
+      this.maelstromGroup.visible = false;
+    }
   }
 
   public applyFinisherPose(
@@ -1358,8 +1426,11 @@ export class YenneferRig extends BossBase {
     this.hitFlashTimer = 0;
     this.castFlourishTimer = 0;
     this.accessoryFlickTimer = 0;
+    this.maelstromCharge = 0;
+    this.riftArrivePulseTimer = 0;
     this.ascendHeight = 0;
     this.auraRing.visible = true;
+    this.maelstromGroup.visible = false;
     restoreDrainableMaterials(
       this.drainableMaterials,
       this.originalColors,

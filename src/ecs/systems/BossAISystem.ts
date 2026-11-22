@@ -11,6 +11,7 @@ import {
   SERENA_CONFIG,
   SPECIAL_SCENARIO_CONFIG,
   STOLEN_KISS_CONFIG,
+  WOLF_AND_RAVEN_CONFIG,
   type BossPhase,
   type GameState,
 } from '../../config/gameConfig';
@@ -20,7 +21,9 @@ import type {
   IVfxSpawner,
 } from '../../engine/VfxFactory';
 import type { BossRigAdapter } from '../../rigs/bosses/BossBase';
+import type { GeraltRig } from '../../rigs/bosses/GeraltRig';
 import type { MarinaRig } from '../../rigs/bosses/MarinaRig';
+import type { YenneferRig } from '../../rigs/bosses/YenneferRig';
 import type { BossPhaseStateComponent, EntityId, EntityWith } from '../components';
 import type { ECSWorld, ISystem } from '../World';
 
@@ -46,6 +49,8 @@ export interface BossPatternContext {
   readonly bossRig: BossRigAdapter;
   readonly audio: IAudioTrigger;
   readonly vfx: IVfxSpawner;
+  readonly addCameraShake: (amount: number) => void;
+  readonly damagePlayerMelee: (amount: number) => void;
   readonly spawnHoverLance: (
     ownerEntityId: EntityId,
     fanAngle: number,
@@ -71,6 +76,8 @@ export interface IBossAICallbacks {
   addCameraShake: (amount: number) => void;
   onPhaseChanged: (phase: BossPhase) => void;
   onStaggerTriggered: (bossEntityId?: EntityId) => void;
+  onDuoAllyVanquished?: (bannerTitle: string, bannerSubtext: string) => void;
+  onPlayerMeleeHit?: (amount: number) => void;
 }
 
 /**
@@ -380,6 +387,41 @@ export class BossAISystem implements ISystem {
 
       // Step lethal stagger-collapse & 1.6s ash/ember dissolution for defeated non-siphonable bosses
       if (bp.dissolveTimer >= 0) {
+        // First frame of Geralt's collapse: notify HUD banner & enrage surviving Sovereign partner
+        if (bp.dissolveTimer === 0) {
+          bp.quenHitsRemaining = 0;
+          bp.quenTimer = 0;
+          if (bp.bossId === SPECIAL_SCENARIO_CONFIG.geraltId) {
+            (rig as GeraltRig).setQuenVisual(false, 0);
+            (rig as GeraltRig).setAmberBladeTrail(0);
+            (rig as GeraltRig).setIgniChannel(0);
+            for (let j = 0; j < bosses.length; j++) {
+              const ally = bosses[j];
+              if (
+                ally &&
+                ally.id !== boss.id &&
+                !ally.bossPhase.isDefeated &&
+                ally.bossPhase.canBeSiphoned
+              ) {
+                ally.bossPhase.isSoloEnraged = true;
+                ally.bossPhase.attackCooldown = Math.min(
+                  ally.bossPhase.attackCooldown,
+                  0.45,
+                );
+                ally.bossPhase.riftCooldown = Math.min(
+                  ally.bossPhase.riftCooldown,
+                  0.6,
+                );
+                this.getBossRigForEntity(ally.id).triggerCastFlourish();
+              }
+            }
+            this.callbacks.onDuoAllyVanquished?.(
+              WOLF_AND_RAVEN_CONFIG.geraltVanquishedBannerText,
+              WOLF_AND_RAVEN_CONFIG.geraltVanquishedSubtext,
+            );
+          }
+        }
+
         const prevStep = Math.floor(
           bp.dissolveTimer / SPECIAL_SCENARIO_CONFIG.ashEmberBurstIntervalSec,
         );
@@ -416,6 +458,24 @@ export class BossAISystem implements ISystem {
         continue;
       }
 
+      // Tick Geralt Quen Shield & Yennefer Spatial Rift Cooldowns
+      if (bp.quenTimer > 0) {
+        bp.quenTimer = Math.max(0, bp.quenTimer - dt);
+        if (bp.quenTimer <= 0 && bp.quenHitsRemaining > 0) {
+          bp.quenHitsRemaining = 0;
+          bp.quenCooldown = WOLF_AND_RAVEN_CONFIG.quenCooldownSec;
+          if (bp.bossId === SPECIAL_SCENARIO_CONFIG.geraltId) {
+            (rig as GeraltRig).setQuenVisual(false, 0);
+          }
+        }
+      } else if (bp.quenCooldown > 0) {
+        bp.quenCooldown = Math.max(0, bp.quenCooldown - dt);
+      }
+
+      if (bp.riftCooldown > 0) {
+        bp.riftCooldown = Math.max(0, bp.riftCooldown - dt);
+      }
+
       // Asymmetric Siphon Gate: only siphonable bosses tick STOLEN_KISS exposure windows
       if (bp.canBeSiphoned) {
         const allowBlindspot =
@@ -437,18 +497,38 @@ export class BossAISystem implements ISystem {
         bossRig: rig,
         audio: this.audio,
         vfx: this.vfx,
+        addCameraShake: (amount) => this.callbacks.addCameraShake(amount),
+        damagePlayerMelee: (amount) => this.callbacks.onPlayerMeleeHit?.(amount),
         spawnHoverLance: (ownerEntityId, fanAngle, fireDelay, baseHeight) =>
           this.spawnHoverLance(ownerEntityId, fanAngle, fireDelay, baseHeight),
         clearActiveClones: () => this.clearActiveClones(),
       };
 
       const profile = this.getActiveProfile(bp.bossId);
+      const distToPlayer = Math.hypot(
+        this.scratchPlayerPos.x - boss.transform.position.x,
+        this.scratchPlayerPos.z - boss.transform.position.z,
+      );
+
+      // Yennefer Spatial Rift Repositioning when Dark Mage pressures her closely outside exposure/channel windows
+      if (
+        bp.bossId === SPECIAL_SCENARIO_CONFIG.yenneferId &&
+        bp.activePatternId === null &&
+        rig.exposureTimer <= 0 &&
+        bp.riftCooldown <= 0 &&
+        distToPlayer < WOLF_AND_RAVEN_CONFIG.riftTriggerDist
+      ) {
+        this.executeYenneferSpatialRift(boss, rig as YenneferRig);
+      }
 
       if (bp.activePatternId !== null) {
-        bp.activePatternElapsed += dt;
+        const patternDt = bp.isSoloEnraged
+          ? dt * WOLF_AND_RAVEN_CONFIG.soloEnrageSpeedMult
+          : dt;
+        bp.activePatternElapsed += patternDt;
         const strategy = this.strategies.get(bp.activePatternId);
         if (strategy?.tick) {
-          strategy.tick(ctx, dt);
+          strategy.tick(ctx, patternDt);
         }
 
         if (bp.activePatternElapsed >= bp.activePatternDuration) {
@@ -457,7 +537,11 @@ export class BossAISystem implements ISystem {
             strategy.finish(ctx);
           }
           bp.activePatternId = null;
+          bp.patternSubStage = 0;
           bp.attackCooldown = profile.getCooldown(bp.phase);
+          if (bp.isSoloEnraged) {
+            bp.attackCooldown /= WOLF_AND_RAVEN_CONFIG.soloEnrageSpeedMult;
+          }
 
           // Open Mid-Fight Stolen Kiss 360° frontal guard-break window strictly for siphonable bosses
           if (
@@ -485,7 +569,10 @@ export class BossAISystem implements ISystem {
         continue;
       }
 
-      bp.attackCooldown -= dt;
+      const cooldownDt = bp.isSoloEnraged
+        ? dt * WOLF_AND_RAVEN_CONFIG.soloEnrageSpeedMult
+        : dt;
+      bp.attackCooldown -= cooldownDt;
       if (bp.attackCooldown > 0) continue;
 
       if (bp.pendingPhaseOpener) {
@@ -500,10 +587,15 @@ export class BossAISystem implements ISystem {
         }
       }
 
-      const distToPlayer = Math.hypot(
-        this.scratchPlayerPos.x - boss.transform.position.x,
-        this.scratchPlayerPos.z - boss.transform.position.z,
-      );
+      // Geralt proactively refreshes Quen barrier when cooldown is ready
+      if (
+        bp.bossId === SPECIAL_SCENARIO_CONFIG.geraltId &&
+        bp.quenHitsRemaining <= 0 &&
+        bp.quenCooldown <= 0
+      ) {
+        this.startPattern('GERALT_QUEN_SHIELD', ctx);
+        continue;
+      }
 
       if (
         profile.closeRangePattern !== null &&
@@ -527,6 +619,98 @@ export class BossAISystem implements ISystem {
         this.startPattern(chosenId, ctx);
       }
     }
+  }
+
+  private executeYenneferSpatialRift(
+    boss: EntityWith<'bossPhase' | 'transform'>,
+    rig: YenneferRig,
+  ): void {
+    const bp = boss.bossPhase;
+    const pos = boss.transform.position;
+    const cfg = WOLF_AND_RAVEN_CONFIG;
+
+    // 1. Spawn royal-violet vertical Spatial Rift at departure point
+    this.scratchOrigin.set(pos.x, 0, pos.z);
+    const departMesh = this.vfx.createSpatialRiftGroup(this.scratchOrigin);
+    this.world.createEntity({
+      transform: {
+        position: { x: pos.x, y: 0, z: pos.z },
+        rotationY: boss.transform.rotationY,
+        scale: 1,
+      },
+      hazardZone: {
+        kind: 'SPATIAL_RIFT',
+        faction: 'BOSS',
+        damage: 0,
+        elapsed: 0,
+        telegraphDuration: 0,
+        activeDuration: cfg.riftVisualDurationSec,
+        currentRadius: 1.0,
+        maxRadius: 1.0,
+        hitThickness: 0,
+        angle: 0,
+        startAngle: 0,
+        endAngle: 0,
+        beamLength: 0,
+        hitCooldown: 0,
+        hasHitPlayer: true,
+        hasTriggered: true,
+      },
+      meshRef: { object3D: departMesh },
+    });
+
+    // 2. Relocate across the arena away from the Dark Mage
+    const awayAngle =
+      Math.atan2(
+        pos.x - this.scratchPlayerPos.x,
+        pos.z - this.scratchPlayerPos.z,
+      ) + (bp.orbitDir * 0.85);
+    const destX = Math.sin(awayAngle) * cfg.riftTeleportRadius;
+    const destZ = Math.cos(awayAngle) * cfg.riftTeleportRadius;
+    pos.x = destX;
+    pos.z = destZ;
+    bp.orbitAngle = awayAngle;
+    boss.transform.rotationY = Math.atan2(
+      this.scratchPlayerPos.x - destX,
+      this.scratchPlayerPos.z - destZ,
+    );
+
+    // 3. Spawn royal-violet vertical Spatial Rift at arrival point
+    this.scratchOrigin.set(destX, 0, destZ);
+    const arriveMesh = this.vfx.createSpatialRiftGroup(this.scratchOrigin);
+    this.world.createEntity({
+      transform: {
+        position: { x: destX, y: 0, z: destZ },
+        rotationY: boss.transform.rotationY,
+        scale: 1,
+      },
+      hazardZone: {
+        kind: 'SPATIAL_RIFT',
+        faction: 'BOSS',
+        damage: 0,
+        elapsed: 0,
+        telegraphDuration: 0,
+        activeDuration: cfg.riftVisualDurationSec,
+        currentRadius: 1.0,
+        maxRadius: 1.0,
+        hitThickness: 0,
+        angle: 0,
+        startAngle: 0,
+        endAngle: 0,
+        beamLength: 0,
+        hitCooldown: 0,
+        hasHitPlayer: true,
+        hasTriggered: true,
+      },
+      meshRef: { object3D: arriveMesh },
+    });
+
+    rig.triggerCastFlourish();
+    rig.triggerRiftArrivePulse();
+    this.audio.playPortalWarp();
+    bp.riftCooldown = bp.isSoloEnraged
+      ? cfg.riftSoloCooldownSec
+      : cfg.riftCooldownSec;
   }
 
   private startPattern(patternId: string, ctx: BossPatternContext): void {
@@ -2230,304 +2414,316 @@ export class BossAISystem implements ISystem {
   }
 
   /**
-   * Registers pluggable attack patterns & profiles for Special Scenario bosses
-   * (Geralt of Rivia & Yennefer of Vengerberg in *The Wolf & The Raven*).
+   * Registers full asymmetric duo combat strategies & profiles for *The Wolf & The Raven*
+   * (Geralt of Rivia & Yennefer of Vengerberg) via Open/Closed (OCP) strategy hooks.
    */
   private registerSpecialScenarioPatterns(): void {
-    const cfg = SPECIAL_SCENARIO_CONFIG;
+    const sc = SPECIAL_SCENARIO_CONFIG;
+    const wr = WOLF_AND_RAVEN_CONFIG;
+    const scratchOrigin = this.scratchOrigin;
 
-    // --- Geralt of Rivia (Non-Siphonable Agile Witcher) ---
+    // =========================================================================
+    // GERALT OF RIVIA — VANGUARD PRESSURE & WITCHER SIGNS (Quen / Igni / Yrden)
+    // =========================================================================
+
+    // 1. 2-Hit Silver Sword Dash-Slash with Glowing Amber Blade-Trail Telegraph
     this.registerPattern({
-      id: 'GERALT_SILVER_LUNGE',
+      id: 'GERALT_VANGUARD_COMBO',
       start(ctx) {
         const bp = ctx.bossEntity.bossPhase;
-        const bPos = ctx.bossEntity.transform.position;
-        const dx = ctx.playerPos.x - bPos.x;
-        const dz = ctx.playerPos.z - bPos.z;
-        const dist = Math.hypot(dx, dz) || 1;
-        bp.dashTimer = 0.42;
-        bp.dashVelX = (dx / dist) * cfg.geraltLungeSpeed;
-        bp.dashVelZ = (dz / dist) * cfg.geraltLungeSpeed;
-        ctx.bossRig.triggerCastFlourish();
-        if (
-          'triggerSignFlash' in ctx.bossRig &&
-          typeof ctx.bossRig.triggerSignFlash === 'function'
-        ) {
-          ctx.bossRig.triggerSignFlash('QUEN');
-        }
-        ctx.audio.playLaserSlash();
-
-        // Cast a wide steel-silver crescent slash along the lunge vector
-        const angle = Math.atan2(dx, dz);
-        const origin = new THREE.Vector3(bPos.x, 1.05, bPos.z);
-        const mesh = ctx.vfx.createCrescentBladeGroup(origin, angle);
-        ctx.world.createEntity({
-          transform: {
-            position: { x: origin.x, y: origin.y, z: origin.z },
-            rotationY: angle,
-            scale: 1,
-          },
-          velocity: {
-            vx: (dx / dist) * 18.5,
-            vy: 0,
-            vz: (dz / dist) * 18.5,
-            maxSpeed: 18.5,
-          },
-          projectile: {
-            faction: 'BOSS',
-            kind: 'GLACIAL_CRESCENT',
-            damage: cfg.geraltIgniDamage,
-            radius: 1.55,
-            life: 2.2,
-            maxLife: 2.2,
-            trailTimer: 0,
-            spinSpeed: 0,
-            pierceRemaining: 0,
-            hitEntityIds: [],
-            state: 'FLY',
-            fireDelay: 0,
-            fanAngle: 0,
-            baseHeight: 1.05,
-            ownerEntityId: ctx.bossEntity.id,
-          },
-          meshRef: { object3D: mesh },
-        });
-        bp.activePatternDuration = 0.72;
+        const geralt = ctx.bossRig as GeraltRig;
+        bp.patternSubStage = 0;
+        geralt.setAmberBladeTrail(0.92);
+        geralt.triggerCastFlourish();
+        bp.activePatternDuration =
+          wr.swordTelegraph1Sec +
+          wr.swordDash1DurationSec +
+          wr.swordChainWindupSec +
+          wr.swordDash2DurationSec +
+          wr.swordRecoverySec;
       },
-    });
-
-    this.registerPattern({
-      id: 'GERALT_IGNI_FAN',
-      start(ctx) {
+      tick(ctx) {
         const bp = ctx.bossEntity.bossPhase;
         const bPos = ctx.bossEntity.transform.position;
-        const baseAngle = Math.atan2(
-          ctx.playerPos.x - bPos.x,
-          ctx.playerPos.z - bPos.z,
-        );
-        ctx.bossRig.triggerCastFlourish();
-        if (
-          'triggerSignFlash' in ctx.bossRig &&
-          typeof ctx.bossRig.triggerSignFlash === 'function'
-        ) {
-          ctx.bossRig.triggerSignFlash('IGNI');
-        }
-        ctx.audio.playIceLance();
+        const geralt = ctx.bossRig as GeraltRig;
+        const t = bp.activePatternElapsed;
 
-        const count = cfg.geraltIgniCount;
-        for (let i = 0; i < count; i++) {
-          const offset = ((i / (count - 1)) - 0.5) * 0.78;
-          const ang = baseAngle + offset;
-          const vx = Math.sin(ang) * cfg.geraltIgniSpeed;
-          const vz = Math.cos(ang) * cfg.geraltIgniSpeed;
-          const origin = new THREE.Vector3(bPos.x, 1.15, bPos.z);
-          const orbGroup = ctx.vfx.createSpiralOrbGroup(origin, false, false);
+        const tSlash1 = wr.swordTelegraph1Sec;
+        const tChainWindup = tSlash1 + wr.swordDash1DurationSec;
+        const tSlash2 = tChainWindup + wr.swordChainWindupSec;
+        const tRecovery = tSlash2 + wr.swordDash2DurationSec;
+
+        if (bp.patternSubStage === 0 && t >= tSlash1) {
+          bp.patternSubStage = 1;
+          const dx = ctx.playerPos.x - bPos.x;
+          const dz = ctx.playerPos.z - bPos.z;
+          const dist = Math.hypot(dx, dz) || 1;
+          const ang = Math.atan2(dx, dz);
+          ctx.bossEntity.transform.rotationY = ang;
+          bp.dashVelX = (dx / dist) * wr.swordDashSpeed;
+          bp.dashVelZ = (dz / dist) * wr.swordDashSpeed;
+          bp.dashTimer = wr.swordDash1DurationSec;
+          geralt.triggerSwordSlash(1);
+          geralt.setAmberBladeTrail(1.0);
+          ctx.audio.playLaserSlash();
+
+          // Launch tight amber-silver crescent slash wave
+          scratchOrigin.set(bPos.x, 1.05, bPos.z);
+          const waveMesh = ctx.vfx.createCrescentBladeGroup(
+            scratchOrigin,
+            ang,
+            false,
+            { blade: PALETTE.riftAmber, edge: PALETTE.steelSilver },
+          );
           ctx.world.createEntity({
             transform: {
-              position: { x: origin.x, y: origin.y, z: origin.z },
+              position: { x: bPos.x, y: 1.05, z: bPos.z },
               rotationY: ang,
-              scale: 1,
-            },
-            velocity: { vx, vy: 0, vz, maxSpeed: cfg.geraltIgniSpeed },
-            projectile: {
-              faction: 'BOSS',
-              kind: 'SPIRAL_ORB',
-              damage: cfg.geraltIgniDamage,
-              radius: 0.72,
-              life: 3.2,
-              maxLife: 3.2,
-              trailTimer: 0,
-              spinSpeed: 4,
-              pierceRemaining: 0,
-              hitEntityIds: [],
-              state: 'FLY',
-              fireDelay: 0,
-              fanAngle: offset,
-              baseHeight: 1.15,
-              ownerEntityId: ctx.bossEntity.id,
-            },
-            meshRef: { object3D: orbGroup },
-          });
-        }
-        bp.activePatternDuration = 0.85;
-      },
-    });
-
-    this.registerPattern({
-      id: 'GERALT_AARD_NOVA',
-      start(ctx) {
-        const bp = ctx.bossEntity.bossPhase;
-        const bPos = ctx.bossEntity.transform.position;
-        ctx.bossRig.triggerCastFlourish();
-        if (
-          'triggerSignFlash' in ctx.bossRig &&
-          typeof ctx.bossRig.triggerSignFlash === 'function'
-        ) {
-          ctx.bossRig.triggerSignFlash('YRDEN');
-        }
-        ctx.audio.playIceShatter(0.85);
-        const origin = new THREE.Vector3(bPos.x, 0.2, bPos.z);
-        const novaGroup = ctx.vfx.createFrostRingNovaGroup(origin);
-        const handles = novaGroup.userData.frostRingHandles as
-          | FrostRingMeshHandles
-          | undefined;
-        if (handles) {
-          handles.ringMat.color.setHex(PALETTE.steelSilver);
-          handles.wallMat.color.setHex(PALETTE.riftAmber);
-        }
-        ctx.world.createEntity({
-          transform: {
-            position: { x: bPos.x, y: 0.2, z: bPos.z },
-            rotationY: 0,
-            scale: 1,
-          },
-          hazardZone: {
-            kind: 'FROST_RING_NOVA',
-            faction: 'BOSS',
-            damage: cfg.geraltAardDamage,
-            elapsed: 0,
-            telegraphDuration: 0,
-            activeDuration: 1.15,
-            currentRadius: 1.0,
-            maxRadius: cfg.geraltAardRadius,
-            hitThickness: 1.3,
-            angle: 0,
-            startAngle: 0,
-            endAngle: 0,
-            beamLength: 0,
-            hitCooldown: 0,
-            hasHitPlayer: false,
-            hasTriggered: true,
-          },
-          meshRef: { object3D: novaGroup },
-        });
-        bp.activePatternDuration = 1.05;
-      },
-    });
-
-    this.registerProfile({
-      bossId: cfg.geraltId,
-      phase2Threshold: 0.5,
-      phase3Threshold: -1,
-      staggerThreshold: 0,
-      phase2Opener: 'GERALT_AARD_NOVA',
-      phase3Opener: 'GERALT_AARD_NOVA',
-      closeRangePattern: 'GERALT_AARD_NOVA',
-      phase1Cycle: ['GERALT_SILVER_LUNGE', 'GERALT_IGNI_FAN'],
-      phase2Cycle: ['GERALT_SILVER_LUNGE', 'GERALT_IGNI_FAN', 'GERALT_AARD_NOVA'],
-      phase3Cycle: ['GERALT_SILVER_LUNGE', 'GERALT_IGNI_FAN', 'GERALT_AARD_NOVA'],
-      getCooldown(phase: BossPhase): number {
-        return phase >= BOSS_PHASES.PHASE_2
-          ? cfg.geraltAttackCooldownP2
-          : cfg.geraltAttackCooldownP1;
-      },
-    });
-
-    // --- Yennefer of Vengerberg (Siphonable Guest Sovereign) ---
-    this.registerPattern({
-      id: 'YENNEFER_RAVEN_VOLLEY',
-      start(ctx) {
-        const bp = ctx.bossEntity.bossPhase;
-        ctx.bossRig.triggerCastFlourish();
-        if (
-          'triggerSignFlash' in ctx.bossRig &&
-          typeof ctx.bossRig.triggerSignFlash === 'function'
-        ) {
-          ctx.bossRig.triggerSignFlash('IGNI');
-        }
-        ctx.audio.playIceLance();
-        const fan = [-0.55, -0.28, 0, 0.28, 0.55];
-        for (let i = 0; i < fan.length; i++) {
-          ctx.spawnHoverLance(ctx.bossEntity.id, fan[i]!, 0.38 + i * 0.12);
-        }
-        bp.activePatternDuration = 1.25;
-      },
-    });
-
-    this.registerPattern({
-      id: 'YENNEFER_LILAC_CRESCENT',
-      start(ctx) {
-        const bp = ctx.bossEntity.bossPhase;
-        const bPos = ctx.bossEntity.transform.position;
-        const baseAngle = Math.atan2(
-          ctx.playerPos.x - bPos.x,
-          ctx.playerPos.z - bPos.z,
-        );
-        ctx.bossRig.triggerCastFlourish();
-        ctx.audio.playLaserSlash();
-        const offsets = [-0.26, 0, 0.26];
-        for (let i = 0; i < offsets.length; i++) {
-          const ang = baseAngle + offsets[i]!;
-          const origin = new THREE.Vector3(bPos.x, 1.15, bPos.z);
-          const mesh = ctx.vfx.createCrescentBladeGroup(origin, ang);
-          ctx.world.createEntity({
-            transform: {
-              position: { x: origin.x, y: origin.y, z: origin.z },
-              rotationY: ang,
-              scale: 1,
+              scale: 0.85,
             },
             velocity: {
-              vx: Math.sin(ang) * 19.0,
+              vx: Math.sin(ang) * wr.swordWaveSpeed,
               vy: 0,
-              vz: Math.cos(ang) * 19.0,
-              maxSpeed: 19.0,
+              vz: Math.cos(ang) * wr.swordWaveSpeed,
+              maxSpeed: wr.swordWaveSpeed,
             },
             projectile: {
               faction: 'BOSS',
               kind: 'GLACIAL_CRESCENT',
-              damage: cfg.yenneferBoltDamage,
-              radius: 1.5,
-              life: 2.5,
-              maxLife: 2.5,
+              damage: wr.swordWaveDamage,
+              radius: wr.swordWaveRadius,
+              life: wr.swordWaveLife,
+              maxLife: wr.swordWaveLife,
               trailTimer: 0,
               spinSpeed: 0,
               pierceRemaining: 0,
               hitEntityIds: [],
               state: 'FLY',
               fireDelay: 0,
-              fanAngle: offsets[i]!,
-              baseHeight: 1.15,
+              fanAngle: 0,
+              baseHeight: 1.05,
               ownerEntityId: ctx.bossEntity.id,
             },
-            meshRef: { object3D: mesh },
+            meshRef: { object3D: waveMesh },
           });
+        } else if (bp.patternSubStage === 1 && t >= tSlash1 + wr.swordDash1DurationSec * 0.55) {
+          bp.patternSubStage = 2;
+          const dist = Math.hypot(
+            ctx.playerPos.x - bPos.x,
+            ctx.playerPos.z - bPos.z,
+          );
+          if (dist <= wr.swordSlashHitRadius) {
+            ctx.damagePlayerMelee(wr.swordSlashDamage);
+          }
+        } else if (bp.patternSubStage === 2 && t >= tChainWindup) {
+          bp.patternSubStage = 3;
+          geralt.setAmberBladeTrail(0.95);
+        } else if (bp.patternSubStage === 3 && t >= tSlash2) {
+          bp.patternSubStage = 4;
+          const dx = ctx.playerPos.x - bPos.x;
+          const dz = ctx.playerPos.z - bPos.z;
+          const dist = Math.hypot(dx, dz) || 1;
+          const ang = Math.atan2(dx, dz);
+          ctx.bossEntity.transform.rotationY = ang;
+          bp.dashVelX = (dx / dist) * (wr.swordDashSpeed * 1.12);
+          bp.dashVelZ = (dz / dist) * (wr.swordDashSpeed * 1.12);
+          bp.dashTimer = wr.swordDash2DurationSec;
+          geralt.triggerSwordSlash(2);
+          geralt.setAmberBladeTrail(1.0);
+          ctx.audio.playLaserSlash();
+
+          // Second cross-slash wave with slight twin spread
+          for (const spread of [-0.18, 0.18] as const) {
+            const sAng = ang + spread;
+            scratchOrigin.set(bPos.x, 1.05, bPos.z);
+            const waveMesh = ctx.vfx.createCrescentBladeGroup(
+              scratchOrigin,
+              sAng,
+              false,
+              { blade: PALETTE.riftAmber, edge: PALETTE.steelSilver },
+            );
+            ctx.world.createEntity({
+              transform: {
+                position: { x: bPos.x, y: 1.05, z: bPos.z },
+                rotationY: sAng,
+                scale: 0.85,
+              },
+              velocity: {
+                vx: Math.sin(sAng) * wr.swordWaveSpeed,
+                vy: 0,
+                vz: Math.cos(sAng) * wr.swordWaveSpeed,
+                maxSpeed: wr.swordWaveSpeed,
+              },
+              projectile: {
+                faction: 'BOSS',
+                kind: 'GLACIAL_CRESCENT',
+                damage: wr.swordWaveDamage,
+                radius: wr.swordWaveRadius,
+                life: wr.swordWaveLife,
+                maxLife: wr.swordWaveLife,
+                trailTimer: 0,
+                spinSpeed: 0,
+                pierceRemaining: 0,
+                hitEntityIds: [],
+                state: 'FLY',
+                fireDelay: 0,
+                fanAngle: spread,
+                baseHeight: 1.05,
+                ownerEntityId: ctx.bossEntity.id,
+              },
+              meshRef: { object3D: waveMesh },
+            });
+          }
+        } else if (bp.patternSubStage === 4 && t >= tSlash2 + wr.swordDash2DurationSec * 0.55) {
+          bp.patternSubStage = 5;
+          const dist = Math.hypot(
+            ctx.playerPos.x - bPos.x,
+            ctx.playerPos.z - bPos.z,
+          );
+          if (dist <= wr.swordSlashHitRadius) {
+            ctx.damagePlayerMelee(wr.swordSlashDamage);
+          }
+        } else if (t >= tRecovery) {
+          geralt.setAmberBladeTrail(0);
         }
-        bp.activePatternDuration = 1.05;
+      },
+      finish(ctx) {
+        (ctx.bossRig as GeraltRig).setAmberBladeTrail(0);
       },
     });
 
+    // 2. Quen Active Hexagonal Barrier (3 frontal hits OR shattered by RMB Umbral Pulse / bypassed from rear)
     this.registerPattern({
-      id: 'YENNEFER_CHAOS_NOVA',
+      id: 'GERALT_QUEN_SHIELD',
       start(ctx) {
         const bp = ctx.bossEntity.bossPhase;
-        const bPos = ctx.bossEntity.transform.position;
-        ctx.bossRig.triggerCastFlourish();
-        ctx.audio.playChordBurst();
-        const origin = new THREE.Vector3(bPos.x, 0.22, bPos.z);
-        const novaGroup = ctx.vfx.createFrostRingNovaGroup(origin);
-        const handles = novaGroup.userData.frostRingHandles as
-          | FrostRingMeshHandles
-          | undefined;
-        if (handles) {
-          handles.ringMat.color.setHex(PALETTE.amethystTrim);
-          handles.wallMat.color.setHex(PALETTE.yenneferLilac);
+        const geralt = ctx.bossRig as GeraltRig;
+        bp.quenHitsRemaining = wr.quenMaxHits;
+        bp.quenTimer = wr.quenDurationSec;
+        bp.quenCooldown = wr.quenCooldownSec;
+        geralt.triggerCastFlourish();
+        geralt.triggerSignFlash('QUEN');
+        geralt.setQuenVisual(true, wr.quenMaxHits);
+        ctx.audio.playSummonGlyphChime();
+        bp.activePatternDuration = wr.quenCastDurationSec;
+      },
+    });
+
+    // 3. Igni Fire Arc (0.65s orange left-palm Sign telegraph -> wide close-range cone of fire sparks)
+    this.registerPattern({
+      id: 'GERALT_IGNI_ARC',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        const geralt = ctx.bossRig as GeraltRig;
+        bp.activePatternLaunched = false;
+        geralt.triggerCastFlourish();
+        geralt.setIgniChannel(1.0);
+        ctx.audio.playSummonGlyphChime();
+        bp.activePatternDuration = wr.igniTelegraphSec + wr.igniRecoverySec;
+      },
+      tick(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        const geralt = ctx.bossRig as GeraltRig;
+        if (!bp.activePatternLaunched && bp.activePatternElapsed >= wr.igniTelegraphSec) {
+          bp.activePatternLaunched = true;
+          geralt.setIgniChannel(0);
+          geralt.triggerSignFlash('IGNI');
+          ctx.audio.playIceLance();
+
+          const bPos = ctx.bossEntity.transform.position;
+          const baseAngle = Math.atan2(
+            ctx.playerPos.x - bPos.x,
+            ctx.playerPos.z - bPos.z,
+          );
+          ctx.bossEntity.transform.rotationY = baseAngle;
+          const count = wr.igniSparkCount;
+          for (let i = 0; i < count; i++) {
+            const offset = ((i / (count - 1)) - 0.5) * wr.igniConeRad;
+            const ang = baseAngle + offset;
+            const vx = Math.sin(ang) * wr.igniSparkSpeed;
+            const vz = Math.cos(ang) * wr.igniSparkSpeed;
+            scratchOrigin.set(
+              bPos.x + Math.sin(ang) * 0.65,
+              1.1,
+              bPos.z + Math.cos(ang) * 0.65,
+            );
+            const orbGroup = ctx.vfx.createSpiralOrbGroup(
+              scratchOrigin,
+              false,
+              false,
+              { core: PALETTE.pureWhite, halo: PALETTE.geraltIgniOrange },
+            );
+            ctx.world.createEntity({
+              transform: {
+                position: {
+                  x: scratchOrigin.x,
+                  y: scratchOrigin.y,
+                  z: scratchOrigin.z,
+                },
+                rotationY: ang,
+                scale: 0.92,
+              },
+              velocity: { vx, vy: 0, vz, maxSpeed: wr.igniSparkSpeed },
+              projectile: {
+                faction: 'BOSS',
+                kind: 'SPIRAL_ORB',
+                damage: wr.igniDamage,
+                radius: wr.igniSparkRadius,
+                life: wr.igniSparkLife,
+                maxLife: wr.igniSparkLife,
+                trailTimer: 0,
+                spinSpeed: 8,
+                pierceRemaining: 0,
+                hitEntityIds: [],
+                state: 'FLY',
+                fireDelay: 0,
+                fanAngle: offset,
+                baseHeight: 1.1,
+                ownerEntityId: ctx.bossEntity.id,
+              },
+              meshRef: { object3D: orbGroup },
+            });
+          }
         }
+      },
+      finish(ctx) {
+        (ctx.bossRig as GeraltRig).setIgniChannel(0);
+      },
+    });
+
+    // 4. Yrden Violet Floor Trap (6.0s duration, 3.2m radius, 0.55x slow + visible violet tether)
+    this.registerPattern({
+      id: 'GERALT_YRDEN_TRAP',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        const geralt = ctx.bossRig as GeraltRig;
+        geralt.triggerCastFlourish();
+        geralt.triggerSignFlash('YRDEN');
+        ctx.audio.playSummonGlyphChime();
+
+        const tx = ctx.playerPos.x;
+        const tz = ctx.playerPos.z;
+        scratchOrigin.set(tx, 0.06, tz);
+        const trapGroup = ctx.vfx.createYrdenTrapGroup(
+          scratchOrigin,
+          wr.yrdenRadius,
+        );
         ctx.world.createEntity({
           transform: {
-            position: { x: bPos.x, y: 0.22, z: bPos.z },
+            position: { x: tx, y: 0.06, z: tz },
             rotationY: 0,
             scale: 1,
           },
           hazardZone: {
-            kind: 'FROST_RING_NOVA',
+            kind: 'YRDEN_TRAP',
             faction: 'BOSS',
-            damage: cfg.yenneferNovaDamage,
+            damage: 0,
             elapsed: 0,
             telegraphDuration: 0,
-            activeDuration: 1.4,
-            currentRadius: 1.0,
-            maxRadius: 17.5,
-            hitThickness: 1.45,
+            activeDuration: wr.yrdenDurationSec,
+            currentRadius: wr.yrdenRadius,
+            maxRadius: wr.yrdenRadius,
+            hitThickness: 0,
             angle: 0,
             startAngle: 0,
             endAngle: 0,
@@ -2536,101 +2732,354 @@ export class BossAISystem implements ISystem {
             hasHitPlayer: false,
             hasTriggered: true,
           },
-          meshRef: { object3D: novaGroup },
+          meshRef: { object3D: trapGroup },
         });
-        bp.activePatternDuration = 1.35;
-      },
-    });
-
-    this.registerPattern({
-      id: 'YENNEFER_OBSIDIAN_LASERS',
-      start(ctx) {
-        const bp = ctx.bossEntity.bossPhase;
-        const bPos = ctx.bossEntity.transform.position;
-        const baseAngle = Math.atan2(
-          ctx.playerPos.x - bPos.x,
-          ctx.playerPos.z - bPos.z,
-        );
-        ctx.bossRig.triggerCastFlourish();
-        const angles: readonly [number, number][] = [
-          [baseAngle - 0.85, baseAngle + 0.15],
-          [baseAngle + 0.85, baseAngle - 0.15],
-        ];
-        for (let i = 0; i < angles.length; i++) {
-          const [startA, endA] = angles[i]!;
-          const origin = new THREE.Vector3(
-            bPos.x,
-            BOSS_CONFIG.phase2.laserHeight,
-            bPos.z,
-          );
-          const laserGroup = ctx.vfx.createLaserBeamGroup(
-            origin,
-            i === 0 ? -1 : 1,
-            startA,
-            BOSS_CONFIG.phase2.laserLength,
-            true,
-          );
-          ctx.world.createEntity({
-            transform: {
-              position: { x: origin.x, y: origin.y, z: origin.z },
-              rotationY: startA,
-              scale: 1,
-            },
-            hazardZone: {
-              kind: 'GLACIAL_LASER',
-              faction: 'BOSS',
-              damage: cfg.yenneferLaserDamage,
-              elapsed: 0,
-              telegraphDuration: BOSS_CONFIG.phase2.laserTelegraph,
-              activeDuration: BOSS_CONFIG.phase2.laserDuration,
-              currentRadius: 0,
-              maxRadius: 0,
-              hitThickness: BOSS_CONFIG.phase2.laserHitWidth,
-              angle: startA,
-              startAngle: startA,
-              endAngle: endA,
-              beamLength: BOSS_CONFIG.phase2.laserLength,
-              hitCooldown: 0,
-              hasHitPlayer: false,
-              hasTriggered: false,
-            },
-            meshRef: { object3D: laserGroup },
-          });
-        }
-        bp.activePatternDuration =
-          BOSS_CONFIG.phase2.laserTelegraph +
-          BOSS_CONFIG.phase2.laserDuration +
-          0.2;
+        bp.activePatternDuration = wr.yrdenCastDurationSec;
       },
     });
 
     this.registerProfile({
-      bossId: cfg.yenneferId,
+      bossId: sc.geraltId,
+      phase2Threshold: 0.5,
+      phase3Threshold: -1,
+      staggerThreshold: 0,
+      phase2Opener: 'GERALT_QUEN_SHIELD',
+      phase3Opener: 'GERALT_QUEN_SHIELD',
+      closeRangePattern: 'GERALT_IGNI_ARC',
+      phase1Cycle: [
+        'GERALT_VANGUARD_COMBO',
+        'GERALT_IGNI_ARC',
+        'GERALT_YRDEN_TRAP',
+        'GERALT_VANGUARD_COMBO',
+      ],
+      phase2Cycle: [
+        'GERALT_VANGUARD_COMBO',
+        'GERALT_IGNI_ARC',
+        'GERALT_YRDEN_TRAP',
+        'GERALT_VANGUARD_COMBO',
+      ],
+      phase3Cycle: [
+        'GERALT_VANGUARD_COMBO',
+        'GERALT_IGNI_ARC',
+        'GERALT_YRDEN_TRAP',
+      ],
+      getCooldown(phase: BossPhase): number {
+        return phase >= BOSS_PHASES.PHASE_2
+          ? wr.geraltAttackCooldownP2
+          : wr.geraltAttackCooldownP1;
+      },
+    });
+
+    // =========================================================================
+    // YENNEFER OF VENGERBERG — CHAOS MAGIC, RIFT ZONING & STOLEN KISS WINDOW
+    // =========================================================================
+
+    // 1. Chaos Lightning (3 duo / 5 solo-enraged forked royal-violet strikes with brief ground telegraphs)
+    this.registerPattern({
+      id: 'YENNEFER_CHAOS_LIGHTNING',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        ctx.bossRig.triggerCastFlourish();
+        ctx.audio.playSummonGlyphChime();
+        bp.patternSubStage = 0;
+        const count = bp.isSoloEnraged
+          ? wr.lightningCountSolo
+          : wr.lightningCountDuo;
+
+        for (let i = 0; i < count; i++) {
+          const leadX =
+            i === 0
+              ? ctx.playerPos.x
+              : ctx.playerPos.x +
+                ctx.playerVel.x * 0.35 +
+                Math.cos((i / count) * Math.PI * 2) * wr.lightningSpreadRadius;
+          const leadZ =
+            i === 0
+              ? ctx.playerPos.z
+              : ctx.playerPos.z +
+                ctx.playerVel.z * 0.35 +
+                Math.sin((i / count) * Math.PI * 2) * wr.lightningSpreadRadius;
+
+          const radial = Math.hypot(leadX, leadZ);
+          const clampR = BOSS_CONFIG.innerTerraceLimit - 1.0;
+          const sx = radial > clampR ? (leadX / radial) * clampR : leadX;
+          const sz = radial > clampR ? (leadZ / radial) * clampR : leadZ;
+
+          scratchOrigin.set(sx, 0.06, sz);
+          const boltGroup = ctx.vfx.createChaosLightningGroup(
+            scratchOrigin,
+            wr.lightningRadius,
+          );
+          ctx.world.createEntity({
+            transform: {
+              position: { x: sx, y: 0.06, z: sz },
+              rotationY: 0,
+              scale: 1,
+            },
+            hazardZone: {
+              kind: 'CHAOS_LIGHTNING',
+              faction: 'BOSS',
+              damage: wr.lightningDamage,
+              elapsed: -i * wr.lightningCascadeStepSec,
+              telegraphDuration: wr.lightningTelegraphSec,
+              activeDuration: wr.lightningActiveSec,
+              currentRadius: wr.lightningRadius,
+              maxRadius: wr.lightningRadius,
+              hitThickness: 0,
+              angle: 0,
+              startAngle: 0,
+              endAngle: 0,
+              beamLength: 0,
+              hitCooldown: 0,
+              hasHitPlayer: false,
+              hasTriggered: false,
+            },
+            meshRef: { object3D: boltGroup },
+          });
+        }
+        bp.activePatternDuration = wr.lightningAttackDurationSec;
+      },
+    });
+
+    // 2. Obsidian Feather Volley (sweeping arc of 7 duo / 11 solo dark obsidian-violet shards)
+    this.registerPattern({
+      id: 'YENNEFER_OBSIDIAN_FEATHERS',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        ctx.bossRig.triggerCastFlourish();
+        bp.activePatternLaunched = false;
+        bp.activePatternDuration = wr.featherAttackDurationSec;
+      },
+      tick(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        if (
+          !bp.activePatternLaunched &&
+          bp.activePatternElapsed >= wr.featherTelegraphSec
+        ) {
+          bp.activePatternLaunched = true;
+          ctx.audio.playIceLance();
+          const bPos = ctx.bossEntity.transform.position;
+          const baseAngle = Math.atan2(
+            ctx.playerPos.x - bPos.x,
+            ctx.playerPos.z - bPos.z,
+          );
+          const count = bp.isSoloEnraged
+            ? wr.featherCountSolo
+            : wr.featherCountDuo;
+          for (let i = 0; i < count; i++) {
+            const offset = ((i / (count - 1)) - 0.5) * wr.featherArcRad;
+            const ang = baseAngle + offset;
+            scratchOrigin.set(
+              bPos.x + Math.sin(ang) * 0.75,
+              1.18,
+              bPos.z + Math.cos(ang) * 0.75,
+            );
+            const shardMesh = ctx.vfx.createSpiralOrbGroup(
+              scratchOrigin,
+              false,
+              false,
+              { core: PALETTE.yenneferLilac, halo: PALETTE.amethystTrim },
+            );
+            ctx.world.createEntity({
+              transform: {
+                position: {
+                  x: scratchOrigin.x,
+                  y: scratchOrigin.y,
+                  z: scratchOrigin.z,
+                },
+                rotationY: ang,
+                scale: 0.9,
+              },
+              velocity: {
+                vx: Math.sin(ang) * wr.featherSpeed,
+                vy: 0,
+                vz: Math.cos(ang) * wr.featherSpeed,
+                maxSpeed: wr.featherSpeed,
+              },
+              projectile: {
+                faction: 'BOSS',
+                kind: 'SPIRAL_ORB',
+                damage: wr.featherDamage,
+                radius: wr.featherRadius,
+                life: wr.featherLife,
+                maxLife: wr.featherLife,
+                trailTimer: 0,
+                spinSpeed: 10,
+                pierceRemaining: 0,
+                hitEntityIds: [],
+                state: 'FLY',
+                fireDelay: 0,
+                fanAngle: offset,
+                baseHeight: 1.18,
+                ownerEntityId: ctx.bossEntity.id,
+              },
+              meshRef: { object3D: shardMesh },
+            });
+          }
+        }
+      },
+    });
+
+    // 3. Chaos Maelstrom -> Heavy Channeled Storm Burst Opening the 1.8s 360° Stolen Kiss Window!
+    this.registerPattern({
+      id: 'YENNEFER_CHAOS_MAELSTROM',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        const yen = ctx.bossRig as YenneferRig;
+        bp.activePatternLaunched = false;
+        yen.triggerCastFlourish();
+        yen.setMaelstromCharge(0.35);
+        ctx.audio.playSummonGlyphChime();
+        const bPos = ctx.bossEntity.transform.position;
+        scratchOrigin.set(bPos.x, 0.08, bPos.z);
+        ctx.vfx.spawnTelegraphRing(scratchOrigin);
+        bp.activePatternDuration = wr.maelstromChannelSec + wr.maelstromRecoverySec;
+      },
+      tick(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        const yen = ctx.bossRig as YenneferRig;
+        const p = THREE.MathUtils.clamp(
+          bp.activePatternElapsed / wr.maelstromChannelSec,
+          0,
+          1,
+        );
+        if (!bp.activePatternLaunched) {
+          yen.setMaelstromCharge(0.35 + p * 0.65);
+        }
+
+        if (
+          !bp.activePatternLaunched &&
+          bp.activePatternElapsed >= wr.maelstromChannelSec
+        ) {
+          bp.activePatternLaunched = true;
+          yen.setMaelstromCharge(0);
+          ctx.audio.playChordBurst();
+          ctx.addCameraShake(wr.maelstromCameraShake);
+
+          const bPos = ctx.bossEntity.transform.position;
+          scratchOrigin.set(bPos.x, 0.22, bPos.z);
+          const novaGroup = ctx.vfx.createFrostRingNovaGroup(scratchOrigin);
+          const handles = novaGroup.userData.frostRingHandles as
+            | FrostRingMeshHandles
+            | undefined;
+          if (handles) {
+            handles.ringMat.color.setHex(PALETTE.amethystTrim);
+            handles.wallMat.color.setHex(PALETTE.yenneferLilac);
+          }
+          ctx.world.createEntity({
+            transform: {
+              position: { x: bPos.x, y: 0.22, z: bPos.z },
+              rotationY: 0,
+              scale: 1,
+            },
+            hazardZone: {
+              kind: 'FROST_RING_NOVA',
+              faction: 'BOSS',
+              damage: wr.maelstromDamage,
+              elapsed: 0,
+              telegraphDuration: 0,
+              activeDuration: wr.maelstromRingDurationSec,
+              currentRadius: 1.0,
+              maxRadius: wr.maelstromRadius,
+              hitThickness: wr.maelstromRingHitThickness,
+              angle: 0,
+              startAngle: 0,
+              endAngle: 0,
+              beamLength: 0,
+              hitCooldown: 0,
+              hasHitPlayer: false,
+              hasTriggered: true,
+            },
+            meshRef: { object3D: novaGroup },
+          });
+
+          // Radial swirling obsidian-violet maelstrom shards
+          const orbCount = bp.isSoloEnraged
+            ? wr.maelstromOrbCountSolo
+            : wr.maelstromOrbCountDuo;
+          for (let i = 0; i < orbCount; i++) {
+            const ang = (i / orbCount) * Math.PI * 2;
+            scratchOrigin.set(
+              bPos.x + Math.sin(ang) * 0.9,
+              1.1,
+              bPos.z + Math.cos(ang) * 0.9,
+            );
+            const orbMesh = ctx.vfx.createSpiralOrbGroup(
+              scratchOrigin,
+              false,
+              false,
+              { core: PALETTE.yenneferVioletEye, halo: PALETTE.amethystTrim },
+            );
+            ctx.world.createEntity({
+              transform: {
+                position: {
+                  x: scratchOrigin.x,
+                  y: scratchOrigin.y,
+                  z: scratchOrigin.z,
+                },
+                rotationY: ang,
+                scale: 1,
+              },
+              velocity: {
+                vx: Math.sin(ang) * wr.maelstromOrbSpeed,
+                vy: 0,
+                vz: Math.cos(ang) * wr.maelstromOrbSpeed,
+                maxSpeed: wr.maelstromOrbSpeed,
+              },
+              projectile: {
+                faction: 'BOSS',
+                kind: 'SPIRAL_ORB',
+                damage: wr.maelstromOrbDamage,
+                radius: 0.68,
+                life: 2.6,
+                maxLife: 2.6,
+                trailTimer: 0,
+                spinSpeed: 8,
+                pierceRemaining: 0,
+                hitEntityIds: [],
+                state: 'FLY',
+                fireDelay: 0,
+                fanAngle: ang,
+                baseHeight: 1.1,
+                ownerEntityId: ctx.bossEntity.id,
+              },
+              meshRef: { object3D: orbMesh },
+            });
+          }
+        }
+      },
+      finish(ctx) {
+        (ctx.bossRig as YenneferRig).setMaelstromCharge(0);
+      },
+    });
+
+    this.registerProfile({
+      bossId: sc.yenneferId,
       phase2Threshold: 0.6,
       phase3Threshold: 0.28,
       staggerThreshold: 0,
-      phase2Opener: 'YENNEFER_OBSIDIAN_LASERS',
-      phase3Opener: 'YENNEFER_CHAOS_NOVA',
-      closeRangePattern: 'YENNEFER_CHAOS_NOVA',
+      phase2Opener: 'YENNEFER_CHAOS_MAELSTROM',
+      phase3Opener: 'YENNEFER_CHAOS_MAELSTROM',
+      closeRangePattern: null,
       phase1Cycle: [
-        'YENNEFER_RAVEN_VOLLEY',
-        'YENNEFER_LILAC_CRESCENT',
-        'YENNEFER_CHAOS_NOVA',
+        'YENNEFER_CHAOS_LIGHTNING',
+        'YENNEFER_OBSIDIAN_FEATHERS',
+        'YENNEFER_CHAOS_MAELSTROM',
       ],
       phase2Cycle: [
-        'YENNEFER_OBSIDIAN_LASERS',
-        'YENNEFER_RAVEN_VOLLEY',
-        'YENNEFER_CHAOS_NOVA',
+        'YENNEFER_CHAOS_LIGHTNING',
+        'YENNEFER_OBSIDIAN_FEATHERS',
+        'YENNEFER_CHAOS_MAELSTROM',
       ],
       phase3Cycle: [
-        'YENNEFER_OBSIDIAN_LASERS',
-        'YENNEFER_LILAC_CRESCENT',
-        'YENNEFER_CHAOS_NOVA',
+        'YENNEFER_CHAOS_LIGHTNING',
+        'YENNEFER_CHAOS_MAELSTROM',
+        'YENNEFER_OBSIDIAN_FEATHERS',
       ],
       getCooldown(phase: BossPhase): number {
-        if (phase === BOSS_PHASES.PHASE_3) return cfg.yenneferAttackCooldownP3;
-        if (phase === BOSS_PHASES.PHASE_2) return cfg.yenneferAttackCooldownP2;
-        return cfg.yenneferAttackCooldownP1;
+        if (phase === BOSS_PHASES.PHASE_3) return wr.yenneferAttackCooldownP3;
+        if (phase === BOSS_PHASES.PHASE_2) return wr.yenneferAttackCooldownP2;
+        return wr.yenneferAttackCooldownP1;
       },
     });
   }

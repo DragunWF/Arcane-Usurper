@@ -76,6 +76,36 @@ export interface HarmonicAmpNodeHandles {
   coreMat: THREE.MeshBasicMaterial;
 }
 
+export interface YrdenTrapMeshHandles {
+  outerRing: THREE.Mesh;
+  outerMat: THREE.MeshBasicMaterial;
+  sigilRing: THREE.Mesh;
+  sigilMat: THREE.MeshBasicMaterial;
+  tetherLine: THREE.Line;
+  tetherMat: THREE.LineBasicMaterial;
+  tetherPositions: Float32Array;
+  trapLight: THREE.PointLight;
+}
+
+export interface ChaosLightningMeshHandles {
+  runeRing: THREE.Mesh;
+  runeMat: THREE.MeshBasicMaterial;
+  fillDisc: THREE.Mesh;
+  fillMat: THREE.MeshBasicMaterial;
+  boltGroup: THREE.Group;
+  boltCoreMat: THREE.MeshBasicMaterial;
+  boltForkMat: THREE.MeshBasicMaterial;
+  strikeLight: THREE.PointLight;
+}
+
+export interface SpatialRiftMeshHandles {
+  coreMesh: THREE.Mesh;
+  coreMat: THREE.MeshBasicMaterial;
+  rimMesh: THREE.Mesh;
+  rimMat: THREE.MeshBasicMaterial;
+  riftLight: THREE.PointLight;
+}
+
 /**
  * Narrow VFX & mesh creation interface injected into ECS systems (ISP & DIP).
  */
@@ -95,12 +125,17 @@ export interface IVfxSpawner {
     origin: THREE.Vector3,
     yaw: number,
     aquatic?: boolean,
+    customColors?: { readonly blade: number; readonly edge: number },
   ): THREE.Group;
   createSpiralOrbGroup(
     origin: THREE.Vector3,
     aquatic?: boolean,
     harmonic?: boolean,
+    customColors?: { readonly core: number; readonly halo: number },
   ): THREE.Group;
+  createYrdenTrapGroup(origin: THREE.Vector3, radius: number): THREE.Group;
+  createChaosLightningGroup(origin: THREE.Vector3, radius: number): THREE.Group;
+  createSpatialRiftGroup(origin: THREE.Vector3): THREE.Group;
   createUmbralPulseGroup(origin: THREE.Vector3): THREE.Group;
   createFrostRingNovaGroup(origin: THREE.Vector3): THREE.Group;
   createPhaseShockwaveGroup(origin: THREE.Vector3, phase: BossPhase): THREE.Group;
@@ -411,13 +446,18 @@ export class VfxFactory implements IVfxSpawner {
     origin: THREE.Vector3,
     yaw: number,
     aquatic = false,
+    customColors?: { readonly blade: number; readonly edge: number },
   ): THREE.Group {
     const group = new THREE.Group();
     group.position.copy(origin);
     group.rotation.y = yaw;
 
     const mat = new THREE.MeshBasicMaterial({
-      color: aquatic ? PALETTE.biolumCyan : PALETTE.frostRunes,
+      color: customColors
+        ? customColors.blade
+        : aquatic
+          ? PALETTE.biolumCyan
+          : PALETTE.frostRunes,
       transparent: true,
       opacity: 0.9,
       side: THREE.DoubleSide,
@@ -439,7 +479,11 @@ export class VfxFactory implements IVfxSpawner {
     group.add(blade);
 
     const edgeMat = new THREE.MeshBasicMaterial({
-      color: aquatic ? PALETTE.serenaHairTips : PALETTE.iceHighlights,
+      color: customColors
+        ? customColors.edge
+        : aquatic
+          ? PALETTE.serenaHairTips
+          : PALETTE.iceHighlights,
     });
     const coreEdge = new THREE.Mesh(
       new THREE.TorusGeometry(1.38, 0.055, 6, 18, Math.PI * 0.72),
@@ -459,10 +503,25 @@ export class VfxFactory implements IVfxSpawner {
     origin: THREE.Vector3,
     aquatic = false,
     harmonic = false,
+    customColors?: { readonly core: number; readonly halo: number },
   ): THREE.Group {
     const group = new THREE.Group();
     group.position.copy(origin);
-    if (harmonic) {
+    if (customColors) {
+      const coreMat = new THREE.MeshBasicMaterial({
+        color: customColors.core,
+      });
+      const haloMat = new THREE.MeshBasicMaterial({
+        color: customColors.halo,
+        transparent: true,
+        opacity: 0.66,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      group.add(new THREE.Mesh(this.orbCoreGeo, coreMat));
+      group.add(new THREE.Mesh(this.orbHaloGeo, haloMat));
+      group.userData.ownedMaterials = [coreMat, haloMat];
+    } else if (harmonic) {
       const coreMat = new THREE.MeshBasicMaterial({
         color: PALETTE.mikuCyan,
       });
@@ -1052,6 +1111,271 @@ export class VfxFactory implements IVfxSpawner {
     group.userData.whirlpoolHandles = handles;
     group.userData.ownedMaterials = [outerMat, midMat, innerMat];
     group.userData.ownedGeometries = [outerGeo, midGeo, innerGeo];
+
+    this.scene.add(group);
+    return group;
+  }
+
+  /**
+   * Geralt's glowing violet Yrden floor rune trap with a pre-allocated 2-vertex
+   * violet tether line connecting the trap center to the Dark Mage while slowed.
+   */
+  public createYrdenTrapGroup(
+    origin: THREE.Vector3,
+    radius: number,
+  ): THREE.Group {
+    const group = new THREE.Group();
+    group.position.set(origin.x, 0.06, origin.z);
+
+    const outerGeo = new THREE.RingGeometry(radius - 0.18, radius, 42);
+    const outerMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.geraltYrdenViolet,
+      transparent: true,
+      opacity: 0.86,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const outerRing = new THREE.Mesh(outerGeo, outerMat);
+    outerRing.rotation.x = -Math.PI / 2;
+    group.add(outerRing);
+
+    const sigilGeo = new THREE.RingGeometry(radius * 0.45, radius * 0.62, 6);
+    const sigilMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.yenneferLilac,
+      transparent: true,
+      opacity: 0.62,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const sigilRing = new THREE.Mesh(sigilGeo, sigilMat);
+    sigilRing.rotation.x = -Math.PI / 2;
+    sigilRing.position.y = 0.02;
+    group.add(sigilRing);
+
+    const tetherPositions = new Float32Array([0, 0.14, 0, 0, 1.05, 0]);
+    const tetherGeo = new THREE.BufferGeometry();
+    tetherGeo.setAttribute(
+      'position',
+      new THREE.BufferAttribute(tetherPositions, 3),
+    );
+    const tetherMat = new THREE.LineBasicMaterial({
+      color: PALETTE.yenneferLilac,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const tetherLine = new THREE.Line(tetherGeo, tetherMat);
+    tetherLine.visible = false;
+    tetherLine.frustumCulled = false;
+    group.add(tetherLine);
+
+    const trapLight = new THREE.PointLight(
+      PALETTE.geraltYrdenViolet,
+      5.2,
+      radius * 2.1,
+      1.7,
+    );
+    trapLight.position.y = 0.85;
+    group.add(trapLight);
+
+    const handles: YrdenTrapMeshHandles = {
+      outerRing,
+      outerMat,
+      sigilRing,
+      sigilMat,
+      tetherLine,
+      tetherMat,
+      tetherPositions,
+      trapLight,
+    };
+    group.userData.yrdenHandles = handles;
+    group.userData.ownedMaterials = [outerMat, sigilMat, tetherMat];
+    group.userData.ownedGeometries = [outerGeo, sigilGeo, tetherGeo];
+
+    this.scene.add(group);
+    return group;
+  }
+
+  /**
+   * Yennefer's Chaos Lightning telegraph ring + jagged forked royal-violet lightning strike.
+   */
+  public createChaosLightningGroup(
+    origin: THREE.Vector3,
+    radius: number,
+  ): THREE.Group {
+    const group = new THREE.Group();
+    group.position.set(origin.x, 0.06, origin.z);
+
+    const runeGeo = new THREE.RingGeometry(radius - 0.14, radius, 32);
+    const runeMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.amethystTrim,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const runeRing = new THREE.Mesh(runeGeo, runeMat);
+    runeRing.rotation.x = -Math.PI / 2;
+    group.add(runeRing);
+
+    const fillGeo = new THREE.CircleGeometry(radius - 0.12, 28);
+    const fillMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.yenneferHairHighlight,
+      transparent: true,
+      opacity: 0.34,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const fillDisc = new THREE.Mesh(fillGeo, fillMat);
+    fillDisc.rotation.x = -Math.PI / 2;
+    fillDisc.scale.setScalar(0.08);
+    group.add(fillDisc);
+
+    // Pre-built jagged forked royal-violet lightning bolt group
+    const boltGroup = new THREE.Group();
+    boltGroup.visible = false;
+    const boltCoreMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.pureWhite,
+      transparent: true,
+      opacity: 0.96,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const boltForkMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.yenneferVioletEye,
+      transparent: true,
+      opacity: 0.88,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+
+    const mainCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, 12.0, 0),
+      new THREE.Vector3(0.42, 9.2, -0.22),
+      new THREE.Vector3(-0.36, 6.4, 0.28),
+      new THREE.Vector3(0.28, 3.6, -0.18),
+      new THREE.Vector3(-0.14, 1.5, 0.12),
+      new THREE.Vector3(0, 0.05, 0),
+    ]);
+    const mainBoltGeo = new THREE.TubeGeometry(mainCurve, 14, 0.11, 6, false);
+    const haloBoltGeo = new THREE.TubeGeometry(mainCurve, 14, 0.24, 6, false);
+    boltGroup.add(
+      new THREE.Mesh(mainBoltGeo, boltCoreMat),
+      new THREE.Mesh(haloBoltGeo, boltForkMat),
+    );
+
+    const fork1Curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-0.36, 6.4, 0.28),
+      new THREE.Vector3(-0.98, 4.5, 0.62),
+      new THREE.Vector3(-1.32, 2.2, 0.84),
+    ]);
+    const fork2Curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0.28, 3.6, -0.18),
+      new THREE.Vector3(0.92, 2.1, -0.58),
+      new THREE.Vector3(1.18, 0.45, -0.78),
+    ]);
+    const fork1Geo = new THREE.TubeGeometry(fork1Curve, 6, 0.065, 5, false);
+    const fork2Geo = new THREE.TubeGeometry(fork2Curve, 6, 0.06, 5, false);
+    boltGroup.add(
+      new THREE.Mesh(fork1Geo, boltForkMat),
+      new THREE.Mesh(fork2Geo, boltForkMat),
+    );
+    group.add(boltGroup);
+
+    const strikeLight = new THREE.PointLight(
+      PALETTE.yenneferVioletEye,
+      0,
+      11.0,
+      1.6,
+    );
+    strikeLight.position.y = 1.6;
+    group.add(strikeLight);
+
+    const handles: ChaosLightningMeshHandles = {
+      runeRing,
+      runeMat,
+      fillDisc,
+      fillMat,
+      boltGroup,
+      boltCoreMat,
+      boltForkMat,
+      strikeLight,
+    };
+    group.userData.chaosLightningHandles = handles;
+    group.userData.ownedMaterials = [
+      runeMat,
+      fillMat,
+      boltCoreMat,
+      boltForkMat,
+    ];
+    group.userData.ownedGeometries = [
+      runeGeo,
+      fillGeo,
+      mainBoltGeo,
+      haloBoltGeo,
+      fork1Geo,
+      fork2Geo,
+    ];
+
+    this.scene.add(group);
+    return group;
+  }
+
+  /**
+   * Yennefer's vertical royal-violet Spatial Rift portal oval spawned at departure & arrival.
+   */
+  public createSpatialRiftGroup(origin: THREE.Vector3): THREE.Group {
+    const group = new THREE.Group();
+    group.position.set(origin.x, 1.25, origin.z);
+
+    const coreGeo = new THREE.CircleGeometry(0.92, 24);
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.yenneferHairHighlight,
+      transparent: true,
+      opacity: 0.72,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+    coreMesh.scale.set(0.68, 1.38, 1.0);
+    group.add(coreMesh);
+
+    const rimGeo = new THREE.TorusGeometry(0.95, 0.075, 8, 28);
+    const rimMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.yenneferLilac,
+      transparent: true,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const rimMesh = new THREE.Mesh(rimGeo, rimMat);
+    rimMesh.scale.set(0.68, 1.38, 1.0);
+    group.add(rimMesh);
+
+    const riftLight = new THREE.PointLight(
+      PALETTE.yenneferVioletEye,
+      8.5,
+      8.0,
+      1.6,
+    );
+    group.add(riftLight);
+
+    const handles: SpatialRiftMeshHandles = {
+      coreMesh,
+      coreMat,
+      rimMesh,
+      rimMat,
+      riftLight,
+    };
+    group.userData.spatialRiftHandles = handles;
+    group.userData.ownedMaterials = [coreMat, rimMat];
+    group.userData.ownedGeometries = [coreGeo, rimGeo];
 
     this.scene.add(group);
     return group;

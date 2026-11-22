@@ -38,7 +38,10 @@ export type HazardKind =
   | 'ICE_PILLAR'
   | 'PHASE_SHOCKWAVE'
   | 'ABYSSAL_WHIRLPOOL'
-  | 'LASER_WALL';
+  | 'LASER_WALL'
+  | 'YRDEN_TRAP'
+  | 'CHAOS_LIGHTNING'
+  | 'SPATIAL_RIFT';
 
 export interface Vec3Data {
   x: number;
@@ -102,7 +105,8 @@ export interface PlayerIntentComponent {
   isFirstPersonGaze: boolean;
 }
 
-export interface PlayerCombatStateComponent {  dashTimer: number;
+export interface PlayerCombatStateComponent {
+  dashTimer: number;
   dashCooldown: number;
   dashDirX: number;
   dashDirZ: number;
@@ -110,6 +114,7 @@ export interface PlayerCombatStateComponent {  dashTimer: number;
   boltCooldown: number;
   pulseCooldown: number;
   aimFaceTimer: number;
+  yrdenSlowTimer: number;
   encoreTier: number;
 }
 
@@ -189,6 +194,15 @@ export interface BossPhaseStateComponent {
   dashVelX: number;
   dashVelZ: number;
   ascendHeight: number;
+  /** Geralt Quen active shield durability (3 frontal hits -> 0) & remaining shield duration. */
+  quenHitsRemaining: number;
+  quenTimer: number;
+  quenCooldown: number;
+  /** Yennefer Spatial Rift reposition cooldown & solo-enrage state when duo partner falls. */
+  riftCooldown: number;
+  isSoloEnraged: boolean;
+  /** Multi-stage pattern progress counter (e.g. Geralt 2-hit sword combo / Igni channel). */
+  patternSubStage: number;
 }
 
 export interface SiphonableBossComponent {

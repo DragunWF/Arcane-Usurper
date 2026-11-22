@@ -25,6 +25,7 @@ import {
   SPECIAL_SCENARIO_CONFIG,
   SPECIAL_SCENARIOS,
   SUNKEN_CHAMBER_CONFIG,
+  WOLF_AND_RAVEN_CONFIG,
   type BossPhase,
   type DrainThrottleMode,
   type FinisherMode,
@@ -358,6 +359,10 @@ export class GameEngine implements IGameController {
         onPhaseChanged: (phase) => this.handleBossPhaseChanged(phase),
         onStaggerTriggered: (bossEntityId) =>
           this.handleBossStaggered(bossEntityId),
+        onDuoAllyVanquished: (title, subtext) => {
+          useGameStore.getState().triggerDuoEventBanner(title, subtext);
+        },
+        onPlayerMeleeHit: (amount) => this.combatSystem.applyPlayerDamage(amount),
       },
     );
 
@@ -549,6 +554,7 @@ export class GameEngine implements IGameController {
       player.playerCombat.boltCooldown = 0;
       player.playerCombat.pulseCooldown = 0;
       player.playerCombat.aimFaceTimer = 0;
+      player.playerCombat.yrdenSlowTimer = 0;
       player.playerCombat.encoreTier = encoreTier;
     }
     this.mageRig.resetCombatPose();
@@ -618,6 +624,7 @@ export class GameEngine implements IGameController {
         boltCooldown: 0,
         pulseCooldown: 0,
         aimFaceTimer: 0,
+        yrdenSlowTimer: 0,
         encoreTier: 0,
       },
       meshRef: { object3D: this.mageRig.root },
@@ -675,6 +682,12 @@ export class GameEngine implements IGameController {
         dashVelX: 0,
         dashVelZ: 0,
         ascendHeight: 0,
+        quenHitsRemaining: 0,
+        quenTimer: 0,
+        quenCooldown: 0,
+        riftCooldown: 0,
+        isSoloEnraged: false,
+        patternSubStage: 0,
       },
       siphonableBoss: {
         siphonProgress: 0,
@@ -938,6 +951,18 @@ export class GameEngine implements IGameController {
           dashVelX: 0,
           dashVelZ: 0,
           ascendHeight: 0,
+          quenHitsRemaining: 0,
+          quenTimer: 0,
+          quenCooldown:
+            def.bossId === SPECIAL_SCENARIO_CONFIG.geraltId
+              ? WOLF_AND_RAVEN_CONFIG.quenInitialCooldownSec
+              : 0,
+          riftCooldown:
+            def.bossId === SPECIAL_SCENARIO_CONFIG.yenneferId
+              ? WOLF_AND_RAVEN_CONFIG.riftInitialCooldownSec
+              : 0,
+          isSoloEnraged: false,
+          patternSubStage: 0,
         },
         ...(def.canBeSiphoned
           ? {
@@ -1007,6 +1032,7 @@ export class GameEngine implements IGameController {
       player.playerCombat.boltCooldown = 0;
       player.playerCombat.pulseCooldown = 0;
       player.playerCombat.aimFaceTimer = 0;
+      player.playerCombat.yrdenSlowTimer = 0;
       player.playerCombat.encoreTier = nextTier;
     }
 
@@ -1128,6 +1154,12 @@ export class GameEngine implements IGameController {
           dashVelX: 0,
           dashVelZ: 0,
           ascendHeight: 0,
+          quenHitsRemaining: 0,
+          quenTimer: 0,
+          quenCooldown: 0,
+          riftCooldown: 0,
+          isSoloEnraged: false,
+          patternSubStage: 0,
         },
         siphonableBoss: {
           siphonProgress: 0,
@@ -1271,6 +1303,7 @@ export class GameEngine implements IGameController {
       player.playerCombat.boltCooldown = 0;
       player.playerCombat.pulseCooldown = 0;
       player.playerCombat.aimFaceTimer = 0;
+      player.playerCombat.yrdenSlowTimer = 0;
       player.playerCombat.encoreTier = encoreTier;
     }
 
@@ -1672,6 +1705,7 @@ export class GameEngine implements IGameController {
       player.playerCombat.boltCooldown = 0;
       player.playerCombat.pulseCooldown = 0;
       player.playerCombat.aimFaceTimer = 0;
+      player.playerCombat.yrdenSlowTimer = 0;
       player.playerCombat.encoreTier = nextTier;
     }
 

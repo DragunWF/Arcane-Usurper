@@ -18,6 +18,7 @@ import {
   SPECIAL_SCENARIO_CONFIG,
   STOLEN_KISS_CONFIG,
   SUNKEN_SERVANT_CONFIG,
+  WOLF_AND_RAVEN_CONFIG,
   type GameState,
   type ServantArchetype,
 } from '../../config/gameConfig';
@@ -29,6 +30,7 @@ import type { IAudioTrigger } from '../../engine/SoundEngine';
 import type { IVfxSpawner } from '../../engine/VfxFactory';
 import type { DarkMageRig } from '../../rigs/DarkMageRig';
 import type { BossRigAdapter } from '../../rigs/bosses/BossBase';
+import type { GeraltRig } from '../../rigs/bosses/GeraltRig';
 import type { EntityId } from '../components';
 import type { ECSWorld, ISystem } from '../World';
 
@@ -411,6 +413,29 @@ export class CombatSystem implements ISystem {
             transform.position.z - boss.transform.position.z,
           );
           if (dist <= PLAYER_CONFIG.umbralPulseRadius + boss.hurtbox.radius) {
+            // Right-Click Umbral Pulse immediately shatters Geralt's active Quen barrier
+            if (boss.bossPhase.quenHitsRemaining > 0) {
+              boss.bossPhase.quenHitsRemaining = 0;
+              boss.bossPhase.quenTimer = 0;
+              boss.bossPhase.quenCooldown = WOLF_AND_RAVEN_CONFIG.quenCooldownSec;
+              const rig = this.getBossRigForEntity(boss.id);
+              if (boss.bossPhase.bossId === SPECIAL_SCENARIO_CONFIG.geraltId) {
+                (rig as GeraltRig).setQuenVisual(false, 0);
+              }
+              this.vBurstPos.set(
+                boss.transform.position.x,
+                1.15,
+                boss.transform.position.z,
+              );
+              this.vfx.spawnImpactBurst(
+                this.vBurstPos,
+                WOLF_AND_RAVEN_CONFIG.quenShatterSparkCount,
+              );
+              this.audio.playGuardBreak();
+              this.callbacks.addCameraShake(
+                WOLF_AND_RAVEN_CONFIG.quenShatterCameraShake,
+              );
+            }
             this.damageBoss(boss, BOSS_CONFIG.pulseDamage, null);
           }
         }
@@ -518,12 +543,63 @@ export class CombatSystem implements ISystem {
             if (p.y >= minY && p.y <= maxY && dx * dx + dz * dz <= r * r) {
               projectile.hitEntityIds.push(boss.id);
               this.vBurstPos.set(p.x, p.y, p.z);
-              this.damageBoss(boss, projectile.damage, this.vBurstPos);
-              if (projectile.pierceRemaining > 0) {
-                projectile.pierceRemaining--;
-              } else {
+
+              // Geralt's Quen Active Shield absorbs frontal bolts (3 hits to shatter);
+              // Blinking behind him bypasses Quen for full rear-flank damage!
+              let absorbedByQuen = false;
+              if (boss.bossPhase.quenHitsRemaining > 0) {
+                const distXZ = Math.hypot(dx, dz) || 1;
+                const toBoltX = dx / distXZ;
+                const toBoltZ = dz / distXZ;
+                const fwdX = Math.sin(boss.transform.rotationY);
+                const fwdZ = Math.cos(boss.transform.rotationY);
+                const frontDot = toBoltX * fwdX + toBoltZ * fwdZ;
+
+                if (frontDot >= WOLF_AND_RAVEN_CONFIG.quenFrontalMinDot) {
+                  absorbedByQuen = true;
+                  boss.bossPhase.quenHitsRemaining = Math.max(
+                    0,
+                    boss.bossPhase.quenHitsRemaining - 1,
+                  );
+                  const rig = this.getBossRigForEntity(boss.id);
+                  if (boss.bossPhase.bossId === SPECIAL_SCENARIO_CONFIG.geraltId) {
+                    const gRig = rig as GeraltRig;
+                    gRig.triggerQuenDeflectFlash();
+                    gRig.setQuenVisual(
+                      boss.bossPhase.quenHitsRemaining > 0,
+                      boss.bossPhase.quenHitsRemaining,
+                    );
+                  }
+                  if (boss.bossPhase.quenHitsRemaining <= 0) {
+                    boss.bossPhase.quenTimer = 0;
+                    boss.bossPhase.quenCooldown =
+                      WOLF_AND_RAVEN_CONFIG.quenCooldownSec;
+                    this.vfx.spawnImpactBurst(
+                      this.vBurstPos,
+                      WOLF_AND_RAVEN_CONFIG.quenShatterSparkCount,
+                    );
+                    this.audio.playGuardBreak();
+                    this.callbacks.addCameraShake(
+                      WOLF_AND_RAVEN_CONFIG.quenShatterCameraShake,
+                    );
+                  } else {
+                    this.vfx.spawnImpactBurst(
+                      this.vBurstPos,
+                      WOLF_AND_RAVEN_CONFIG.quenDeflectSparkCount,
+                    );
+                    this.audio.playShieldClang();
+                  }
+                }
+              }
+
+              if (!absorbedByQuen) {
+                this.damageBoss(boss, projectile.damage, this.vBurstPos);
+              }
+              if (absorbedByQuen || projectile.pierceRemaining <= 0) {
                 hit = true;
                 break;
+              } else {
+                projectile.pierceRemaining--;
               }
             }
           }
@@ -821,7 +897,12 @@ export class CombatSystem implements ISystem {
 
   private resolveHazardZones(dt: number, state: GameState): void {
     const hazards = this.world.query('hazardZone', 'transform');
-    const player = this.world.queryFirst('playerTag', 'transform', 'health');
+    const player = this.world.queryFirst(
+      'playerTag',
+      'transform',
+      'health',
+      'playerCombat',
+    );
     const boss = this.world.queryFirst('bossPhase', 'transform');
     const toDestroy: EntityId[] = [];
     let anyActiveLaser = false;
@@ -1039,6 +1120,61 @@ export class CombatSystem implements ISystem {
               );
             }
           }
+        }
+      } else if (hz.kind === 'YRDEN_TRAP') {
+        if (hz.elapsed >= hz.activeDuration) {
+          toDestroy.push(entity.id);
+          continue;
+        }
+        if (
+          state === GAME_STATES.BOSS_COMBAT &&
+          player &&
+          !player.health.isInvulnerable
+        ) {
+          const dist = Math.hypot(
+            player.transform.position.x - transform.position.x,
+            player.transform.position.z - transform.position.z,
+          );
+          if (dist <= hz.maxRadius) {
+            player.playerCombat.yrdenSlowTimer =
+              WOLF_AND_RAVEN_CONFIG.yrdenSlowRefreshSec;
+          }
+        }
+      } else if (hz.kind === 'CHAOS_LIGHTNING') {
+        if (hz.elapsed < 0) continue;
+        if (
+          hz.elapsed >= hz.telegraphDuration &&
+          hz.elapsed < hz.telegraphDuration + hz.activeDuration
+        ) {
+          if (!hz.hasTriggered) {
+            hz.hasTriggered = true;
+            this.audio.playChordBurst();
+            this.callbacks.addCameraShake(
+              WOLF_AND_RAVEN_CONFIG.lightningCameraShake,
+            );
+            this.vBurstPos.set(
+              transform.position.x,
+              0.6,
+              transform.position.z,
+            );
+            this.vfx.spawnImpactBurst(this.vBurstPos, 14);
+            if (player && !hz.hasHitPlayer && !player.health.isInvulnerable) {
+              const dist = Math.hypot(
+                player.transform.position.x - transform.position.x,
+                player.transform.position.z - transform.position.z,
+              );
+              if (dist <= hz.currentRadius) {
+                hz.hasHitPlayer = true;
+                this.damagePlayer(hz.damage, state);
+              }
+            }
+          }
+        } else if (hz.elapsed >= hz.telegraphDuration + hz.activeDuration) {
+          toDestroy.push(entity.id);
+        }
+      } else if (hz.kind === 'SPATIAL_RIFT') {
+        if (hz.elapsed >= hz.activeDuration) {
+          toDestroy.push(entity.id);
         }
       }
     }

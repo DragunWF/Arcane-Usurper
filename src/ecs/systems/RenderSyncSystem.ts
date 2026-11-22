@@ -10,6 +10,7 @@ import {
 import type { SceneManager } from '../../engine/SceneManager';
 import type {
   AbyssalWhirlpoolMeshHandles,
+  ChaosLightningMeshHandles,
   FrostRingMeshHandles,
   HarmonicAmpNodeHandles,
   IcePillarMeshHandles,
@@ -18,6 +19,8 @@ import type {
   LaserWallMeshHandles,
   PhaseWaveMeshHandles,
   PulseMeshHandles,
+  SpatialRiftMeshHandles,
+  YrdenTrapMeshHandles,
 } from '../../engine/VfxFactory';
 import type { DarkMageRig } from '../../rigs/DarkMageRig';
 import type { BossRigAdapter } from '../../rigs/bosses/BossBase';
@@ -375,6 +378,106 @@ export class RenderSyncSystem implements ISystem {
           handles.beamMat.opacity = 0.92 * fadeOut;
           handles.pylonMat.opacity = 0.85 * fadeOut;
         }
+      } else if (hz.kind === 'YRDEN_TRAP') {
+        const handles = obj.userData.yrdenHandles as
+          | YrdenTrapMeshHandles
+          | undefined;
+        if (handles) {
+          const t = THREE.MathUtils.clamp(
+            hz.elapsed / Math.max(0.001, hz.activeDuration),
+            0,
+            1,
+          );
+          const fadeIn = Math.min(1, t / 0.08);
+          const fadeOut = t > 0.86 ? (1 - t) / 0.14 : 1;
+          const env = fadeIn * fadeOut;
+          const pulse = 0.88 + 0.12 * Math.sin(elapsed * 6.0);
+
+          handles.outerRing.rotation.z += dt * 0.9;
+          handles.sigilRing.rotation.z -= dt * 1.45;
+          handles.outerMat.opacity = 0.86 * env * pulse;
+          handles.sigilMat.opacity = 0.62 * env * pulse;
+          handles.trapLight.intensity = 5.2 * env * pulse;
+
+          // Update visible violet tether line to the Dark Mage when slowed inside the Yrden ring
+          if (player) {
+            const relX = player.transform.position.x - transform.position.x;
+            const relZ = player.transform.position.z - transform.position.z;
+            const dist = Math.hypot(relX, relZ);
+            if (dist <= hz.maxRadius) {
+              handles.tetherLine.visible = true;
+              handles.tetherPositions[0] = 0;
+              handles.tetherPositions[1] = 0.14;
+              handles.tetherPositions[2] = 0;
+              handles.tetherPositions[3] = relX;
+              handles.tetherPositions[4] = 1.05;
+              handles.tetherPositions[5] = relZ;
+              const posAttr = handles.tetherLine.geometry.getAttribute(
+                'position',
+              ) as THREE.BufferAttribute;
+              posAttr.needsUpdate = true;
+              handles.tetherMat.opacity = 0.92 * env;
+            } else {
+              handles.tetherLine.visible = false;
+            }
+          }
+        }
+      } else if (hz.kind === 'CHAOS_LIGHTNING') {
+        const handles = obj.userData.chaosLightningHandles as
+          | ChaosLightningMeshHandles
+          | undefined;
+        if (handles) {
+          if (hz.elapsed < 0) {
+            obj.visible = false;
+          } else {
+            obj.visible = true;
+            if (hz.elapsed < hz.telegraphDuration) {
+              const p = hz.elapsed / Math.max(0.001, hz.telegraphDuration);
+              handles.fillDisc.visible = true;
+              handles.boltGroup.visible = false;
+              handles.fillDisc.scale.setScalar(0.08 + p * 0.92);
+              handles.runeRing.rotation.z += dt * (2.4 + p * 4.2);
+              handles.runeMat.opacity = 0.65 + 0.35 * Math.sin(p * Math.PI * 6);
+              handles.fillMat.opacity = 0.24 + p * 0.42;
+              handles.strikeLight.intensity = p * 3.5;
+            } else {
+              handles.fillDisc.visible = false;
+              handles.boltGroup.visible = true;
+              const et = THREE.MathUtils.clamp(
+                (hz.elapsed - hz.telegraphDuration) /
+                  Math.max(0.001, hz.activeDuration),
+                0,
+                1,
+              );
+              const fade = 1 - et;
+              const flicker = 0.78 + 0.22 * Math.sin(elapsed * 48);
+              handles.boltGroup.rotation.y = Math.floor(elapsed * 18) * 0.9;
+              handles.boltCoreMat.opacity = fade * flicker;
+              handles.boltForkMat.opacity = fade * 0.9 * flicker;
+              handles.runeMat.opacity = fade * 0.85;
+              handles.strikeLight.intensity = fade * 15.0 * flicker;
+            }
+          }
+        }
+      } else if (hz.kind === 'SPATIAL_RIFT') {
+        const handles = obj.userData.spatialRiftHandles as
+          | SpatialRiftMeshHandles
+          | undefined;
+        if (handles) {
+          const t = THREE.MathUtils.clamp(
+            hz.elapsed / Math.max(0.001, hz.activeDuration),
+            0,
+            1,
+          );
+          const env = Math.sin(t * Math.PI);
+          const scale = 0.3 + env * 0.95;
+          handles.coreMesh.scale.set(0.68 * scale, 1.38 * scale, 1.0);
+          handles.rimMesh.scale.set(0.68 * scale, 1.38 * scale, 1.0);
+          handles.rimMesh.rotation.z = elapsed * 4.5;
+          handles.coreMat.opacity = env * 0.72;
+          handles.rimMat.opacity = env * 0.95;
+          handles.riftLight.intensity = env * 9.0;
+        }
       }
     }
 
@@ -463,6 +566,7 @@ export class RenderSyncSystem implements ISystem {
       activeBosses,
       siphonProgress: siphonBoss?.siphonableBoss.siphonProgress,
       tauntDizzyTimer: siphonBoss?.siphonableBoss.tauntDizzyTimer,
+      isPlayerYrdenSlowed: (player?.playerCombat.yrdenSlowTimer ?? 0) > 0,
     });
   }
 }

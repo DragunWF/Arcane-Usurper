@@ -313,6 +313,7 @@ export interface CombatHudSnapshot {
   siphonProgress?: number;
   tauntDizzyTimer?: number;
   canExecuteFinisher?: boolean;
+  isPlayerYrdenSlowed?: boolean;
 }
 
 export interface GameStoreState {
@@ -350,6 +351,10 @@ export interface GameStoreState {
   activeScenarioId: string | null;
   isScenarioSelectorOpen: boolean;
   activeBosses: readonly ActiveBossHudEntry[];
+  duoEventBanner: string | null;
+  duoEventBannerSubtext: string | null;
+  duoEventBannerToken: number;
+  isPlayerYrdenSlowed: boolean;
 
   // Royal Ice Chambers Progression Telemetry
   chamberWave: number;
@@ -440,6 +445,9 @@ export interface GameStoreState {
   setActiveScenarioId: (scenarioId: string | null) => void;
   setScenarioSelectorOpen: (open: boolean) => void;
   setActiveBosses: (bosses: readonly ActiveBossHudEntry[]) => void;
+  triggerDuoEventBanner: (title: string, subtext?: string | null) => void;
+  clearDuoEventBanner: () => void;
+  setPlayerYrdenSlowed: (slowed: boolean) => void;
   setLobbyPrompt: (prompt: LobbyPromptState | null) => void;
   setLobbyDummyHit: (hit: LobbyDummyHitState | null) => void;
   setFinisherMode: (mode: FinisherMode) => void;
@@ -518,6 +526,10 @@ const INITIAL_STATE = {
   activeScenarioId: null as string | null,
   isScenarioSelectorOpen: false,
   activeBosses: [] as readonly ActiveBossHudEntry[],
+  duoEventBanner: null as string | null,
+  duoEventBannerSubtext: null as string | null,
+  duoEventBannerToken: 0,
+  isPlayerYrdenSlowed: false,
 
   chamberWave: 0,
   totalChamberWaves: CHAMBER_CONFIG.WAVES.length,
@@ -707,6 +719,15 @@ export const useGameStore = create<GameStoreState>((set) => ({
   setScenarioSelectorOpen: (isScenarioSelectorOpen) =>
     set({ isScenarioSelectorOpen }),
   setActiveBosses: (activeBosses) => set({ activeBosses }),
+  triggerDuoEventBanner: (title, subtext = null) =>
+    set((state) => ({
+      duoEventBanner: title,
+      duoEventBannerSubtext: subtext,
+      duoEventBannerToken: state.duoEventBannerToken + 1,
+    })),
+  clearDuoEventBanner: () =>
+    set({ duoEventBanner: null, duoEventBannerSubtext: null }),
+  setPlayerYrdenSlowed: (isPlayerYrdenSlowed) => set({ isPlayerYrdenSlowed }),
   setLobbyPrompt: (lobbyPrompt) => set({ lobbyPrompt }),
   setLobbyDummyHit: (lobbyDummyHit) => set({ lobbyDummyHit }),
 
@@ -763,6 +784,8 @@ export const useGameStore = create<GameStoreState>((set) => ({
       tauntDizzyTimer: snapshot.tauntDizzyTimer ?? state.tauntDizzyTimer,
       canExecuteFinisher:
         snapshot.canExecuteFinisher ?? state.canExecuteFinisher,
+      isPlayerYrdenSlowed:
+        snapshot.isPlayerYrdenSlowed ?? state.isPlayerYrdenSlowed,
     })),
 
   resetForDuel: (encoreTier, bossMaxHpOverride, phase1SubtitleOverride) =>
@@ -805,6 +828,9 @@ export const useGameStore = create<GameStoreState>((set) => ({
         canExecuteFinisher: false,
         isBossExposed: false,
         canExecuteStolenKiss: false,
+        duoEventBanner: null,
+        duoEventBannerSubtext: null,
+        isPlayerYrdenSlowed: false,
         siphonProgress: 0,
         finisherMode: FINISHER_MODES.KISS,
         finisherPose: FINISHER_POSE_IDS.UPRIGHT_EMBRACE,

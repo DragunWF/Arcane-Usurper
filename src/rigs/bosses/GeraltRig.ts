@@ -82,6 +82,23 @@ export class GeraltRig extends BossBase {
   private readonly signLight: THREE.PointLight;
   private activeSignKind: WitcherSignKind = 'QUEN';
   private signFlashTimer = 0;
+  private igniChannelIntensity = 0;
+
+  // Pre-allocated Golden Hexagonal Quen Shield Barrier (zero hot-loop allocations)
+  private readonly quenBarrierGroup = new THREE.Group();
+  private readonly quenShellMat: THREE.MeshBasicMaterial;
+  private readonly quenWireMat: THREE.MeshBasicMaterial;
+  private readonly quenRingMat: THREE.MeshBasicMaterial;
+  private quenActive = false;
+  private quenHitsRemaining = 0;
+  private quenDeflectFlashTimer = 0;
+
+  // Pre-allocated Amber Blade-Trail Telegraph Arc attached to Silver Longsword
+  private readonly bladeTrailMesh: THREE.Mesh;
+  private readonly bladeTrailMat: THREE.MeshBasicMaterial;
+  private amberBladeTrailIntensity = 0;
+  private swordSlashTimer = 0;
+  private swordSlashComboStep: 1 | 2 = 1;
 
   // Pre-allocated Pool of 36 Ash & Ember Particles for Lethal 0 HP Dissolution
   private readonly ashPoolGroup = new THREE.Group();
@@ -167,7 +184,56 @@ export class GeraltRig extends BossBase {
     // Arms with Chainmail Sleeves, Drawn Silver Longsword (Right) & Sign Emitter (Left Palm)
     this.buildArm(-1, armorMat, chainmailMat, leatherMat, steelMat, skinMat);
     this.buildArm(1, armorMat, chainmailMat, leatherMat, steelMat, skinMat);
+    this.bladeTrailMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.riftAmber,
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.bladeTrailMesh = new THREE.Mesh(
+      this.trackGeo(
+        new THREE.RingGeometry(0.42, 1.36, 18, 1, -Math.PI * 0.45, Math.PI * 0.9),
+      ),
+      this.bladeTrailMat,
+    );
     this.buildLongsword(steelMat, leatherMat);
+
+    // Pre-allocated Golden Hexagonal Quen Barrier Shell
+    this.quenShellMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.geraltQuenGold,
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.quenWireMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.geraltAmberEye,
+        transparent: true,
+        opacity: 0,
+        wireframe: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.quenRingMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.geraltQuenGold,
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.buildQuenBarrier();
 
     // Left-Palm Witcher Sign Glyph Emitter (Igni orange / Quen gold / Yrden violet)
     this.signGlyphMat = this.trackMat(
@@ -614,9 +680,33 @@ export class GeraltRig extends BossBase {
     pommel.position.y = -0.19;
 
     this.swordGroup.add(blade, tip, crossguard, grip, pommel);
+    // Glowing amber blade-trail telegraph arc attached directly to the silver longsword
+    this.bladeTrailMesh.position.set(0, 0.24, 0.02);
+    this.bladeTrailMesh.rotation.set(0, Math.PI * 0.5, 0);
+    this.bladeTrailMesh.visible = false;
+    this.swordGroup.add(this.bladeTrailMesh);
+
     this.swordGroup.position.set(0, -0.34, 0.04);
     this.swordGroup.rotation.set(Math.PI * 0.42, 0, 0);
     this.rightElbowPivot.add(this.swordGroup);
+  }
+
+  private buildQuenBarrier(): void {
+    this.quenBarrierGroup.position.set(0, 1.05, 0);
+    this.quenBarrierGroup.visible = false;
+    this.root.add(this.quenBarrierGroup);
+
+    const icoGeo = this.trackGeo(new THREE.IcosahedronGeometry(0.98, 1));
+    const shell = new THREE.Mesh(icoGeo, this.quenShellMat);
+    const wire = new THREE.Mesh(icoGeo, this.quenWireMat);
+    wire.scale.setScalar(1.03);
+
+    const ringGeo = this.trackGeo(new THREE.RingGeometry(0.86, 1.02, 6));
+    const ring = new THREE.Mesh(ringGeo, this.quenRingMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = -0.92;
+
+    this.quenBarrierGroup.add(shell, wire, ring);
   }
 
   private buildLeftPalmSignEmitter(): void {
@@ -724,6 +814,38 @@ export class GeraltRig extends BossBase {
     this.signLight.color.setHex(hex);
   }
 
+  public setQuenVisual(active: boolean, hitsRemaining: number): void {
+    this.quenActive = active && hitsRemaining > 0;
+    this.quenHitsRemaining = Math.max(0, hitsRemaining);
+    if (!this.quenActive) {
+      this.quenBarrierGroup.visible = false;
+    }
+  }
+
+  public triggerQuenDeflectFlash(): void {
+    this.quenDeflectFlashTimer = 0.24;
+    this.triggerSignFlash('QUEN');
+  }
+
+  public setAmberBladeTrail(intensity: number): void {
+    this.amberBladeTrailIntensity = THREE.MathUtils.clamp(intensity, 0, 1);
+  }
+
+  public triggerSwordSlash(comboStep: 1 | 2): void {
+    this.swordSlashComboStep = comboStep;
+    this.swordSlashTimer = 0.3;
+  }
+
+  public setIgniChannel(intensity: number): void {
+    this.igniChannelIntensity = THREE.MathUtils.clamp(intensity, 0, 1);
+    if (this.igniChannelIntensity > 0.02) {
+      this.activeSignKind = 'IGNI';
+      this.signGlyphMat.color.setHex(PALETTE.geraltIgniOrange);
+      this.signRingMat.color.setHex(PALETTE.geraltIgniOrange);
+      this.signLight.color.setHex(PALETTE.geraltIgniOrange);
+    }
+  }
+
   public setExpression(_expression: BossExpression, _spiralPhase = 0): void {
     // Non-siphonable Witcher maintains hardened combat expression
   }
@@ -738,7 +860,6 @@ export class GeraltRig extends BossBase {
 
   public triggerHitFlash(): void {
     this.hitFlashTimer = 0.14;
-    this.triggerSignFlash('QUEN');
   }
 
   public triggerCastFlourish(): void {
@@ -768,17 +889,31 @@ export class GeraltRig extends BossBase {
     this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
     this.castFlourishTimer = Math.max(0, this.castFlourishTimer - dt);
     this.signFlashTimer = Math.max(0, this.signFlashTimer - dt);
+    this.quenDeflectFlashTimer = Math.max(0, this.quenDeflectFlashTimer - dt);
+    this.swordSlashTimer = Math.max(0, this.swordSlashTimer - dt);
 
     const breathe = Math.sin(elapsed * 2.8) * 0.018;
     const flourish =
       this.castFlourishTimer > 0
         ? Math.sin((this.castFlourishTimer / 0.45) * Math.PI)
         : 0;
+    const slashProgress =
+      this.swordSlashTimer > 0 ? 1 - this.swordSlashTimer / 0.3 : 0;
+    const slashSwing =
+      this.swordSlashTimer > 0
+        ? (this.swordSlashComboStep === 1 ? 1 : -1) *
+          Math.sin(slashProgress * Math.PI) *
+          1.45
+        : 0;
 
     this.bodyPivot.position.set(0, 0.96 + breathe + this.ascendHeight, 0);
     this.bodyPivot.rotation.set(0, 0, 0);
-    this.torsoGroup.rotation.set(0.1 + flourish * 0.18, -0.18 + flourish * 0.35, 0);
-    this.headGroup.rotation.set(-0.04, 0.16, 0);
+    this.torsoGroup.rotation.set(
+      0.1 + flourish * 0.18 + Math.abs(slashSwing) * 0.16,
+      -0.18 + flourish * 0.35 + slashSwing * 0.52,
+      0,
+    );
+    this.headGroup.rotation.set(-0.04, 0.16 - slashSwing * 0.22, 0);
     this.ponytailPivot.rotation.x = 0.18 + Math.sin(elapsed * 3.6) * 0.1;
 
     // Wide Witcher sword-fighting stance
@@ -787,23 +922,75 @@ export class GeraltRig extends BossBase {
     this.leftKneePivot.rotation.x = 0.34;
     this.rightKneePivot.rotation.x = 0.24;
 
-    // Left palm ready to cast Signs; right hand guards with silver longsword
-    this.leftShoulderPivot.rotation.set(-0.62 - flourish * 0.72, 0.18, 0.26);
-    this.leftElbowPivot.rotation.set(-0.76 + flourish * 0.42, 0, 0);
-    this.rightShoulderPivot.rotation.set(-0.54 - flourish * 0.55, -0.24, -0.28);
-    this.rightElbowPivot.rotation.set(-0.82 + flourish * 0.3, 0, 0);
+    // Left palm ready to cast Signs (thrust forward during Igni channel); right hand slashes with silver longsword
+    const igniThrust = this.igniChannelIntensity;
+    this.leftShoulderPivot.rotation.set(
+      -0.62 - flourish * 0.72 - igniThrust * 0.85,
+      0.18,
+      0.26 - igniThrust * 0.14,
+    );
+    this.leftElbowPivot.rotation.set(
+      -0.76 + flourish * 0.42 + igniThrust * 0.65,
+      0,
+      0,
+    );
+    this.rightShoulderPivot.rotation.set(
+      -0.54 - flourish * 0.55 - this.amberBladeTrailIntensity * 0.48 + slashSwing * 0.65,
+      -0.24 + slashSwing * 0.82,
+      -0.28 - this.amberBladeTrailIntensity * 0.34,
+    );
+    this.rightElbowPivot.rotation.set(
+      -0.82 + flourish * 0.3 + Math.abs(slashSwing) * 0.42,
+      0,
+      0,
+    );
 
-    // Update Left-Palm Witcher Sign Glyph Emitter
-    if (this.signFlashTimer > 0) {
-      const env = Math.sin((this.signFlashTimer / 0.85) * Math.PI);
-      const signScale = 0.8 + env * 0.65;
+    // Update Glowing Amber Blade-Trail Telegraph Arc
+    const trailAlpha = Math.max(
+      this.amberBladeTrailIntensity,
+      this.swordSlashTimer > 0 ? Math.sin(slashProgress * Math.PI) : 0,
+    );
+    if (trailAlpha > 0.02) {
+      this.bladeTrailMesh.visible = true;
+      this.bladeTrailMat.opacity = trailAlpha * 0.88;
+      this.bladeTrailMesh.scale.setScalar(0.85 + trailAlpha * 0.38);
+    } else {
+      this.bladeTrailMesh.visible = false;
+    }
+
+    // Update Golden Hexagonal Quen Shield Barrier
+    if (this.quenActive && this.quenHitsRemaining > 0) {
+      this.quenBarrierGroup.visible = true;
+      const deflectFlash = this.quenDeflectFlashTimer / 0.24;
+      const strength = 0.45 + (this.quenHitsRemaining / 3) * 0.55;
+      const pulse = 0.96 + 0.04 * Math.sin(elapsed * 6.0);
+      this.quenBarrierGroup.scale.setScalar(pulse + deflectFlash * 0.12);
+      this.quenBarrierGroup.rotation.y = elapsed * 0.85;
+      this.quenShellMat.opacity =
+        (0.14 + deflectFlash * 0.38) * strength;
+      this.quenWireMat.opacity =
+        (0.42 + deflectFlash * 0.5) * strength;
+      this.quenRingMat.opacity = (0.48 + deflectFlash * 0.42) * strength;
+    } else {
+      this.quenBarrierGroup.visible = false;
+    }
+
+    // Update Left-Palm Witcher Sign Glyph Emitter (flash OR sustained Igni channel telegraph)
+    if (this.signFlashTimer > 0 || this.igniChannelIntensity > 0.02) {
+      const flashEnv =
+        this.signFlashTimer > 0
+          ? Math.sin((this.signFlashTimer / 0.85) * Math.PI)
+          : 0;
+      const env = Math.max(flashEnv, this.igniChannelIntensity);
+      const signScale =
+        0.8 + env * 0.72 + Math.sin(elapsed * 26) * 0.08 * this.igniChannelIntensity;
       this.signEmitterGroup.visible = true;
       this.signEmitterGroup.scale.setScalar(signScale);
       this.signEmitterGroup.rotation.z =
-        elapsed * (this.activeSignKind === 'YRDEN' ? -4.5 : 5.2);
-      this.signGlyphMat.opacity = env * 0.95;
-      this.signRingMat.opacity = env * 0.72;
-      this.signLight.intensity = env * 4.2;
+        elapsed * (this.activeSignKind === 'YRDEN' ? -4.5 : 6.4);
+      this.signGlyphMat.opacity = env * 0.96;
+      this.signRingMat.opacity = env * 0.78;
+      this.signLight.intensity = env * 4.8;
     } else {
       this.signEmitterGroup.visible = false;
       this.signLight.intensity = 0;
@@ -844,6 +1031,8 @@ export class GeraltRig extends BossBase {
     this.leftShoulderPivot.rotation.set(0.18 * slump, 0, 0.38 * slump);
     this.rightShoulderPivot.rotation.set(-0.24 * slump, 0, -0.28 * slump);
     this.auraRing.visible = false;
+    this.quenBarrierGroup.visible = false;
+    this.bladeTrailMesh.visible = false;
     this.signEmitterGroup.visible = false;
     this.signLight.intensity = 0;
 
@@ -920,8 +1109,16 @@ export class GeraltRig extends BossBase {
     this.hitFlashTimer = 0;
     this.castFlourishTimer = 0;
     this.signFlashTimer = 0;
+    this.igniChannelIntensity = 0;
+    this.quenActive = false;
+    this.quenHitsRemaining = 0;
+    this.quenDeflectFlashTimer = 0;
+    this.amberBladeTrailIntensity = 0;
+    this.swordSlashTimer = 0;
     this.ascendHeight = 0;
     this.auraRing.visible = true;
+    this.quenBarrierGroup.visible = false;
+    this.bladeTrailMesh.visible = false;
     this.ashPoolGroup.visible = false;
     this.signEmitterGroup.visible = false;
     this.signLight.intensity = 0;

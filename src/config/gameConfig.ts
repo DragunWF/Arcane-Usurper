@@ -3153,6 +3153,7 @@ export const STOLEN_KISS_CONFIG = Object.freeze({
     'MIKU_CRESCENDO_OVERDRIVE',
     'YENNEFER_CHAOS_NOVA',
     'YENNEFER_OBSIDIAN_LASERS',
+    'YENNEFER_CHAOS_MAELSTROM',
   ] as const),
 
   // Procedural Web Audio Cues
@@ -3254,6 +3255,118 @@ export const SPECIAL_SCENARIO_CONFIG = Object.freeze({
   yenneferLaserDamage: 16,
 } as const);
 
+// ============================================================================
+// THE WOLF & THE RAVEN — ASYMMETRIC DUO COMBAT AI & ABILITIES CONFIGURATION
+// ============================================================================
+
+export const WOLF_AND_RAVEN_CONFIG = Object.freeze({
+  // Duo HP Pools
+  geraltMaxHp: 420,
+  yenneferMaxHp: 520,
+
+  // Geralt Vanguard Pressure & 2-Hit Silver Sword Dash-Slash Combo
+  geraltVanguardOrbitRadius: 4.9,
+  geraltVanguardPersonalSpace: 2.0,
+  geraltMoveSpeedMult: 1.16,
+  geraltAttackCooldownP1: 1.85,
+  geraltAttackCooldownP2: 1.4,
+  swordTelegraph1Sec: 0.36,
+  swordDash1DurationSec: 0.24,
+  swordChainWindupSec: 0.32,
+  swordDash2DurationSec: 0.26,
+  swordRecoverySec: 0.28,
+  swordDashSpeed: 18.5,
+  swordSlashHitRadius: 2.35,
+  swordSlashDamage: 14,
+  swordWaveSpeed: 17.5,
+  swordWaveDamage: 12,
+  swordWaveRadius: 1.25,
+  swordWaveLife: 1.15,
+
+  // Geralt Quen Active Shield (3 frontal hits OR shattered by Right-Click Umbral Pulse / bypassed from rear)
+  quenMaxHits: 3,
+  quenDurationSec: 9.0,
+  quenCooldownSec: 10.5,
+  quenInitialCooldownSec: 3.5,
+  quenCastDurationSec: 0.65,
+  quenFrontalMinDot: -0.15,
+  quenDeflectSparkCount: 10,
+  quenShatterSparkCount: 22,
+  quenShatterCameraShake: 0.18,
+
+  // Geralt Igni Fire Arc (0.65s orange left-hand Sign telegraph -> close-range fire spark cone)
+  igniTelegraphSec: 0.65,
+  igniRecoverySec: 0.35,
+  igniSparkCount: 7,
+  igniConeRad: 1.15,
+  igniSparkSpeed: 16.5,
+  igniSparkRadius: 0.68,
+  igniSparkLife: 1.1,
+  igniDamage: 14,
+
+  // Geralt Yrden Violet Floor Trap (3.2m radius, 6.0s duration, 0.55x movement slow + visible violet tether)
+  yrdenCastDurationSec: 0.65,
+  yrdenRadius: 3.2,
+  yrdenDurationSec: 6.0,
+  yrdenSlowFactor: 0.55,
+  yrdenSlowRefreshSec: 0.16,
+
+  // Yennefer Zoning & Spatial Rift Repositioning
+  yenneferZoneOrbitRadius: 10.8,
+  yenneferZonePersonalSpace: 6.2,
+  yenneferAttackCooldownP1: 2.15,
+  yenneferAttackCooldownP2: 1.7,
+  yenneferAttackCooldownP3: 1.35,
+  riftTriggerDist: 4.8,
+  riftCooldownSec: 5.5,
+  riftSoloCooldownSec: 3.2,
+  riftInitialCooldownSec: 2.4,
+  riftTeleportRadius: 11.2,
+  riftVisualDurationSec: 0.78,
+
+  // Yennefer Chaos Lightning (brief ground/line telegraphs -> forked royal-violet strikes)
+  lightningCountDuo: 3,
+  lightningCountSolo: 5,
+  lightningTelegraphSec: 0.65,
+  lightningActiveSec: 0.42,
+  lightningCascadeStepSec: 0.14,
+  lightningRadius: 1.85,
+  lightningDamage: 16,
+  lightningSpreadRadius: 3.4,
+  lightningAttackDurationSec: 1.45,
+  lightningCameraShake: 0.14,
+
+  // Yennefer Obsidian Feather Volley (sweeping arc of dark obsidian-violet shards)
+  featherCountDuo: 7,
+  featherCountSolo: 11,
+  featherArcRad: 1.25,
+  featherSpeed: 19.5,
+  featherDamage: 13,
+  featherRadius: 0.64,
+  featherLife: 2.6,
+  featherTelegraphSec: 0.35,
+  featherAttackDurationSec: 0.95,
+
+  // Yennefer Chaos Maelstrom -> Triggers 1.8s 360° Frontal Stolen Kiss Window on Completion
+  maelstromChannelSec: 1.35,
+  maelstromRecoverySec: 0.25,
+  maelstromRadius: 16.5,
+  maelstromRingDurationSec: 1.25,
+  maelstromRingHitThickness: 1.4,
+  maelstromDamage: 18,
+  maelstromOrbCountDuo: 8,
+  maelstromOrbCountSolo: 12,
+  maelstromOrbSpeed: 13.5,
+  maelstromOrbDamage: 14,
+  maelstromCameraShake: 0.22,
+
+  // Asymmetric Duo Synergy: Geralt Slain First -> Yennefer Solo Enrage (1.3x cadence)
+  soloEnrageSpeedMult: 1.3,
+  geraltVanquishedBannerText: 'GERALT VANQUISHED',
+  geraltVanquishedSubtext: 'YENNEFER ENTERS SOLO CHAOS ENRAGE',
+  vanquishedBannerMs: 3200,
+} as const);
+
 export const SPECIAL_SCENARIOS: readonly SpecialScenarioDefinition[] =
   Object.freeze([
     Object.freeze({
@@ -3269,7 +3382,7 @@ export const SPECIAL_SCENARIOS: readonly SpecialScenarioDefinition[] =
           displayName: SPECIAL_SCENARIO_CONFIG.geraltDisplayName,
           title: SPECIAL_SCENARIO_CONFIG.geraltTitle,
           rigKey: 'geralt' as const,
-          maxHp: SPECIAL_SCENARIO_CONFIG.geraltMaxHp,
+          maxHp: WOLF_AND_RAVEN_CONFIG.geraltMaxHp,
           hitRadius: SPECIAL_SCENARIO_CONFIG.geraltHitRadius,
           canBeSiphoned: false,
           guestPedestalIndex: null,
@@ -3282,7 +3395,7 @@ export const SPECIAL_SCENARIOS: readonly SpecialScenarioDefinition[] =
           displayName: SPECIAL_SCENARIO_CONFIG.yenneferDisplayName,
           title: SPECIAL_SCENARIO_CONFIG.yenneferTitle,
           rigKey: 'yennefer' as const,
-          maxHp: SPECIAL_SCENARIO_CONFIG.yenneferMaxHp,
+          maxHp: WOLF_AND_RAVEN_CONFIG.yenneferMaxHp,
           hitRadius: SPECIAL_SCENARIO_CONFIG.yenneferHitRadius,
           canBeSiphoned: true,
           guestPedestalIndex: 0,

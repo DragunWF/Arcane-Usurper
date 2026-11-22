@@ -6,6 +6,7 @@ import {
   PALETTE,
   PLAYER_CONFIG,
   PORTAL_STATES,
+  WOLF_AND_RAVEN_CONFIG,
 } from '../config/gameConfig';
 import type { IGameController } from '../engine/GameEngine';
 import { useGameStore } from '../state/useGameStore';
@@ -41,6 +42,10 @@ export function CombatHUD({ controller }: CombatHUDProps) {
   const isBossExposed = useGameStore((s) => s.isBossExposed);
   const canExecuteStolenKiss = useGameStore((s) => s.canExecuteStolenKiss);
   const activeBosses = useGameStore((s) => s.activeBosses);
+  const duoEventBanner = useGameStore((s) => s.duoEventBanner);
+  const duoEventBannerSubtext = useGameStore((s) => s.duoEventBannerSubtext);
+  const duoEventBannerToken = useGameStore((s) => s.duoEventBannerToken);
+  const isPlayerYrdenSlowed = useGameStore((s) => s.isPlayerYrdenSlowed);
   const encoreTier = useGameStore((s) => s.encoreTier);
   const activeRealm = useGameStore((s) => s.activeRealm);
   const chamberWave = useGameStore((s) => s.chamberWave);
@@ -55,6 +60,17 @@ export function CombatHUD({ controller }: CombatHUDProps) {
 
   const [showFrostFlash, setShowFrostFlash] = useState(false);
   const [reticlePulsing, setReticlePulsing] = useState(false);
+  const [showDuoBanner, setShowDuoBanner] = useState(false);
+
+  useEffect(() => {
+    if (duoEventBannerToken === 0 || !duoEventBanner) return;
+    setShowDuoBanner(true);
+    const timer = window.setTimeout(
+      () => setShowDuoBanner(false),
+      WOLF_AND_RAVEN_CONFIG.vanquishedBannerMs,
+    );
+    return () => window.clearTimeout(timer);
+  }, [duoEventBannerToken, duoEventBanner]);
 
   useEffect(() => {
     if (frostHitFlashToken === 0) return;
@@ -213,6 +229,26 @@ export function CombatHUD({ controller }: CombatHUDProps) {
                   </span>
                 </div>
               </div>
+
+              {isPlayerYrdenSlowed && (
+                <div
+                  className="mb-2.5 rounded-lg px-2.5 py-1.5 border flex items-center justify-between animate-pulse"
+                  style={{
+                    backgroundColor: `${PALETTE.hex.geraltYrdenViolet}28`,
+                    borderColor: `${PALETTE.hex.yenneferLilac}88`,
+                  }}
+                >
+                  <span
+                    className="text-[10px] font-display font-bold tracking-[0.18em] uppercase"
+                    style={{ color: PALETTE.hex.yenneferLilac }}
+                  >
+                    YRDEN TETHERED
+                  </span>
+                  <span className="text-[10px] font-mono font-semibold text-violet-200">
+                    SLOWED &bull; BLINK OUT
+                  </span>
+                </div>
+              )}
 
               {/* Control Legend */}
               <div className="pt-2 border-t border-sky-400/15 text-[10px] sm:text-[11px] text-sky-200/80 leading-relaxed font-medium">
@@ -383,6 +419,34 @@ export function CombatHUD({ controller }: CombatHUDProps) {
                     style={{ width: `${bossHpPct.toFixed(1)}%` }}
                   />
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Transient Asymmetric Duo Callout Banner (e.g. GERALT VANQUISHED) */}
+          {showDuoBanner && duoEventBanner && (
+            <div className="fixed top-28 sm:top-32 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
+              <div
+                className="frost-panel rounded-2xl px-6 sm:px-9 py-3 border text-center"
+                style={{
+                  borderColor: `${PALETTE.hex.riftAmber}AA`,
+                  boxShadow: `0 0 32px ${PALETTE.hex.amethystTrim}66`,
+                }}
+              >
+                <div
+                  className="font-display text-sm sm:text-lg font-extrabold tracking-[0.26em] uppercase"
+                  style={{ color: PALETTE.hex.pureWhite }}
+                >
+                  {duoEventBanner}
+                </div>
+                {duoEventBannerSubtext && (
+                  <div
+                    className="mt-0.5 text-[10px] sm:text-xs font-semibold tracking-[0.22em] uppercase"
+                    style={{ color: PALETTE.hex.yenneferLilac }}
+                  >
+                    {duoEventBannerSubtext}
+                  </div>
+                )}
               </div>
             </div>
           )}
