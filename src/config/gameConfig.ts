@@ -98,6 +98,7 @@ export const ENVIRONMENT_IDS = Object.freeze({
   HARMONIC_CHAMBER: 'HARMONIC_CHAMBER',
   HARMONIC_SUMMIT: 'HARMONIC_SUMMIT',
   SKELLIGE_PEAK: 'SKELLIGE_PEAK',
+  SHARRAN_CRYPT: 'SHARRAN_CRYPT',
 } as const);
 
 export type EnvironmentId =
@@ -117,6 +118,7 @@ export const LOBBY_PROMPT_KINDS = Object.freeze({
   SERENA_DAIS: 'SERENA_DAIS',
   MIKU_DAIS: 'MIKU_DAIS',
   YENNEFER_DAIS: 'YENNEFER_DAIS',
+  SHADOWHEART_DAIS: 'SHADOWHEART_DAIS',
   GUEST_PEDESTAL_RESERVED: 'GUEST_PEDESTAL_RESERVED',
 } as const);
 
@@ -398,6 +400,18 @@ export const PALETTE = Object.freeze({
   skelligeObsidianRock: 0x131722,
   skelligeSnowDust: 0xdbeafe,
 
+  // Sharran Crypt Dungeon Arena & Baldur's Gate 3 Party Accents
+  sharranObsidianFloor: 0x0b0a12,
+  sharranCryptStone: 0x161422,
+  sharranArchSlate: 0x1f1c2e,
+  sharranLunarSilver: 0xe2e8f0,
+  sharranBrazierMagenta: 0xd946ef,
+  sharranShadowMist: 0x3b0764,
+  bg3LaezelSteel: 0xcbd5e1,
+  bg3AstarionCrimson: 0xe11d48,
+  bg3GaleArcane: 0x38bdf8,
+  bg3ShadowheartViolet: 0x8b5cf6,
+
   // CSS Hex Strings for Canvas2D, Tailwind inline styles, and SVG tokens
   hex: Object.freeze({
     riftAmber: '#F59E0B',
@@ -418,6 +432,16 @@ export const PALETTE = Object.freeze({
     skelligeHorizonViolet: '#2E1065',
     skelligeObsidianRock: '#131722',
     skelligeSnowDust: '#DBEAFE',
+    sharranObsidianFloor: '#0B0A12',
+    sharranCryptStone: '#161422',
+    sharranArchSlate: '#1F1C2E',
+    sharranLunarSilver: '#E2E8F0',
+    sharranBrazierMagenta: '#D946EF',
+    sharranShadowMist: '#3B0764',
+    bg3LaezelSteel: '#CBD5E1',
+    bg3AstarionCrimson: '#E11D48',
+    bg3GaleArcane: '#38BDF8',
+    bg3ShadowheartViolet: '#8B5CF6',
     midnightSky: '#040711',
     glacialNavy: '#0B132B',
     iceFloor: '#1E3A5F',
@@ -1755,6 +1779,7 @@ export const SIPHON_GALLERY_CONFIG = Object.freeze({
   guestPedestalRadius: 1.52,
   guestPedestalCollisionRadius: 1.1,
   guestSiphonInitialAzimuth: -Math.PI * 0.56 - 0.52,
+  guestPedestal2SiphonInitialAzimuth: -Math.PI * 0.44 - 0.52,
   daisRadius: 1.85,
   serenaDaisRadius: 1.72,
   mikuDaisRadius: 1.72,
@@ -3180,7 +3205,64 @@ export type SpecialScenarioRigKey =
   | 'serena'
   | 'miku'
   | 'geralt'
-  | 'yennefer';
+  | 'yennefer'
+  | 'laezel'
+  | 'astarion'
+  | 'gale'
+  | 'shadowheart';
+
+export type GuestPedestalTargetId = 'yennefer' | 'shadowheart';
+
+export interface GuestPedestalConfig {
+  readonly index: number;
+  readonly targetId: GuestPedestalTargetId;
+  readonly scenarioId: string;
+  readonly displayName: string;
+  readonly shortName: string;
+  readonly coreLabel: string;
+  readonly pos: { readonly x: number; readonly y: number; readonly z: number };
+  readonly facingYaw: number;
+  readonly siphonInitialAzimuth: number;
+  readonly accentHex: number;
+  readonly accentCssHex: string;
+  readonly dormantTitle: string;
+  readonly dormantSubtitle: string;
+}
+
+export const GUEST_PEDESTALS: readonly GuestPedestalConfig[] = Object.freeze([
+  Object.freeze({
+    index: 0,
+    targetId: 'yennefer' as const,
+    scenarioId: 'wolf_and_raven',
+    displayName: 'YENNEFER OF VENGERBERG',
+    shortName: 'YENNEFER',
+    coreLabel: 'CHAOS CORE CHARGE',
+    pos: SIPHON_GALLERY_CONFIG.guestPedestal1Pos,
+    facingYaw: SIPHON_GALLERY_CONFIG.guestPedestal1FacingYaw,
+    siphonInitialAzimuth: SIPHON_GALLERY_CONFIG.guestSiphonInitialAzimuth,
+    accentHex: PALETTE.yenneferLilac,
+    accentCssHex: PALETTE.hex.yenneferLilac,
+    dormantTitle: 'GUEST PEDESTAL I — DORMANT',
+    dormantSubtitle: 'Complete "The Wolf & The Raven" at the West Astral Rift',
+  }),
+  Object.freeze({
+    index: 1,
+    targetId: 'shadowheart' as const,
+    scenarioId: 'baldurs_gate_party',
+    displayName: 'SHADOWHEART',
+    shortName: 'SHADOWHEART',
+    coreLabel: 'SHARRAN CORE CHARGE',
+    pos: SIPHON_GALLERY_CONFIG.guestPedestal2Pos,
+    facingYaw: SIPHON_GALLERY_CONFIG.guestPedestal2FacingYaw,
+    siphonInitialAzimuth:
+      SIPHON_GALLERY_CONFIG.guestPedestal2SiphonInitialAzimuth,
+    accentHex: PALETTE.bg3ShadowheartViolet,
+    accentCssHex: PALETTE.hex.bg3ShadowheartViolet,
+    dormantTitle: 'GUEST PEDESTAL II — DORMANT',
+    dormantSubtitle:
+      'Complete "Shadows of the Sharran Crypt" at the West Astral Rift',
+  }),
+]);
 
 export interface SpecialScenarioBossEntry {
   readonly bossId: string;
@@ -3224,6 +3306,10 @@ export const SPECIAL_SCENARIO_CONFIG = Object.freeze({
   yenneferDefeatedStorageKey: 'arcane_usurper_yennefer_defeated',
   wolfAndRavenDefeatedStorageKey: 'arcane_usurper_wolf_and_raven_defeated',
   yenneferCoreChargeStorageKey: 'arcane_usurper_yennefer_core_charge',
+  shadowheartDefeatedStorageKey: 'arcane_usurper_shadowheart_defeated',
+  baldursGatePartyDefeatedStorageKey:
+    'arcane_usurper_baldurs_gate_party_defeated',
+  shadowheartCoreChargeStorageKey: 'arcane_usurper_shadowheart_core_charge',
 
   // Geralt & Yennefer baseline combat tuning (zero magic numbers)
   geraltId: 'geralt',
@@ -3468,6 +3554,65 @@ export const WOLF_AND_RAVEN_AUDIO_CONFIG = Object.freeze({
   ashEmberGain: 0.045,
 } as const);
 
+export const BALDURS_GATE_PARTY_CONFIG = Object.freeze({
+  scenarioId: 'baldurs_gate_party',
+  laezelId: 'laezel',
+  laezelDisplayName: "LAE'ZEL",
+  laezelTitle: 'Githyanki Vanguard',
+  laezelMaxHp: 380,
+  laezelHitRadius: 1.0,
+  laezelSpawnOffsetX: 0,
+  laezelSpawnOffsetZ: 11.5, // World (0, 0, +2.5) — front vanguard
+  laezelOrbitRadius: 5.4,
+  laezelPersonalSpace: 2.2,
+  laezelMoveSpeedMult: 1.12,
+  laezelAttackCooldownP1: 2.25,
+  laezelAttackCooldownP2: 1.75,
+
+  astarionId: 'astarion',
+  astarionDisplayName: 'ASTARION',
+  astarionTitle: 'Vampire Spawn',
+  astarionMaxHp: 310,
+  astarionHitRadius: 0.92,
+  astarionSpawnOffsetX: -7.5,
+  astarionSpawnOffsetZ: 3.5, // World (-7.5, 0, -5.5) — left mid-court flank
+  astarionOrbitRadius: 7.4,
+  astarionPersonalSpace: 3.2,
+  astarionMoveSpeedMult: 1.24,
+  astarionAttackCooldownP1: 2.1,
+  astarionAttackCooldownP2: 1.65,
+
+  galeId: 'gale',
+  galeDisplayName: 'GALE OF WATERDEEP',
+  galeTitle: 'Archmage Prodigy',
+  galeMaxHp: 300,
+  galeHitRadius: 0.94,
+  galeSpawnOffsetX: 7.5,
+  galeSpawnOffsetZ: 3.5, // World (+7.5, 0, -5.5) — right mid-court flank
+  galeOrbitRadius: 13.5,
+  galePersonalSpace: 6.4,
+  galeMoveSpeedMult: 0.96,
+  galeAttackCooldownP1: 2.55,
+  galeAttackCooldownP2: 2.0,
+
+  shadowheartId: 'shadowheart',
+  shadowheartDisplayName: 'SHADOWHEART',
+  shadowheartTitle: 'Dark Justiciar Sovereign',
+  shadowheartMaxHp: 560,
+  shadowheartHitRadius: 1.02,
+  shadowheartSpawnOffsetX: 0,
+  shadowheartSpawnOffsetZ: -8.5, // World (0, 0, -17.5) — rear Sharran altar dais
+  shadowheartOrbitRadius: 15.0,
+  shadowheartPersonalSpace: 7.2,
+  shadowheartMoveSpeedMult: 0.92,
+  shadowheartAttackCooldownP1: 2.4,
+  shadowheartAttackCooldownP2: 1.9,
+  shadowheartAttackCooldownP3: 1.5,
+  shadowheartPhase1Subtitle: 'PHASE I • VEIL OF LOSS',
+  shadowheartPhase2Subtitle: 'PHASE II • SHARRAN ECLIPSE',
+  shadowheartPhase3Subtitle: 'PHASE III • DARK JUSTICIAR ASCENSION',
+} as const);
+
 export const SPECIAL_SCENARIOS: readonly SpecialScenarioDefinition[] =
   Object.freeze([
     Object.freeze({
@@ -3507,15 +3652,125 @@ export const SPECIAL_SCENARIOS: readonly SpecialScenarioDefinition[] =
       ]),
     }),
     Object.freeze({
-      id: 'sealed_rift_slot_2',
-      title: '[SEALED RIFT — COMING SOON]',
-      subtitle: 'Uncharted Astral Convergence • Reserved Multi-Boss Encounter',
-      arenaId: 'sealed_void',
-      unlocked: false,
+      id: BALDURS_GATE_PARTY_CONFIG.scenarioId,
+      title: 'Shadows of the Sharran Crypt',
+      subtitle: "Lae'zel, Astarion, Gale & Shadowheart",
+      arenaId: 'sharran_crypt',
+      unlocked: true,
       guestPedestalIndex: 1,
-      bosses: Object.freeze([]),
+      bosses: Object.freeze([
+        Object.freeze({
+          bossId: BALDURS_GATE_PARTY_CONFIG.laezelId,
+          displayName: BALDURS_GATE_PARTY_CONFIG.laezelDisplayName,
+          title: BALDURS_GATE_PARTY_CONFIG.laezelTitle,
+          rigKey: 'laezel' as const,
+          maxHp: BALDURS_GATE_PARTY_CONFIG.laezelMaxHp,
+          hitRadius: BALDURS_GATE_PARTY_CONFIG.laezelHitRadius,
+          canBeSiphoned: false,
+          guestPedestalIndex: null,
+          spawnOffsetX: BALDURS_GATE_PARTY_CONFIG.laezelSpawnOffsetX,
+          spawnOffsetZ: BALDURS_GATE_PARTY_CONFIG.laezelSpawnOffsetZ,
+          barAccentHex: PALETTE.hex.bg3LaezelSteel,
+        }),
+        Object.freeze({
+          bossId: BALDURS_GATE_PARTY_CONFIG.astarionId,
+          displayName: BALDURS_GATE_PARTY_CONFIG.astarionDisplayName,
+          title: BALDURS_GATE_PARTY_CONFIG.astarionTitle,
+          rigKey: 'astarion' as const,
+          maxHp: BALDURS_GATE_PARTY_CONFIG.astarionMaxHp,
+          hitRadius: BALDURS_GATE_PARTY_CONFIG.astarionHitRadius,
+          canBeSiphoned: false,
+          guestPedestalIndex: null,
+          spawnOffsetX: BALDURS_GATE_PARTY_CONFIG.astarionSpawnOffsetX,
+          spawnOffsetZ: BALDURS_GATE_PARTY_CONFIG.astarionSpawnOffsetZ,
+          barAccentHex: PALETTE.hex.bg3AstarionCrimson,
+        }),
+        Object.freeze({
+          bossId: BALDURS_GATE_PARTY_CONFIG.galeId,
+          displayName: BALDURS_GATE_PARTY_CONFIG.galeDisplayName,
+          title: BALDURS_GATE_PARTY_CONFIG.galeTitle,
+          rigKey: 'gale' as const,
+          maxHp: BALDURS_GATE_PARTY_CONFIG.galeMaxHp,
+          hitRadius: BALDURS_GATE_PARTY_CONFIG.galeHitRadius,
+          canBeSiphoned: false,
+          guestPedestalIndex: null,
+          spawnOffsetX: BALDURS_GATE_PARTY_CONFIG.galeSpawnOffsetX,
+          spawnOffsetZ: BALDURS_GATE_PARTY_CONFIG.galeSpawnOffsetZ,
+          barAccentHex: PALETTE.hex.bg3GaleArcane,
+        }),
+        Object.freeze({
+          bossId: BALDURS_GATE_PARTY_CONFIG.shadowheartId,
+          displayName: BALDURS_GATE_PARTY_CONFIG.shadowheartDisplayName,
+          title: BALDURS_GATE_PARTY_CONFIG.shadowheartTitle,
+          rigKey: 'shadowheart' as const,
+          maxHp: BALDURS_GATE_PARTY_CONFIG.shadowheartMaxHp,
+          hitRadius: BALDURS_GATE_PARTY_CONFIG.shadowheartHitRadius,
+          canBeSiphoned: true,
+          guestPedestalIndex: 1,
+          spawnOffsetX: BALDURS_GATE_PARTY_CONFIG.shadowheartSpawnOffsetX,
+          spawnOffsetZ: BALDURS_GATE_PARTY_CONFIG.shadowheartSpawnOffsetZ,
+          barAccentHex: PALETTE.hex.bg3ShadowheartViolet,
+        }),
+      ]),
     }),
   ]);
+
+// ============================================================================
+// SHARRAN CRYPT DUNGEON ARENA (1.5x RADIUS — 1v4 BALDUR'S GATE 3 SCENARIO)
+// ============================================================================
+
+export const SHARRAN_CRYPT_CONFIG = Object.freeze({
+  arenaRadius: ARENA_CONFIG.radius * 1.5, // 27.0m (exact 1.5x standard arena radius)
+  playerClampRadius: 25.2,
+  bossClampRadius: 24.4,
+  playerSpawnX: 0,
+  playerSpawnY: 0,
+  playerSpawnZ: 18.5,
+  playerSpawnYaw: Math.PI,
+  floorTextureSize: 1024,
+
+  // 4 Symmetrical Weathered Obsidian Tactical Cover Pillars (radius = 0.52 * arenaRadius)
+  innerPillarCount: 4,
+  innerPillarRingRatio: 0.52,
+  innerPillarBaseRadius: 1.42,
+  innerPillarCollisionRadius: 1.55,
+  innerPillarHeight: 13.8,
+  innerPillarAngleOffsetRad: Math.PI * 0.25,
+
+  // Vaulted Subterranean Crypt Perimeter & Arches
+  archCount: 12,
+  wallRadius: 27.4,
+  wallHeight: 16.5,
+  vaultApexY: 22.0,
+
+  // Rear Sharran Lunar Altar Dais (Shadowheart Anchor)
+  altarPosZ: -17.5,
+  altarRadius: 4.4,
+  altarHeight: 0.34,
+
+  // Flickering Magenta-Violet Brazier Sconces
+  brazierCount: 8,
+  brazierRingRadius: 24.8,
+  brazierSconceY: 2.35,
+  brazierLightIntensity: 4.2,
+  brazierLightDistance: 17.0,
+
+  // Pooled Drifting Shadow Mist
+  shadowMistCount: 280,
+  shadowMistAreaRadius: 26.2,
+  shadowMistMinY: 0.14,
+  shadowMistMaxY: 3.6,
+  shadowMistDriftSpeed: 0.95,
+
+  lighting: Object.freeze({
+    hemiIntensity: 1.05,
+    keyIntensity: 1.65,
+    amethystRimIntensity: 2.35,
+    lunarRimIntensity: 1.45,
+    fogDensity: 0.0118,
+    shadowExtent: 34,
+  } as const),
+} as const);
 
 // ============================================================================
 // SKELLIGE OBSIDIAN PEAK ARENA (SPECIAL SCENARIO: THE WOLF & THE RAVEN)

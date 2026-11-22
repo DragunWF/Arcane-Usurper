@@ -43,6 +43,7 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
   const serenaCoreCharge = useGameStore((s) => s.serenaCoreCharge);
   const mikuCoreCharge = useGameStore((s) => s.mikuCoreCharge);
   const yenneferCoreCharge = useGameStore((s) => s.yenneferCoreCharge);
+  const shadowheartCoreCharge = useGameStore((s) => s.shadowheartCoreCharge);
   const lobbySiphonTarget = useGameStore((s) => s.lobbySiphonTarget);
   const finisherPose = useGameStore((s) => s.finisherPose);
   const finisherMode = useGameStore((s) => s.finisherMode);
@@ -73,6 +74,8 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
     isLobbySiphon;
   if (!active) return null;
 
+  const isShadowheartLobbyTarget =
+    isLobbySiphon && lobbySiphonTarget === 'shadowheart';
   const isYenneferLobbyTarget =
     isLobbySiphon && lobbySiphonTarget === 'yennefer';
   const isYenneferActive =
@@ -81,13 +84,15 @@ export function FinisherHUD({ controller }: FinisherHUDProps) {
     isLobbySiphon && lobbySiphonTarget === 'serena';
   const isMikuLobbyTarget =
     isLobbySiphon && lobbySiphonTarget === 'miku';
-  const activeCoreCharge = isYenneferLobbyTarget
-    ? yenneferCoreCharge
-    : isMikuLobbyTarget
-      ? mikuCoreCharge
-      : isSerenaLobbyTarget
-        ? serenaCoreCharge
-        : marinaCoreCharge;
+  const activeCoreCharge = isShadowheartLobbyTarget
+    ? shadowheartCoreCharge
+    : isYenneferLobbyTarget
+      ? yenneferCoreCharge
+      : isMikuLobbyTarget
+        ? mikuCoreCharge
+        : isSerenaLobbyTarget
+          ? serenaCoreCharge
+          : marinaCoreCharge;
   const drainPct = Math.round(Math.max(0, Math.min(1, siphonProgress)) * 100);
   const chargePct = Math.round(
     Math.max(0, Math.min(1, activeCoreCharge)) * 100,

@@ -545,10 +545,13 @@ export class RenderSyncSystem implements ISystem {
 
     let isSovereignFinisherLocked = false;
     let isNearLockedSovereign = false;
+    const isMultiBossEncounter = allBosses.length > 1;
     for (let i = 0; i < allBosses.length; i++) {
       const b = allBosses[i];
-      if (!b || b.bossPhase.isDefeated) continue;
+      if (!b) continue;
+      if (!isMultiBossEncounter && b.bossPhase.isDefeated) continue;
       if (
+        !b.bossPhase.isDefeated &&
         !allOthersDefeated &&
         b.bossPhase.canBeSiphoned &&
         b.bossPhase.isStaggered
@@ -568,7 +571,7 @@ export class RenderSyncSystem implements ISystem {
         bossId: b.bossPhase.bossId,
         displayName: b.bossPhase.displayName,
         title: b.bossPhase.title,
-        hp: b.health.current,
+        hp: b.bossPhase.isDefeated ? 0 : b.health.current,
         maxHp: b.health.max,
         phase: b.bossPhase.phase,
         canBeSiphoned: b.bossPhase.canBeSiphoned,

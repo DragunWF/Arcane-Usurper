@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   ARENA_BOUNDS_KINDS,
+  BALDURS_GATE_PARTY_CONFIG,
   BOSS_CONFIG,
   BOSS_PHASES,
   FINISHER_CONFIG,
@@ -585,6 +586,13 @@ export class MovementSystem implements ISystem {
       encoreTier,
     );
 
+    const bounds = this.arena.getArenaBounds();
+    const bossClampRadius =
+      bounds.kind === ARENA_BOUNDS_KINDS.CIRCULAR
+        ? Math.max(BOSS_CONFIG.innerTerraceLimit, bounds.clampRadius - 1.0)
+        : BOSS_CONFIG.innerTerraceLimit;
+    const pillars = this.arena.pillarColliders;
+
     for (let i = 0; i < bosses.length; i++) {
       const boss = bosses[i];
       if (!boss) continue;
@@ -592,6 +600,7 @@ export class MovementSystem implements ISystem {
       if (bossPhase.isDefeated || bossPhase.dissolveTimer >= 0) continue;
 
       const bossPos = transform.position;
+      const bossBodyRadius = boss.hurtbox?.radius ?? BOSS_CONFIG.hitRadius;
 
       // Smoothly face Dark Mage unless locked in Twin Glacial Laser or Miku Crescendo Spotlights
       const lockRotation =
@@ -633,10 +642,23 @@ export class MovementSystem implements ISystem {
         bossPhase.dashTimer = Math.max(0, bossPhase.dashTimer - dt);
         bossPos.x += bossPhase.dashVelX * dt;
         bossPos.z += bossPhase.dashVelZ * dt;
+        for (let pIdx = 0; pIdx < pillars.length; pIdx++) {
+          const pil = pillars[pIdx];
+          if (!pil) continue;
+          const pdx = bossPos.x - pil.x;
+          const pdz = bossPos.z - pil.z;
+          const minR = pil.radius + bossBodyRadius;
+          const pDistSq = pdx * pdx + pdz * pdz;
+          if (pDistSq < minR * minR && pDistSq > 0.00001) {
+            const pDist = Math.sqrt(pDistSq);
+            bossPos.x = pil.x + (pdx / pDist) * minR;
+            bossPos.z = pil.z + (pdz / pDist) * minR;
+          }
+        }
         const radial = Math.hypot(bossPos.x, bossPos.z);
-        if (radial > BOSS_CONFIG.innerTerraceLimit) {
-          bossPos.x = (bossPos.x / radial) * BOSS_CONFIG.innerTerraceLimit;
-          bossPos.z = (bossPos.z / radial) * BOSS_CONFIG.innerTerraceLimit;
+        if (radial > bossClampRadius) {
+          bossPos.x = (bossPos.x / radial) * bossClampRadius;
+          bossPos.z = (bossPos.z / radial) * bossClampRadius;
         }
         continue;
       }
@@ -670,33 +692,54 @@ export class MovementSystem implements ISystem {
           : bossPhase.phase === BOSS_PHASES.PHASE_2
             ? BOSS_CONFIG.phase2.moveSpeedMultiplier
             : 1.0;
-      const roleSpeedMult =
-        bossPhase.bossId === SPECIAL_SCENARIO_CONFIG.geraltId
-          ? WOLF_AND_RAVEN_CONFIG.geraltMoveSpeedMult
-          : bossPhase.isSoloEnraged
-            ? WOLF_AND_RAVEN_CONFIG.soloEnrageSpeedMult
-            : 1.0;
+      const isGeralt = bossPhase.bossId === SPECIAL_SCENARIO_CONFIG.geraltId;
+      const isYennefer = bossPhase.bossId === SPECIAL_SCENARIO_CONFIG.yenneferId;
+      const isLaezel = bossPhase.bossId === BALDURS_GATE_PARTY_CONFIG.laezelId;
+      const isAstarion =
+        bossPhase.bossId === BALDURS_GATE_PARTY_CONFIG.astarionId;
+      const isGale = bossPhase.bossId === BALDURS_GATE_PARTY_CONFIG.galeId;
+      const isShadowheart =
+        bossPhase.bossId === BALDURS_GATE_PARTY_CONFIG.shadowheartId;
+
+      const roleSpeedMult = isGeralt
+        ? WOLF_AND_RAVEN_CONFIG.geraltMoveSpeedMult
+        : isLaezel
+          ? BALDURS_GATE_PARTY_CONFIG.laezelMoveSpeedMult
+          : isAstarion
+            ? BALDURS_GATE_PARTY_CONFIG.astarionMoveSpeedMult
+            : isGale
+              ? BALDURS_GATE_PARTY_CONFIG.galeMoveSpeedMult
+              : isShadowheart
+                ? BALDURS_GATE_PARTY_CONFIG.shadowheartMoveSpeedMult
+                : bossPhase.isSoloEnraged
+                  ? WOLF_AND_RAVEN_CONFIG.soloEnrageSpeedMult
+                  : 1.0;
       const effectiveSpeed =
         BOSS_CONFIG.moveSpeed * speedMult * roleSpeedMult * encoreSpeedMult;
 
-      // Geralt closes distance aggressively as Vanguard; Yennefer zones at range
-      const isGeralt = bossPhase.bossId === SPECIAL_SCENARIO_CONFIG.geraltId;
-      const isYennefer = bossPhase.bossId === SPECIAL_SCENARIO_CONFIG.yenneferId;
-
       const orbitR = isGeralt
         ? WOLF_AND_RAVEN_CONFIG.geraltVanguardOrbitRadius
-        : isYennefer
-          ? WOLF_AND_RAVEN_CONFIG.yenneferZoneOrbitRadius
-          : !bossPhase.canBeSiphoned
-            ? BOSS_CONFIG.orbitRadius * 0.62
-            : BOSS_CONFIG.orbitRadius;
+        : isLaezel
+          ? BALDURS_GATE_PARTY_CONFIG.laezelOrbitRadius
+          : isAstarion
+            ? BALDURS_GATE_PARTY_CONFIG.astarionOrbitRadius
+            : isGale
+              ? BALDURS_GATE_PARTY_CONFIG.galeOrbitRadius
+              : isShadowheart
+                ? BALDURS_GATE_PARTY_CONFIG.shadowheartOrbitRadius
+                : isYennefer
+                  ? WOLF_AND_RAVEN_CONFIG.yenneferZoneOrbitRadius
+                  : !bossPhase.canBeSiphoned
+                    ? BOSS_CONFIG.orbitRadius * 0.62
+                    : BOSS_CONFIG.orbitRadius;
       const angularRate =
         (effectiveSpeed / orbitR) * BOSS_CONFIG.orbitAngularFactor;
       bossPhase.orbitAngle += bossPhase.orbitDir * angularRate * dt;
 
-      // Geralt anchors his Vanguard orbit directly around the Dark Mage to apply melee pressure
-      const orbitCenterX = isGeralt ? playerPos.x : 0;
-      const orbitCenterZ = isGeralt ? playerPos.z : 0;
+      // Melee vanguards & flankers anchor orbit around the Dark Mage; ranged casters orbit arena center
+      const anchorOnPlayer = isGeralt || isLaezel || isAstarion;
+      const orbitCenterX = anchorOnPlayer ? playerPos.x : 0;
+      const orbitCenterZ = anchorOnPlayer ? playerPos.z : 0;
       const desiredX = orbitCenterX + Math.sin(bossPhase.orbitAngle) * orbitR;
       const desiredZ = orbitCenterZ + Math.cos(bossPhase.orbitAngle) * orbitR;
 
@@ -707,11 +750,19 @@ export class MovementSystem implements ISystem {
       let pushZ = 0;
       const personalSpace = isGeralt
         ? WOLF_AND_RAVEN_CONFIG.geraltVanguardPersonalSpace
-        : isYennefer
-          ? WOLF_AND_RAVEN_CONFIG.yenneferZonePersonalSpace
-          : !bossPhase.canBeSiphoned
-            ? BOSS_CONFIG.personalSpaceRadius * 0.52
-            : BOSS_CONFIG.personalSpaceRadius;
+        : isLaezel
+          ? BALDURS_GATE_PARTY_CONFIG.laezelPersonalSpace
+          : isAstarion
+            ? BALDURS_GATE_PARTY_CONFIG.astarionPersonalSpace
+            : isGale
+              ? BALDURS_GATE_PARTY_CONFIG.galePersonalSpace
+              : isShadowheart
+                ? BALDURS_GATE_PARTY_CONFIG.shadowheartPersonalSpace
+                : isYennefer
+                  ? WOLF_AND_RAVEN_CONFIG.yenneferZonePersonalSpace
+                  : !bossPhase.canBeSiphoned
+                    ? BOSS_CONFIG.personalSpaceRadius * 0.52
+                    : BOSS_CONFIG.personalSpaceRadius;
       if (distToPlayer < personalSpace) {
         pushX = (toBossX / distToPlayer) * BOSS_CONFIG.personalSpacePush;
         pushZ = (toBossZ / distToPlayer) * BOSS_CONFIG.personalSpacePush;
@@ -726,10 +777,25 @@ export class MovementSystem implements ISystem {
         bossPos.z += (stepZ / stepLen) * moveDist;
       }
 
+      // Smooth cylinder collision push-out against arena / tactical obsidian pillars
+      for (let pIdx = 0; pIdx < pillars.length; pIdx++) {
+        const pil = pillars[pIdx];
+        if (!pil) continue;
+        const pdx = bossPos.x - pil.x;
+        const pdz = bossPos.z - pil.z;
+        const minR = pil.radius + bossBodyRadius;
+        const pDistSq = pdx * pdx + pdz * pdz;
+        if (pDistSq < minR * minR && pDistSq > 0.00001) {
+          const pDist = Math.sqrt(pDistSq);
+          bossPos.x = pil.x + (pdx / pDist) * minR;
+          bossPos.z = pil.z + (pdz / pDist) * minR;
+        }
+      }
+
       const radial = Math.hypot(bossPos.x, bossPos.z);
-      if (radial > BOSS_CONFIG.innerTerraceLimit) {
-        bossPos.x = (bossPos.x / radial) * BOSS_CONFIG.innerTerraceLimit;
-        bossPos.z = (bossPos.z / radial) * BOSS_CONFIG.innerTerraceLimit;
+      if (radial > bossClampRadius) {
+        bossPos.x = (bossPos.x / radial) * bossClampRadius;
+        bossPos.z = (bossPos.z / radial) * bossClampRadius;
       }
     }
 
@@ -755,6 +821,31 @@ export class MovementSystem implements ISystem {
             b.transform.position.x -= nx * push;
             b.transform.position.z -= nz * push;
           }
+        }
+      }
+      // Re-resolve pillar cylinder push-out & outer boundary clamp after boss separation
+      for (let i = 0; i < bosses.length; i++) {
+        const b = bosses[i];
+        if (!b || b.bossPhase.isDefeated || b.bossPhase.dissolveTimer >= 0) continue;
+        const bPos = b.transform.position;
+        const bRad = b.hurtbox?.radius ?? BOSS_CONFIG.hitRadius;
+        for (let pIdx = 0; pIdx < pillars.length; pIdx++) {
+          const pil = pillars[pIdx];
+          if (!pil) continue;
+          const pdx = bPos.x - pil.x;
+          const pdz = bPos.z - pil.z;
+          const minR = pil.radius + bRad;
+          const pDistSq = pdx * pdx + pdz * pdz;
+          if (pDistSq < minR * minR && pDistSq > 0.00001) {
+            const pDist = Math.sqrt(pDistSq);
+            bPos.x = pil.x + (pdx / pDist) * minR;
+            bPos.z = pil.z + (pdz / pDist) * minR;
+          }
+        }
+        const rad = Math.hypot(bPos.x, bPos.z);
+        if (rad > bossClampRadius) {
+          bPos.x = (bPos.x / rad) * bossClampRadius;
+          bPos.z = (bPos.z / rad) * bossClampRadius;
         }
       }
     }

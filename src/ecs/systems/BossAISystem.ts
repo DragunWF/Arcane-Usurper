@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   ARENA_CONFIG,
+  BALDURS_GATE_PARTY_CONFIG,
   BOSS_CONFIG,
   BOSS_EXPRESSIONS,
   BOSS_PHASES,
@@ -3170,6 +3171,92 @@ export class BossAISystem implements ISystem {
         if (phase === BOSS_PHASES.PHASE_3) return wr.yenneferAttackCooldownP3;
         if (phase === BOSS_PHASES.PHASE_2) return wr.yenneferAttackCooldownP2;
         return wr.yenneferAttackCooldownP1;
+      },
+    });
+
+    // Baseline combat profiles for Shadows of the Sharran Crypt (BG3 1v4 party)
+    const bg3 = BALDURS_GATE_PARTY_CONFIG;
+    this.registerProfile({
+      bossId: bg3.laezelId,
+      phase2Threshold: 0.5,
+      phase3Threshold: -1,
+      staggerThreshold: 0,
+      phase2Opener: 'GERALT_VANGUARD_COMBO',
+      phase3Opener: 'GERALT_VANGUARD_COMBO',
+      closeRangePattern: 'GERALT_VANGUARD_COMBO',
+      phase1Cycle: ['GERALT_VANGUARD_COMBO', 'GERALT_IGNI_ARC'],
+      phase2Cycle: ['GERALT_VANGUARD_COMBO', 'GERALT_IGNI_ARC'],
+      phase3Cycle: ['GERALT_VANGUARD_COMBO'],
+      getCooldown(phase: BossPhase): number {
+        return phase >= BOSS_PHASES.PHASE_2
+          ? bg3.laezelAttackCooldownP2
+          : bg3.laezelAttackCooldownP1;
+      },
+    });
+
+    this.registerProfile({
+      bossId: bg3.astarionId,
+      phase2Threshold: 0.5,
+      phase3Threshold: -1,
+      staggerThreshold: 0,
+      phase2Opener: 'GERALT_VANGUARD_COMBO',
+      phase3Opener: 'GERALT_VANGUARD_COMBO',
+      closeRangePattern: 'GERALT_VANGUARD_COMBO',
+      phase1Cycle: ['GERALT_VANGUARD_COMBO', 'YENNEFER_OBSIDIAN_FEATHERS'],
+      phase2Cycle: ['GERALT_VANGUARD_COMBO', 'YENNEFER_OBSIDIAN_FEATHERS'],
+      phase3Cycle: ['GERALT_VANGUARD_COMBO'],
+      getCooldown(phase: BossPhase): number {
+        return phase >= BOSS_PHASES.PHASE_2
+          ? bg3.astarionAttackCooldownP2
+          : bg3.astarionAttackCooldownP1;
+      },
+    });
+
+    this.registerProfile({
+      bossId: bg3.galeId,
+      phase2Threshold: 0.5,
+      phase3Threshold: -1,
+      staggerThreshold: 0,
+      phase2Opener: 'YENNEFER_CHAOS_LIGHTNING',
+      phase3Opener: 'YENNEFER_CHAOS_LIGHTNING',
+      closeRangePattern: null,
+      phase1Cycle: ['YENNEFER_OBSIDIAN_FEATHERS', 'YENNEFER_CHAOS_LIGHTNING'],
+      phase2Cycle: ['YENNEFER_CHAOS_LIGHTNING', 'YENNEFER_OBSIDIAN_FEATHERS'],
+      phase3Cycle: ['YENNEFER_CHAOS_LIGHTNING'],
+      getCooldown(phase: BossPhase): number {
+        return phase >= BOSS_PHASES.PHASE_2
+          ? bg3.galeAttackCooldownP2
+          : bg3.galeAttackCooldownP1;
+      },
+    });
+
+    this.registerProfile({
+      bossId: bg3.shadowheartId,
+      phase2Threshold: 0.6,
+      phase3Threshold: 0.28,
+      staggerThreshold: 0,
+      phase2Opener: 'YENNEFER_CHAOS_MAELSTROM',
+      phase3Opener: 'YENNEFER_CHAOS_MAELSTROM',
+      closeRangePattern: null,
+      phase1Cycle: [
+        'YENNEFER_CHAOS_LIGHTNING',
+        'YENNEFER_OBSIDIAN_FEATHERS',
+        'YENNEFER_CHAOS_MAELSTROM',
+      ],
+      phase2Cycle: [
+        'YENNEFER_CHAOS_LIGHTNING',
+        'YENNEFER_OBSIDIAN_FEATHERS',
+        'YENNEFER_CHAOS_MAELSTROM',
+      ],
+      phase3Cycle: [
+        'YENNEFER_CHAOS_LIGHTNING',
+        'YENNEFER_CHAOS_MAELSTROM',
+        'YENNEFER_OBSIDIAN_FEATHERS',
+      ],
+      getCooldown(phase: BossPhase): number {
+        if (phase === BOSS_PHASES.PHASE_3) return bg3.shadowheartAttackCooldownP3;
+        if (phase === BOSS_PHASES.PHASE_2) return bg3.shadowheartAttackCooldownP2;
+        return bg3.shadowheartAttackCooldownP1;
       },
     });
   }

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   ARENA_CONFIG,
   FINISHER_RESISTANCE_CONFIG,
+  GUEST_PEDESTALS,
   LOBBY_CONFIG,
   PALETTE,
   SIPHON_GALLERY_CONFIG,
@@ -164,6 +165,7 @@ export class MageTowerLevel {
   private serenaCaptiveUnlocked = false;
   private mikuCaptiveUnlocked = false;
   private yenneferCaptiveUnlocked = false;
+  private shadowheartCaptiveUnlocked = false;
   private readonly galleryBraziers: GalleryBrazierRecord[] = [];
   private marinaDaisGroup: THREE.Group | null = null;
   private _captiveMarinaRig: MarinaRig | null = null;
@@ -229,6 +231,17 @@ export class MageTowerLevel {
   private yenneferReservoirLight: THREE.PointLight | null = null;
   private readonly yenneferDaisRuneSegments: THREE.MeshBasicMaterial[] = [];
   private guestPedestal2Sigil: THREE.Mesh | null = null;
+  private shadowheartActiveGroup: THREE.Group | null = null;
+  private _captiveShadowheartRig: YenneferRig | null = null;
+  private shadowheartLeftConduitTip: THREE.Object3D | null = null;
+  private shadowheartRightConduitTip: THREE.Object3D | null = null;
+  private shadowheartLeftTetherMesh: THREE.Mesh | null = null;
+  private shadowheartRightTetherMesh: THREE.Mesh | null = null;
+  private shadowheartTetherMat: THREE.MeshBasicMaterial | null = null;
+  private shadowheartReservoirCoreMesh: THREE.Mesh | null = null;
+  private shadowheartReservoirCoreMat: THREE.MeshToonMaterial | null = null;
+  private shadowheartReservoirLight: THREE.PointLight | null = null;
+  private readonly shadowheartDaisRuneSegments: THREE.MeshBasicMaterial[] = [];
 
   // Reusable scratch vectors for zero-GC tether updates
   private readonly scratchWristL = new THREE.Vector3();
@@ -258,6 +271,10 @@ export class MageTowerLevel {
 
   public get captiveYenneferRig(): YenneferRig | null {
     return this._captiveYenneferRig;
+  }
+
+  public get captiveShadowheartRig(): YenneferRig | null {
+    return this._captiveShadowheartRig;
   }
 
   public get isGalleryUnlocked(): boolean {
@@ -3682,11 +3699,12 @@ export class MageTowerLevel {
       height: 2.2,
     });
 
-    // --- Guest Pedestal 2: Dormant Rune-Etched Obsidian Pedestal (Reserved for Future Guest Sovereign) ---
-    const p2Pos = cfg.guestPedestal2Pos;
+    // --- Guest Pedestal 2: Shadowheart (GUEST_PEDESTALS[1]) — World-Aligned Group for Zero Axis Bleed ---
+    const p2Config = GUEST_PEDESTALS[1]!;
+    const p2Pos = p2Config.pos;
+    const p2FacingYaw = p2Config.facingYaw;
     const p2Group = new THREE.Group();
     p2Group.position.set(p2Pos.x, 0, p2Pos.z);
-    p2Group.rotation.y = cfg.guestPedestal2FacingYaw;
 
     const p2Base = ToonAssets.createOutlinedMesh(
       this.trackGeo(
@@ -3733,12 +3751,138 @@ export class MageTowerLevel {
     this.guestPedestal2Sigil.position.y = cfg.daisHeight + 0.022;
     p2Group.add(this.guestPedestal2Sigil);
 
+    this.shadowheartActiveGroup = new THREE.Group();
+    p2Group.add(this.shadowheartActiveGroup);
+
+    // Peripherals container carries p2FacingYaw while _captiveShadowheartRig.root owns its sole vertical yaw
+    const shadowheartPeripherals = new THREE.Group();
+    shadowheartPeripherals.rotation.set(0, p2FacingYaw, 0);
+    this.shadowheartActiveGroup.add(shadowheartPeripherals);
+
+    const shSegCount = cfg.runeSegmentCount;
+    const shSegArc = (Math.PI * 2) / shSegCount;
+    for (let i = 0; i < shSegCount; i++) {
+      const segMat = this.trackMat(
+        new THREE.MeshBasicMaterial({
+          color: p2Config.accentHex,
+          transparent: true,
+          opacity: 0.72,
+          side: THREE.DoubleSide,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      );
+      const segGeo = this.trackGeo(
+        new THREE.RingGeometry(
+          cfg.guestPedestalRadius + 0.08,
+          cfg.guestPedestalRadius + 0.24,
+          6,
+          1,
+          i * shSegArc + 0.04,
+          shSegArc - 0.08,
+        ),
+      );
+      const segMesh = new THREE.Mesh(segGeo, segMat);
+      segMesh.rotation.x = -Math.PI / 2;
+      segMesh.position.y = 0.032;
+      this.shadowheartActiveGroup.add(segMesh);
+      this.shadowheartDaisRuneSegments.push(segMat);
+    }
+
+    const shCondShaftGeo = this.trackGeo(
+      new THREE.CylinderGeometry(0.055, 0.085, cfg.conduitHeight, 8),
+    );
+    const shCondTipGeo = this.trackGeo(new THREE.OctahedronGeometry(0.11, 0));
+    const shLeftCond = new THREE.Mesh(shCondShaftGeo, darkObsidianMat);
+    shLeftCond.position.set(-1.12, cfg.conduitHeight * 0.5, -0.2);
+    const shRightCond = new THREE.Mesh(shCondShaftGeo, darkObsidianMat);
+    shRightCond.position.set(1.12, cfg.conduitHeight * 0.5, -0.2);
+    shadowheartPeripherals.add(shLeftCond, shRightCond);
+
+    this.shadowheartLeftConduitTip = new THREE.Mesh(shCondTipGeo, violetTrimMat);
+    this.shadowheartLeftConduitTip.position.set(-1.12, cfg.conduitTipY, -0.2);
+    this.shadowheartRightConduitTip = new THREE.Mesh(shCondTipGeo, violetTrimMat);
+    this.shadowheartRightConduitTip.position.set(1.12, cfg.conduitTipY, -0.2);
+    shadowheartPeripherals.add(
+      this.shadowheartLeftConduitTip,
+      this.shadowheartRightConduitTip,
+    );
+
+    // Captive Guest Sovereign Rig (strict upright vertical yaw only; swapped to ShadowheartRig once built)
+    this._captiveShadowheartRig = new YenneferRig(
+      p2Group as unknown as THREE.Scene,
+    );
+    this._captiveShadowheartRig.root.position.set(0, cfg.daisHeight, 0);
+    this._captiveShadowheartRig.root.rotation.set(0, p2FacingYaw, 0);
+    this._captiveShadowheartRig.root.visible = false;
+
+    const shTetherGeo = this.trackGeo(
+      new THREE.CylinderGeometry(cfg.tetherRadius, cfg.tetherRadius, 1, 8, 1, true),
+    );
+    this.shadowheartTetherMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: p2Config.accentHex,
+        transparent: true,
+        opacity: 0.85,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.shadowheartLeftTetherMesh = new THREE.Mesh(
+      shTetherGeo,
+      this.shadowheartTetherMat,
+    );
+    this.shadowheartRightTetherMesh = new THREE.Mesh(
+      shTetherGeo,
+      this.shadowheartTetherMat,
+    );
+    this.root.add(
+      this.shadowheartLeftTetherMesh,
+      this.shadowheartRightTetherMesh,
+    );
+
+    const shResGroup = new THREE.Group();
+    shResGroup.position.set(1.42, 0, -0.45);
+    const shResBase = new THREE.Mesh(
+      this.trackGeo(new THREE.CylinderGeometry(0.28, 0.36, 0.38, 8)),
+      darkObsidianMat,
+    );
+    shResBase.position.y = 0.19;
+    shResGroup.add(shResBase);
+
+    const shResCoreGeo = this.trackGeo(
+      new THREE.CylinderGeometry(0.18, 0.18, 1.5, 10),
+    );
+    shResCoreGeo.translate(0, 0.75, 0);
+    this.shadowheartReservoirCoreMat = this.trackMat(
+      ToonAssets.createToonMaterial(p2Config.accentHex, {
+        emissive: PALETTE.amethystTrim,
+        emissiveIntensity: 0.72,
+      }),
+    );
+    this.shadowheartReservoirCoreMesh = new THREE.Mesh(
+      shResCoreGeo,
+      this.shadowheartReservoirCoreMat,
+    );
+    this.shadowheartReservoirCoreMesh.position.y = 0.38;
+    shResGroup.add(this.shadowheartReservoirCoreMesh);
+
+    this.shadowheartReservoirLight = new THREE.PointLight(
+      p2Config.accentHex,
+      0,
+      cfg.reservoirLightDistance,
+      1.7,
+    );
+    this.shadowheartReservoirLight.position.set(0, 1.45, 0);
+    shResGroup.add(this.shadowheartReservoirLight);
+    shadowheartPeripherals.add(shResGroup);
+
     this.root.add(p2Group);
     this._pillarColliders.push({
       x: p2Pos.x,
       z: p2Pos.z,
       radius: cfg.guestPedestalCollisionRadius,
-      height: 1.4,
+      height: 2.2,
     });
   }
 
@@ -3751,14 +3895,20 @@ export class MageTowerLevel {
     serenaUnlocked: boolean,
     mikuUnlocked = false,
     yenneferUnlocked = false,
+    shadowheartUnlocked = false,
   ): void {
     const anyUnlocked =
-      marinaUnlocked || serenaUnlocked || mikuUnlocked || yenneferUnlocked;
+      marinaUnlocked ||
+      serenaUnlocked ||
+      mikuUnlocked ||
+      yenneferUnlocked ||
+      shadowheartUnlocked;
     this.galleryUnlocked = anyUnlocked;
     this.marinaCaptiveUnlocked = marinaUnlocked;
     this.serenaCaptiveUnlocked = serenaUnlocked;
     this.mikuCaptiveUnlocked = mikuUnlocked;
     this.yenneferCaptiveUnlocked = yenneferUnlocked;
+    this.shadowheartCaptiveUnlocked = shadowheartUnlocked;
 
     if (this.galleryWardGroup) {
       this.galleryWardGroup.visible = !anyUnlocked;
@@ -3833,6 +3983,25 @@ export class MageTowerLevel {
       this.yenneferReservoirLight.intensity = 0;
     }
 
+    if (this.guestPedestal2Sigil) {
+      this.guestPedestal2Sigil.visible = !shadowheartUnlocked;
+    }
+    if (this.shadowheartActiveGroup) {
+      this.shadowheartActiveGroup.visible = shadowheartUnlocked;
+    }
+    if (this._captiveShadowheartRig) {
+      this._captiveShadowheartRig.root.visible = shadowheartUnlocked;
+    }
+    if (this.shadowheartLeftTetherMesh) {
+      this.shadowheartLeftTetherMesh.visible = shadowheartUnlocked;
+    }
+    if (this.shadowheartRightTetherMesh) {
+      this.shadowheartRightTetherMesh.visible = shadowheartUnlocked;
+    }
+    if (this.shadowheartReservoirLight && !shadowheartUnlocked) {
+      this.shadowheartReservoirLight.intensity = 0;
+    }
+
     for (let i = 0; i < this.galleryBraziers.length; i++) {
       const br = this.galleryBraziers[i];
       if (!br) continue;
@@ -3873,12 +4042,19 @@ export class MageTowerLevel {
    * on exit from LOBBY_SIPHON / ENDLESS_SAVOR so zero residual tilt or yaw offset persists.
    */
   public resetCaptivePedestalTransform(
-    target: 'marina' | 'serena' | 'miku' | 'yennefer',
+    target: 'marina' | 'serena' | 'miku' | 'yennefer' | 'shadowheart',
   ): void {
     const cfg = SIPHON_GALLERY_CONFIG;
-    if (target === 'yennefer' && this._captiveYenneferRig) {
+    if (target === 'shadowheart' && this._captiveShadowheartRig) {
+      this._captiveShadowheartRig.root.position.set(0, cfg.daisHeight, 0);
+      this._captiveShadowheartRig.resetUprightPosture(
+        GUEST_PEDESTALS[1]!.facingYaw,
+      );
+    } else if (target === 'yennefer' && this._captiveYenneferRig) {
       this._captiveYenneferRig.root.position.set(0, cfg.daisHeight, 0);
-      this._captiveYenneferRig.resetUprightPosture(cfg.guestPedestal1FacingYaw);
+      this._captiveYenneferRig.resetUprightPosture(
+        GUEST_PEDESTALS[0]!.facingYaw,
+      );
     } else if (target === 'serena' && this._captiveSerenaRig) {
       this._captiveSerenaRig.root.position.set(0, cfg.daisHeight, 0);
       this._captiveSerenaRig.resetUprightPosture(cfg.serenaFacingYaw);
@@ -4055,6 +4231,107 @@ export class MageTowerLevel {
     }
     if (this.yenneferReservoirLight && this.yenneferCaptiveUnlocked) {
       this.yenneferReservoirLight.intensity =
+        cfg.reservoirLightIntensity * (0.14 + clamped * 0.86);
+    }
+  }
+
+  /**
+   * Updates Guest Pedestal 2 (Shadowheart) captive rig & upright vertical yaw lock.
+   */
+  public updateShadowheartCaptiveState(
+    charge: number,
+    time: number,
+    dt: number,
+  ): void {
+    const cfg = SIPHON_GALLERY_CONFIG;
+    const ped = GUEST_PEDESTALS[1]!;
+    const clamped = THREE.MathUtils.clamp(charge, 0, 1);
+    if (this._captiveShadowheartRig && this.shadowheartCaptiveUnlocked) {
+      this._captiveShadowheartRig.root.position.set(0, cfg.daisHeight, 0);
+      this._captiveShadowheartRig.enforceVerticalYawOnly(ped.facingYaw);
+      this._captiveShadowheartRig.applyCaptiveDaisPose(clamped, time, dt);
+    }
+    this.updateShadowheartLobbySiphonBackdrop(clamped, time);
+  }
+
+  /**
+   * Updates Guest Pedestal 2 diegetic peripherals during LOBBY and LOBBY_SIPHON.
+   */
+  public updateShadowheartLobbySiphonBackdrop(
+    charge: number,
+    time: number,
+    tetherTension = 0,
+  ): void {
+    const cfg = SIPHON_GALLERY_CONFIG;
+    const clamped = THREE.MathUtils.clamp(charge, 0, 1);
+    const thicknessScale = this.computeTetherTensionVisuals(
+      clamped,
+      time,
+      tetherTension,
+      this.shadowheartTetherMat,
+    );
+
+    if (
+      this._captiveShadowheartRig &&
+      this.shadowheartCaptiveUnlocked &&
+      this.shadowheartLeftConduitTip &&
+      this.shadowheartRightConduitTip &&
+      this.shadowheartLeftTetherMesh &&
+      this.shadowheartRightTetherMesh
+    ) {
+      this.root.updateMatrixWorld(true);
+      this._captiveShadowheartRig.getLeftHandWorldPosition(this.scratchWristL);
+      this._captiveShadowheartRig.getRightHandWorldPosition(this.scratchWristR);
+      this.shadowheartLeftConduitTip.getWorldPosition(this.scratchTipL);
+      this.shadowheartRightConduitTip.getWorldPosition(this.scratchTipR);
+
+      this.alignTetherCylinder(
+        this.shadowheartLeftTetherMesh,
+        this.scratchWristL,
+        this.scratchTipL,
+        thicknessScale,
+      );
+      this.alignTetherCylinder(
+        this.shadowheartRightTetherMesh,
+        this.scratchWristR,
+        this.scratchTipR,
+        thicknessScale,
+      );
+    }
+
+    const segCount = this.shadowheartDaisRuneSegments.length;
+    for (let i = 0; i < segCount; i++) {
+      const segMat = this.shadowheartDaisRuneSegments[i];
+      if (!segMat) continue;
+      const segThreshold = (i + 1) / segCount;
+      const prevThreshold = i / segCount;
+      const segFill = THREE.MathUtils.clamp(
+        (clamped - prevThreshold) / Math.max(0.001, segThreshold - prevThreshold),
+        0,
+        1,
+      );
+      segMat.color
+        .setHex(PALETTE.drainedAshSilver)
+        .lerp(this.scratchTetherPulseColor, segFill);
+      segMat.opacity = this.shadowheartCaptiveUnlocked
+        ? 0.22 + segFill * 0.74
+        : 0.14;
+    }
+
+    if (this.shadowheartReservoirCoreMesh && this.shadowheartReservoirCoreMat) {
+      const fill = Math.max(cfg.reservoirMinFillScale, clamped);
+      this.shadowheartReservoirCoreMesh.scale.set(1, fill, 1);
+      this.shadowheartReservoirCoreMat.color
+        .setHex(PALETTE.drainedAshSilver)
+        .lerp(this.scratchTetherPulseColor, clamped);
+      this.shadowheartReservoirCoreMat.emissive
+        .setHex(PALETTE.drainedAshSilver)
+        .lerp(this.scratchTetherBaseColor, clamped);
+      this.shadowheartReservoirCoreMat.emissiveIntensity =
+        0.15 + clamped * (0.85 + 0.14 * Math.sin(time * 3.4));
+    }
+    if (this.shadowheartReservoirLight && this.shadowheartCaptiveUnlocked) {
+      this.shadowheartReservoirLight.intensity =
         cfg.reservoirLightIntensity * (0.14 + clamped * 0.86);
     }
   }
@@ -4608,6 +4885,10 @@ export class MageTowerLevel {
     if (this._captiveYenneferRig) {
       this._captiveYenneferRig.dispose();
       this._captiveYenneferRig = null;
+    }
+    if (this._captiveShadowheartRig) {
+      this._captiveShadowheartRig.dispose();
+      this._captiveShadowheartRig = null;
     }
     for (let i = 0; i < this.ownedGeometries.length; i++) {
       this.ownedGeometries[i]?.dispose();

@@ -10,6 +10,7 @@ import {
   MIKU_CONFIG,
   PALETTE,
   SERENA_CONFIG,
+  SHARRAN_CRYPT_CONFIG,
   SIPHON_GALLERY_CONFIG,
   SKELLIGE_PEAK_CONFIG,
   SUNKEN_CHAMBER_CONFIG,
@@ -21,6 +22,7 @@ import { CyberBackstageLevel } from '../levels/CyberBackstageLevel';
 import { IcePalaceLevel } from '../levels/IcePalaceLevel';
 import { MageTowerLevel } from '../levels/MageTowerLevel';
 import { PearlAmphitheaterLevel } from '../levels/PearlAmphitheaterLevel';
+import { SharranCryptLevel } from '../levels/SharranCryptLevel';
 import { SkelligePeakLevel } from '../levels/SkelligePeakLevel';
 import { SunkenAqueductLevel } from '../levels/SunkenAqueductLevel';
 import { ToonAssets } from './ToonAssets';
@@ -344,6 +346,7 @@ export class SceneManager implements IArenaGeometry {
   public readonly cyberBackstageLevel: CyberBackstageLevel;
   public readonly astralConcertStageLevel: AstralConcertStageLevel;
   public readonly skelligePeakLevel: SkelligePeakLevel;
+  public readonly sharranCryptLevel: SharranCryptLevel;
 
   private readonly _summitBounds: CircularArenaBounds = Object.freeze({
     kind: ARENA_BOUNDS_KINDS.CIRCULAR,
@@ -355,6 +358,12 @@ export class SceneManager implements IArenaGeometry {
     kind: ARENA_BOUNDS_KINDS.CIRCULAR,
     radius: SKELLIGE_PEAK_CONFIG.arenaRadius,
     clampRadius: SKELLIGE_PEAK_CONFIG.playerClampRadius,
+  });
+
+  private readonly _sharranCryptBounds: CircularArenaBounds = Object.freeze({
+    kind: ARENA_BOUNDS_KINDS.CIRCULAR,
+    radius: SHARRAN_CRYPT_CONFIG.arenaRadius,
+    clampRadius: SHARRAN_CRYPT_CONFIG.playerClampRadius,
   });
 
   private readonly _sunkenSummitBounds: CircularArenaBounds = Object.freeze({
@@ -483,6 +492,9 @@ export class SceneManager implements IArenaGeometry {
     if (this._activeEnvironment === ENVIRONMENT_IDS.SKELLIGE_PEAK) {
       return this._skelligeBounds;
     }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SHARRAN_CRYPT) {
+      return this._sharranCryptBounds;
+    }
     if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
       return this.isLobbyGalleryUnlocked
         ? this._compositeLobbyBounds
@@ -524,6 +536,9 @@ export class SceneManager implements IArenaGeometry {
     if (this._activeEnvironment === ENVIRONMENT_IDS.SKELLIGE_PEAK) {
       return this.skelligePeakLevel.cameraColliders;
     }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SHARRAN_CRYPT) {
+      return this.sharranCryptLevel.cameraColliders;
+    }
     if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
       return this.mageTowerLevel.cameraColliders;
     }
@@ -549,6 +564,9 @@ export class SceneManager implements IArenaGeometry {
     if (this._activeEnvironment === ENVIRONMENT_IDS.SKELLIGE_PEAK) {
       return this.skelligePeakLevel.pillarColliders;
     }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SHARRAN_CRYPT) {
+      return this.sharranCryptLevel.pillarColliders;
+    }
     if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
       return this.mageTowerLevel.pillarColliders;
     }
@@ -573,6 +591,9 @@ export class SceneManager implements IArenaGeometry {
     }
     if (this._activeEnvironment === ENVIRONMENT_IDS.SKELLIGE_PEAK) {
       return this.skelligePeakLevel.pillarMeshes;
+    }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SHARRAN_CRYPT) {
+      return this.sharranCryptLevel.pillarMeshes;
     }
     if (this._activeEnvironment === ENVIRONMENT_IDS.LOBBY) {
       return this.mageTowerLevel.pillarMeshes;
@@ -648,6 +669,11 @@ export class SceneManager implements IArenaGeometry {
     this.skelligePeakLevel = new SkelligePeakLevel();
     this.skelligePeakLevel.root.visible = false;
     this.scene.add(this.skelligePeakLevel.root);
+
+    // Build Special Scenario Arena: Sharran Crypt Dungeon Arena (Shadows of the Sharran Crypt)
+    this.sharranCryptLevel = new SharranCryptLevel();
+    this.sharranCryptLevel.root.visible = false;
+    this.scene.add(this.sharranCryptLevel.root);
   }
 
   /**
@@ -1177,6 +1203,7 @@ export class SceneManager implements IArenaGeometry {
     const isHarmonicChamber = env === ENVIRONMENT_IDS.HARMONIC_CHAMBER;
     const isHarmonicSummit = env === ENVIRONMENT_IDS.HARMONIC_SUMMIT;
     const isSkelligePeak = env === ENVIRONMENT_IDS.SKELLIGE_PEAK;
+    const isSharranCrypt = env === ENVIRONMENT_IDS.SHARRAN_CRYPT;
 
     this.arenaGroup.visible = isSummit;
     this.icePalaceLevel.root.visible = isChamber;
@@ -1186,6 +1213,7 @@ export class SceneManager implements IArenaGeometry {
     this.cyberBackstageLevel.root.visible = isHarmonicChamber;
     this.astralConcertStageLevel.root.visible = isHarmonicSummit;
     this.skelligePeakLevel.root.visible = isSkelligePeak;
+    this.sharranCryptLevel.root.visible = isSharranCrypt;
 
     if (isLobby) {
       const LL = LOBBY_CONFIG.lighting;
@@ -1364,6 +1392,38 @@ export class SceneManager implements IArenaGeometry {
         this.frostRim.color.setHex(PALETTE.riftAmber);
         this.frostRim.intensity = SKL.stormRimIntensity;
       }
+    } else if (isSharranCrypt) {
+      const SCL = SHARRAN_CRYPT_CONFIG.lighting;
+      this.scene.background = new THREE.Color(PALETTE.sharranObsidianFloor);
+      this.scene.fog = new THREE.FogExp2(
+        PALETTE.sharranObsidianFloor,
+        SCL.fogDensity,
+      );
+
+      if (this.hemiLight) {
+        this.hemiLight.color.setHex(PALETTE.pulseLavender);
+        this.hemiLight.groundColor.setHex(PALETTE.sharranObsidianFloor);
+        this.hemiLight.intensity = SCL.hemiIntensity;
+      }
+      if (this.moonLight) {
+        this.moonLight.color.setHex(PALETTE.sharranLunarSilver);
+        this.moonLight.intensity = SCL.keyIntensity;
+        this.moonLight.position.set(10, 26, -12);
+        const d = SCL.shadowExtent;
+        this.moonLight.shadow.camera.left = -d;
+        this.moonLight.shadow.camera.right = d;
+        this.moonLight.shadow.camera.top = d;
+        this.moonLight.shadow.camera.bottom = -d;
+        this.moonLight.shadow.camera.updateProjectionMatrix();
+      }
+      if (this.amethystRim) {
+        this.amethystRim.color.setHex(PALETTE.amethystTrim);
+        this.amethystRim.intensity = SCL.amethystRimIntensity;
+      }
+      if (this.frostRim) {
+        this.frostRim.color.setHex(PALETTE.sharranLunarSilver);
+        this.frostRim.intensity = SCL.lunarRimIntensity;
+      }
     } else if (isChamber) {
       const CL = CHAMBER_CONFIG.lighting;
       this.scene.background = new THREE.Color(PALETTE.chamberVoid);
@@ -1509,6 +1569,10 @@ export class SceneManager implements IArenaGeometry {
       this.skelligePeakLevel.update(dt, elapsed);
       return;
     }
+    if (this._activeEnvironment === ENVIRONMENT_IDS.SHARRAN_CRYPT) {
+      this.sharranCryptLevel.update(dt, elapsed);
+      return;
+    }
 
     this.auroraIntensityScale +=
       (this.targetAuroraScale - this.auroraIntensityScale) *
@@ -1603,6 +1667,7 @@ export class SceneManager implements IArenaGeometry {
     this.cyberBackstageLevel.dispose();
     this.astralConcertStageLevel.dispose();
     this.skelligePeakLevel.dispose();
+    this.sharranCryptLevel.dispose();
     this.renderer.dispose();
     if (this.renderer.domElement.parentElement) {
       this.renderer.domElement.parentElement.removeChild(

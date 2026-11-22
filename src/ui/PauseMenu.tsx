@@ -1,4 +1,4 @@
-import { GAME_STATES, PALETTE } from '../config/gameConfig';
+import { GAME_STATES, PALETTE, SPECIAL_SCENARIOS } from '../config/gameConfig';
 import type { IGameController } from '../engine/GameEngine';
 import { useGameStore } from '../state/useGameStore';
 
@@ -19,7 +19,11 @@ export function PauseMenu({ controller }: PauseMenuProps) {
   const audioMuted = useGameStore((s) => s.audioMuted);
   const encoreTier = useGameStore((s) => s.encoreTier);
   const activeRealm = useGameStore((s) => s.activeRealm);
+  const activeScenarioId = useGameStore((s) => s.activeScenarioId);
   const hasReachedSummit = useGameStore((s) => s.hasReachedSummit);
+  const activeScenario = activeScenarioId
+    ? SPECIAL_SCENARIOS.find((sc) => sc.id === activeScenarioId) ?? null
+    : null;
   const setMusicVolumeStore = useGameStore((s) => s.setMusicVolume);
   const setSfxVolumeStore = useGameStore((s) => s.setSfxVolume);
 
@@ -77,7 +81,11 @@ export function PauseMenu({ controller }: PauseMenuProps) {
               }}
             />
             <span className="text-[10px] sm:text-[11px] font-semibold tracking-[0.24em] uppercase text-sky-200">
-              {gameState === GAME_STATES.LOBBY
+              {activeScenario && gameState !== GAME_STATES.LOBBY
+                ? encoreTier > 0
+                  ? `${activeScenario.title} • Encore NG+${encoreTier}`
+                  : `${activeScenario.title} • Temporal Stasis`
+                : gameState === GAME_STATES.LOBBY
                 ? encoreTier > 0
                   ? `Obsidian Spire Sanctum • Encore NG+${encoreTier}`
                   : 'Obsidian Spire Sanctum • Temporal Stasis'
@@ -233,7 +241,9 @@ export function PauseMenu({ controller }: PauseMenuProps) {
                 boxShadow: PALETTE.rgba.pauseRestartShadow,
               }}
             >
-              {gameState === GAME_STATES.CHAMBER_COMBAT
+              {activeScenario
+                ? 'RESTART SCENARIO'
+                : gameState === GAME_STATES.CHAMBER_COMBAT
                 ? activeRealm === 3
                   ? 'RESTART BACKSTAGE'
                   : activeRealm === 2

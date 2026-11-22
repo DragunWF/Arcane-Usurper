@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   AUDIO_MODES,
+  BALDURS_GATE_PARTY_CONFIG,
   BOSS_EXPRESSIONS,
   BOSS_PHASES,
   CAMERA_CONFIG,
@@ -368,6 +369,12 @@ export class DioramaSystem implements ISystem {
 
     const store = useGameStore.getState();
     if (
+      boss?.bossPhase.bossId === BALDURS_GATE_PARTY_CONFIG.shadowheartId ||
+      boss?.bossPhase.guestPedestalIndex === 1
+    ) {
+      store.setBaldursGatePartyDefeated(true);
+      store.setShadowheartCoreCharge(0);
+    } else if (
       boss?.bossPhase.bossId === SPECIAL_SCENARIO_CONFIG.yenneferId ||
       boss?.bossPhase.guestPedestalIndex === 0
     ) {

@@ -1099,7 +1099,9 @@ export class FinisherSystem implements ISystem {
             this.audio.playSiphonClimax(activeRealm);
           }
           const store = useGameStore.getState();
-          if (this.lobbyAnchor.targetId === 'yennefer') {
+          if (this.lobbyAnchor.targetId === 'shadowheart') {
+            store.setShadowheartCoreCharge(0);
+          } else if (this.lobbyAnchor.targetId === 'yennefer') {
             store.setYenneferCoreCharge(0);
           } else if (this.lobbyAnchor.targetId === 'miku') {
             store.setMikuCoreCharge(0);
@@ -1118,7 +1120,9 @@ export class FinisherSystem implements ISystem {
           ) {
             this.lobbyChargeSyncAccum = 0;
             const store = useGameStore.getState();
-            if (this.lobbyAnchor.targetId === 'yennefer') {
+            if (this.lobbyAnchor.targetId === 'shadowheart') {
+              store.setShadowheartCoreCharge(this.lobbyCharge);
+            } else if (this.lobbyAnchor.targetId === 'yennefer') {
               store.setYenneferCoreCharge(this.lobbyCharge);
             } else if (this.lobbyAnchor.targetId === 'miku') {
               store.setMikuCoreCharge(this.lobbyCharge);

@@ -3,6 +3,7 @@ import {
   ARENA_CONFIG,
   AUDIO_CONFIG,
   AUDIO_MODES,
+  BALDURS_GATE_PARTY_CONFIG,
   BOSS_CONFIG,
   BOSS_EXPRESSIONS,
   BOSS_PHASES,
@@ -13,6 +14,7 @@ import {
   FINISHER_MODES,
   FINISHER_POSE_IDS,
   GAME_STATES,
+  GUEST_PEDESTALS,
   HARMONIC_CHAMBER_CONFIG,
   LOBBY_CONFIG,
   MIKU_CONFIG,
@@ -20,6 +22,7 @@ import {
   PALETTE,
   PLAYER_CONFIG,
   SERENA_CONFIG,
+  SHARRAN_CRYPT_CONFIG,
   SIPHON_BEAM_CONFIG,
   SIPHON_GALLERY_CONFIG,
   SPECIAL_SCENARIO_CONFIG,
@@ -114,6 +117,10 @@ export class GameEngine implements IGameController {
   private readonly mikuRig: MikuRig;
   private readonly geraltRig: GeraltRig;
   private readonly yenneferRig: YenneferRig;
+  private readonly dynamicScenarioRigs = new Map<
+    SpecialScenarioRigKey,
+    BossRigAdapter
+  >();
   private bossRig: BossRigAdapter;
   private readonly activeBossRigMap = new Map<EntityId, BossRigAdapter>();
   private activeScenarioId: string | null = null;
@@ -185,8 +192,17 @@ export class GameEngine implements IGameController {
 
     // Automatic Three.js mesh disposal whenever an ECS projectile/hazard/clone/wisp is destroyed
     this.unsubscribeEntityRemoved = this.world.onEntityRemoved((entity) => {
+      let isManagedScenarioRig = false;
+      if (entity.meshRef) {
+        this.dynamicScenarioRigs.forEach((rig) => {
+          if (rig.root === entity.meshRef?.object3D) {
+            isManagedScenarioRig = true;
+          }
+        });
+      }
       if (
         entity.meshRef &&
+        !isManagedScenarioRig &&
         entity.meshRef.object3D !== this.mageRig.root &&
         entity.meshRef.object3D !== this.marinaRig.root &&
         entity.meshRef.object3D !== this.serenaRig.root &&
@@ -441,7 +457,13 @@ export class GameEngine implements IGameController {
         onStolenKissComplete: () => this.completeStolenKiss(),
         addCameraShake: (amount) => this.cameraRig.addShake(amount),
         onLobbySiphonTick: (charge, elapsed, targetId, tetherTension = 0) => {
-          if (targetId === 'yennefer') {
+          if (targetId === 'shadowheart') {
+            this.sceneManager.mageTowerLevel.updateShadowheartLobbySiphonBackdrop(
+              charge,
+              elapsed,
+              tetherTension,
+            );
+          } else if (targetId === 'yennefer') {
             this.sceneManager.mageTowerLevel.updateYenneferLobbySiphonBackdrop(
               charge,
               elapsed,
@@ -832,6 +854,21 @@ export class GameEngine implements IGameController {
         return this.serenaRig;
       case 'miku':
         return this.mikuRig;
+      case 'laezel':
+      case 'astarion':
+      case 'gale':
+      case 'shadowheart': {
+        let cached = this.dynamicScenarioRigs.get(key);
+        if (!cached) {
+          cached =
+            key === 'shadowheart'
+              ? new YenneferRig(this.sceneManager.scene)
+              : new GeraltRig(this.sceneManager.scene);
+          cached.root.visible = false;
+          this.dynamicScenarioRigs.set(key, cached);
+        }
+        return cached;
+      }
       case 'marina':
       default:
         return this.marinaRig;
@@ -844,6 +881,9 @@ export class GameEngine implements IGameController {
     this.mikuRig.root.visible = false;
     this.geraltRig.root.visible = false;
     this.yenneferRig.root.visible = false;
+    this.dynamicScenarioRigs.forEach((rig) => {
+      rig.root.visible = false;
+    });
   }
 
   private syncBossRigsToSystems(): void {
@@ -899,6 +939,9 @@ export class GameEngine implements IGameController {
     let primarySiphonRig: BossRigAdapter = this.marinaRig;
     let primarySiphonEntityId: EntityId | null = null;
     let primaryMaxHp: number = BOSS_CONFIG.maxHp;
+    let primaryBossId: string = BOSS_CONFIG.defaultId;
+    let primaryDisplayName: string = BOSS_CONFIG.defaultDisplayName;
+    let primaryTitle: string = BOSS_CONFIG.defaultTitle;
 
     for (let i = 0; i < scenario.bosses.length; i++) {
       const def = scenario.bosses[i];
@@ -995,6 +1038,9 @@ export class GameEngine implements IGameController {
         primarySiphonRig = rig;
         primarySiphonEntityId = entity.id;
         primaryMaxHp = def.maxHp;
+        primaryBossId = def.bossId;
+        primaryDisplayName = def.displayName;
+        primaryTitle = def.title;
       }
     }
 
@@ -1004,15 +1050,18 @@ export class GameEngine implements IGameController {
     this.finisherSystem.setTargetBossEntityId(primarySiphonEntityId);
     this.dioramaSystem.setTargetBossEntityId(primarySiphonEntityId);
 
-    // Arena atmosphere: Skellige Obsidian Peak for 'skellige_peak' scenarios (zero minion stage)
-    if (scenario.arenaId === 'skellige_peak') {
+    // Arena atmosphere: Sharran Crypt (1.5x 1v4 arena) or Skellige Obsidian Peak (zero minion stage)
+    const isSharranCrypt = scenario.arenaId === 'sharran_crypt';
+    if (isSharranCrypt) {
+      this.sceneManager.setEnvironment(ENVIRONMENT_IDS.SHARRAN_CRYPT);
+    } else if (scenario.arenaId === 'skellige_peak') {
       this.sceneManager.setEnvironment(ENVIRONMENT_IDS.SKELLIGE_PEAK);
     } else {
       this.sceneManager.setEnvironment(ENVIRONMENT_IDS.SUMMIT);
       this.sceneManager.setPhaseAtmosphere(BOSS_PHASES.PHASE_2);
     }
 
-    // Trigger dramatic side-by-side duo intro camera frame
+    // Trigger dramatic party / duo intro camera frame
     this.duoIntroTimer = SPECIAL_SCENARIO_CONFIG.duoIntroDurationSec;
 
     const player = this.world.queryFirst(
@@ -1024,10 +1073,18 @@ export class GameEngine implements IGameController {
       'playerCombat',
     );
     if (player) {
-      player.transform.position.x = PLAYER_CONFIG.spawnX;
-      player.transform.position.y = PLAYER_CONFIG.spawnY;
-      player.transform.position.z = PLAYER_CONFIG.spawnZ;
-      player.transform.rotationY = PLAYER_CONFIG.spawnYaw;
+      player.transform.position.x = isSharranCrypt
+        ? SHARRAN_CRYPT_CONFIG.playerSpawnX
+        : PLAYER_CONFIG.spawnX;
+      player.transform.position.y = isSharranCrypt
+        ? SHARRAN_CRYPT_CONFIG.playerSpawnY
+        : PLAYER_CONFIG.spawnY;
+      player.transform.position.z = isSharranCrypt
+        ? SHARRAN_CRYPT_CONFIG.playerSpawnZ
+        : PLAYER_CONFIG.spawnZ;
+      player.transform.rotationY = isSharranCrypt
+        ? SHARRAN_CRYPT_CONFIG.playerSpawnYaw
+        : PLAYER_CONFIG.spawnYaw;
       player.velocity.vx = 0;
       player.velocity.vy = 0;
       player.velocity.vz = 0;
@@ -1053,20 +1110,20 @@ export class GameEngine implements IGameController {
     );
     this.sound.setMode(AUDIO_MODES.COMBAT_P2);
 
+    const phase1Subtitle =
+      primaryBossId === BALDURS_GATE_PARTY_CONFIG.shadowheartId
+        ? BALDURS_GATE_PARTY_CONFIG.shadowheartPhase1Subtitle
+        : SPECIAL_SCENARIO_CONFIG.yenneferPhase1Subtitle;
     store.setScenarioSelectorOpen(false);
     store.setActiveScenarioId(scenario.id);
     store.setHasReachedSummit(true);
     store.setBossIdentity(
-      primarySiphonRig.id,
-      primarySiphonRig.displayName,
-      primarySiphonRig.title,
+      primaryBossId,
+      primaryDisplayName,
+      primaryTitle,
       Math.round(primaryMaxHp * hpScale),
     );
-    store.resetForDuel(
-      nextTier,
-      primaryMaxHp,
-      SPECIAL_SCENARIO_CONFIG.yenneferPhase1Subtitle,
-    );
+    store.resetForDuel(nextTier, primaryMaxHp, phase1Subtitle);
     store.setAudioMode(AUDIO_MODES.COMBAT_P2);
     this.renderSyncSystem.flushHudSnapshot();
     this.cameraRig.requestLock();
@@ -1438,6 +1495,10 @@ export class GameEngine implements IGameController {
   public restartStage(): void {
     this.sound.unlock();
     this.setPaused(false);
+    if (this.activeScenarioId) {
+      this.launchSpecialScenario(this.activeScenarioId);
+      return;
+    }
     const store = useGameStore.getState();
     const shouldStartAtSummit =
       this.state === GAME_STATES.BOSS_COMBAT ||
@@ -1976,23 +2037,28 @@ export class GameEngine implements IGameController {
     const isSerena = target === 'serena';
     const isMiku = target === 'miku';
     const isYennefer = target === 'yennefer';
-    const captiveRig = isYennefer
-      ? this.sceneManager.mageTowerLevel.captiveYenneferRig
-      : isSerena
-        ? this.sceneManager.mageTowerLevel.captiveSerenaRig
-        : isMiku
-          ? this.sceneManager.mageTowerLevel.captiveMikuRig
-          : this.sceneManager.mageTowerLevel.captiveMarinaRig;
+    const isShadowheart = target === 'shadowheart';
+    const captiveRig = isShadowheart
+      ? this.sceneManager.mageTowerLevel.captiveShadowheartRig
+      : isYennefer
+        ? this.sceneManager.mageTowerLevel.captiveYenneferRig
+        : isSerena
+          ? this.sceneManager.mageTowerLevel.captiveSerenaRig
+          : isMiku
+            ? this.sceneManager.mageTowerLevel.captiveMikuRig
+            : this.sceneManager.mageTowerLevel.captiveMarinaRig;
     if (!captiveRig) return;
 
     const store = useGameStore.getState();
-    const initialCharge = isYennefer
-      ? store.yenneferCoreCharge
-      : isSerena
-        ? store.serenaCoreCharge
-        : isMiku
-          ? store.mikuCoreCharge
-          : store.marinaCoreCharge;
+    const initialCharge = isShadowheart
+      ? store.shadowheartCoreCharge
+      : isYennefer
+        ? store.yenneferCoreCharge
+        : isSerena
+          ? store.serenaCoreCharge
+          : isMiku
+            ? store.mikuCoreCharge
+            : store.marinaCoreCharge;
     const isBeam = mode === FINISHER_MODES.BEAM;
     if (isBeam && initialCharge <= 0) return;
 
@@ -2000,20 +2066,26 @@ export class GameEngine implements IGameController {
       ? false
       : initialCharge <= SIPHON_GALLERY_CONFIG.minDrainableCharge;
 
-    const daisPos = isYennefer
-      ? SIPHON_GALLERY_CONFIG.guestPedestal1Pos
-      : isSerena
-        ? SIPHON_GALLERY_CONFIG.serenaDaisPos
-        : isMiku
-          ? SIPHON_GALLERY_CONFIG.mikuDaisPos
-          : SIPHON_GALLERY_CONFIG.marinaDaisPos;
-    const facingYaw = isYennefer
-      ? SIPHON_GALLERY_CONFIG.guestPedestal1FacingYaw
-      : isSerena
-        ? SIPHON_GALLERY_CONFIG.serenaFacingYaw
-        : isMiku
-          ? SIPHON_GALLERY_CONFIG.mikuFacingYaw
-          : SIPHON_GALLERY_CONFIG.marinaFacingYaw;
+    const guestPed0 = GUEST_PEDESTALS[0]!;
+    const guestPed1 = GUEST_PEDESTALS[1]!;
+    const daisPos = isShadowheart
+      ? guestPed1.pos
+      : isYennefer
+        ? guestPed0.pos
+        : isSerena
+          ? SIPHON_GALLERY_CONFIG.serenaDaisPos
+          : isMiku
+            ? SIPHON_GALLERY_CONFIG.mikuDaisPos
+            : SIPHON_GALLERY_CONFIG.marinaDaisPos;
+    const facingYaw = isShadowheart
+      ? guestPed1.facingYaw
+      : isYennefer
+        ? guestPed0.facingYaw
+        : isSerena
+          ? SIPHON_GALLERY_CONFIG.serenaFacingYaw
+          : isMiku
+            ? SIPHON_GALLERY_CONFIG.mikuFacingYaw
+            : SIPHON_GALLERY_CONFIG.marinaFacingYaw;
 
     this.activeLobbySiphonTarget = target;
     this.state = GAME_STATES.LOBBY_SIPHON;
@@ -2072,14 +2144,20 @@ export class GameEngine implements IGameController {
 
     store.setLobbySiphonTarget(target);
     store.setBossIdentity(
-      captiveRig.id,
-      captiveRig.displayName,
-      captiveRig.title,
-      isSerena
-        ? SERENA_CONFIG.maxHp
-        : isMiku
-          ? MIKU_CONFIG.maxHp
-          : BOSS_CONFIG.maxHp,
+      isShadowheart ? BALDURS_GATE_PARTY_CONFIG.shadowheartId : captiveRig.id,
+      isShadowheart
+        ? BALDURS_GATE_PARTY_CONFIG.shadowheartDisplayName
+        : captiveRig.displayName,
+      isShadowheart
+        ? BALDURS_GATE_PARTY_CONFIG.shadowheartTitle
+        : captiveRig.title,
+      isShadowheart
+        ? BALDURS_GATE_PARTY_CONFIG.shadowheartMaxHp
+        : isSerena
+          ? SERENA_CONFIG.maxHp
+          : isMiku
+            ? MIKU_CONFIG.maxHp
+            : BOSS_CONFIG.maxHp,
     );
     store.setGameState(GAME_STATES.LOBBY_SIPHON);
     store.setLobbyPrompt(null);
@@ -2088,7 +2166,9 @@ export class GameEngine implements IGameController {
     store.setDrainThrottle(DRAIN_THROTTLE_MODES.FLOW);
     store.setEndlessSavor(startsDepleted);
     if (startsDepleted) {
-      if (isYennefer) {
+      if (isShadowheart) {
+        store.setShadowheartCoreCharge(0);
+      } else if (isYennefer) {
         store.setYenneferCoreCharge(0);
       } else if (isSerena) {
         store.setSerenaCoreCharge(0);
@@ -2109,13 +2189,15 @@ export class GameEngine implements IGameController {
       captiveRig.root.updateMatrixWorld(true);
       captiveRig.headAnchor.getWorldPosition(this.orbitCameraTarget.position);
       this.cameraRig.resetSphericalOrbit(
-        isYennefer
-          ? SIPHON_GALLERY_CONFIG.guestSiphonInitialAzimuth
-          : isSerena
-            ? SIPHON_GALLERY_CONFIG.serenaSiphonInitialAzimuth
-            : isMiku
-              ? SIPHON_GALLERY_CONFIG.mikuSiphonInitialAzimuth
-              : SIPHON_GALLERY_CONFIG.siphonInitialAzimuth,
+        isShadowheart
+          ? guestPed1.siphonInitialAzimuth
+          : isYennefer
+            ? guestPed0.siphonInitialAzimuth
+            : isSerena
+              ? SIPHON_GALLERY_CONFIG.serenaSiphonInitialAzimuth
+              : isMiku
+                ? SIPHON_GALLERY_CONFIG.mikuSiphonInitialAzimuth
+                : SIPHON_GALLERY_CONFIG.siphonInitialAzimuth,
         CAMERA_CONFIG.finisherDefaultElevation,
         CAMERA_CONFIG.finisherDefaultDistance,
       );
@@ -2130,6 +2212,7 @@ export class GameEngine implements IGameController {
   public releaseLobbySiphon(): void {
     if (this.state !== GAME_STATES.LOBBY_SIPHON) return;
 
+    const isShadowheart = this.activeLobbySiphonTarget === 'shadowheart';
     const isYennefer = this.activeLobbySiphonTarget === 'yennefer';
     const isSerena = this.activeLobbySiphonTarget === 'serena';
     const isMiku = this.activeLobbySiphonTarget === 'miku';
@@ -2146,7 +2229,9 @@ export class GameEngine implements IGameController {
     }
 
     const store = useGameStore.getState();
-    if (isYennefer) {
+    if (isShadowheart) {
+      store.setShadowheartCoreCharge(remainingCharge);
+    } else if (isYennefer) {
       store.setYenneferCoreCharge(remainingCharge);
     } else if (isSerena) {
       store.setSerenaCoreCharge(remainingCharge);
@@ -2158,20 +2243,26 @@ export class GameEngine implements IGameController {
     store.setEndlessSavor(false);
     store.setFinisherMode(FINISHER_MODES.KISS);
 
-    const daisPos = isYennefer
-      ? SIPHON_GALLERY_CONFIG.guestPedestal1Pos
-      : isSerena
-        ? SIPHON_GALLERY_CONFIG.serenaDaisPos
-        : isMiku
-          ? SIPHON_GALLERY_CONFIG.mikuDaisPos
-          : SIPHON_GALLERY_CONFIG.marinaDaisPos;
-    const facingYaw = isYennefer
-      ? SIPHON_GALLERY_CONFIG.guestPedestal1FacingYaw
-      : isSerena
-        ? SIPHON_GALLERY_CONFIG.serenaFacingYaw
-        : isMiku
-          ? SIPHON_GALLERY_CONFIG.mikuFacingYaw
-          : SIPHON_GALLERY_CONFIG.marinaFacingYaw;
+    const guestPed0 = GUEST_PEDESTALS[0]!;
+    const guestPed1 = GUEST_PEDESTALS[1]!;
+    const daisPos = isShadowheart
+      ? guestPed1.pos
+      : isYennefer
+        ? guestPed0.pos
+        : isSerena
+          ? SIPHON_GALLERY_CONFIG.serenaDaisPos
+          : isMiku
+            ? SIPHON_GALLERY_CONFIG.mikuDaisPos
+            : SIPHON_GALLERY_CONFIG.marinaDaisPos;
+    const facingYaw = isShadowheart
+      ? guestPed1.facingYaw
+      : isYennefer
+        ? guestPed0.facingYaw
+        : isSerena
+          ? SIPHON_GALLERY_CONFIG.serenaFacingYaw
+          : isMiku
+            ? SIPHON_GALLERY_CONFIG.mikuFacingYaw
+            : SIPHON_GALLERY_CONFIG.marinaFacingYaw;
 
     const standX =
       daisPos.x + Math.sin(facingYaw) * SIPHON_GALLERY_CONFIG.releaseStandOffsetZ;
@@ -2201,7 +2292,13 @@ export class GameEngine implements IGameController {
     );
 
     // Restore the active captive sovereign cleanly to her bound dais posture at remaining charge
-    if (isYennefer) {
+    if (isShadowheart) {
+      this.sceneManager.mageTowerLevel.updateShadowheartCaptiveState(
+        remainingCharge,
+        this.elapsed,
+        0.016,
+      );
+    } else if (isYennefer) {
       this.sceneManager.mageTowerLevel.updateYenneferCaptiveState(
         remainingCharge,
         this.elapsed,
@@ -2325,13 +2422,15 @@ export class GameEngine implements IGameController {
           player
         ) {
           const daisPos =
-            this.activeLobbySiphonTarget === 'yennefer'
-              ? SIPHON_GALLERY_CONFIG.guestPedestal1Pos
-              : this.activeLobbySiphonTarget === 'serena'
-                ? SIPHON_GALLERY_CONFIG.serenaDaisPos
-                : this.activeLobbySiphonTarget === 'miku'
-                  ? SIPHON_GALLERY_CONFIG.mikuDaisPos
-                  : SIPHON_GALLERY_CONFIG.marinaDaisPos;
+            this.activeLobbySiphonTarget === 'shadowheart'
+              ? GUEST_PEDESTALS[1]!.pos
+              : this.activeLobbySiphonTarget === 'yennefer'
+                ? GUEST_PEDESTALS[0]!.pos
+                : this.activeLobbySiphonTarget === 'serena'
+                  ? SIPHON_GALLERY_CONFIG.serenaDaisPos
+                  : this.activeLobbySiphonTarget === 'miku'
+                    ? SIPHON_GALLERY_CONFIG.mikuDaisPos
+                    : SIPHON_GALLERY_CONFIG.marinaDaisPos;
           this.scratchBeamMagePos.set(
             player.transform.position.x,
             player.transform.position.y,
@@ -2350,13 +2449,15 @@ export class GameEngine implements IGameController {
           );
         } else {
           const captiveRig =
-            this.activeLobbySiphonTarget === 'yennefer'
-              ? this.sceneManager.mageTowerLevel.captiveYenneferRig
-              : this.activeLobbySiphonTarget === 'serena'
-                ? this.sceneManager.mageTowerLevel.captiveSerenaRig
-                : this.activeLobbySiphonTarget === 'miku'
-                  ? this.sceneManager.mageTowerLevel.captiveMikuRig
-                  : this.sceneManager.mageTowerLevel.captiveMarinaRig;
+            this.activeLobbySiphonTarget === 'shadowheart'
+              ? this.sceneManager.mageTowerLevel.captiveShadowheartRig
+              : this.activeLobbySiphonTarget === 'yennefer'
+                ? this.sceneManager.mageTowerLevel.captiveYenneferRig
+                : this.activeLobbySiphonTarget === 'serena'
+                  ? this.sceneManager.mageTowerLevel.captiveSerenaRig
+                  : this.activeLobbySiphonTarget === 'miku'
+                    ? this.sceneManager.mageTowerLevel.captiveMikuRig
+                    : this.sceneManager.mageTowerLevel.captiveMarinaRig;
           if (captiveRig) {
             captiveRig.root.updateMatrixWorld(true);
             captiveRig.headAnchor.getWorldPosition(
@@ -2501,6 +2602,8 @@ export class GameEngine implements IGameController {
     this.mikuRig.dispose();
     this.geraltRig.dispose();
     this.yenneferRig.dispose();
+    this.dynamicScenarioRigs.forEach((rig) => rig.dispose());
+    this.dynamicScenarioRigs.clear();
     this.sceneManager.dispose();
   }
 }

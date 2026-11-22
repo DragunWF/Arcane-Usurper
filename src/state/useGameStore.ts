@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import {
   AUDIO_CONFIG,
   AUDIO_MODES,
+  BALDURS_GATE_PARTY_CONFIG,
   BOSS_CONFIG,
   BOSS_EXPRESSIONS,
   BOSS_PHASES,
@@ -287,7 +288,81 @@ function persistYenneferCoreCharge(charge: number): void {
   }
 }
 
-export type LobbySiphonTargetId = 'marina' | 'serena' | 'miku' | 'yennefer';
+function readInitialShadowheartDefeated(): boolean {
+  try {
+    return (
+      typeof window !== 'undefined' &&
+      (window.localStorage.getItem(
+        SPECIAL_SCENARIO_CONFIG.baldursGatePartyDefeatedStorageKey,
+      ) === 'true' ||
+        window.localStorage.getItem(
+          SPECIAL_SCENARIO_CONFIG.shadowheartDefeatedStorageKey,
+        ) === 'true')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function persistShadowheartDefeated(defeated: boolean): void {
+  try {
+    if (typeof window !== 'undefined') {
+      const value = defeated ? 'true' : 'false';
+      window.localStorage.setItem(
+        SPECIAL_SCENARIO_CONFIG.shadowheartDefeatedStorageKey,
+        value,
+      );
+      window.localStorage.setItem(
+        SPECIAL_SCENARIO_CONFIG.baldursGatePartyDefeatedStorageKey,
+        value,
+      );
+    }
+  } catch {
+    // Ignore storage quota / sandboxed iframe restrictions
+  }
+}
+
+function readInitialShadowheartCoreCharge(): number {
+  try {
+    if (typeof window === 'undefined') {
+      return SPECIAL_SCENARIO_CONFIG.guestPedestalDefaultCoreCharge;
+    }
+    const raw = window.localStorage.getItem(
+      SPECIAL_SCENARIO_CONFIG.shadowheartCoreChargeStorageKey,
+    );
+    if (raw === null) {
+      return SPECIAL_SCENARIO_CONFIG.guestPedestalDefaultCoreCharge;
+    }
+    const parsed = Number.parseFloat(raw);
+    if (!Number.isFinite(parsed)) {
+      return SPECIAL_SCENARIO_CONFIG.guestPedestalDefaultCoreCharge;
+    }
+    return Math.max(0, Math.min(1, parsed));
+  } catch {
+    return SPECIAL_SCENARIO_CONFIG.guestPedestalDefaultCoreCharge;
+  }
+}
+
+function persistShadowheartCoreCharge(charge: number): void {
+  try {
+    if (typeof window !== 'undefined') {
+      const clamped = Math.max(0, Math.min(1, charge));
+      window.localStorage.setItem(
+        SPECIAL_SCENARIO_CONFIG.shadowheartCoreChargeStorageKey,
+        clamped.toFixed(4),
+      );
+    }
+  } catch {
+    // Ignore storage quota / sandboxed iframe restrictions
+  }
+}
+
+export type LobbySiphonTargetId =
+  | 'marina'
+  | 'serena'
+  | 'miku'
+  | 'yennefer'
+  | 'shadowheart';
 
 export interface ActiveBossHudEntry {
   readonly entityId: number;
@@ -354,6 +429,9 @@ export interface GameStoreState {
   wolfAndRavenDefeated: boolean;
   yenneferDefeated: boolean;
   yenneferCoreCharge: number;
+  baldursGatePartyDefeated: boolean;
+  shadowheartDefeated: boolean;
+  shadowheartCoreCharge: number;
   lobbySiphonTarget: LobbySiphonTargetId;
   lobbyPrompt: LobbyPromptState | null;
   lobbyDummyHit: LobbyDummyHitState | null;
@@ -455,6 +533,10 @@ export interface GameStoreState {
   setYenneferDefeated: (val: boolean) => void;
   setYenneferCoreCharge: (charge: number) => void;
   addYenneferCoreCharge: (delta: number) => void;
+  setBaldursGatePartyDefeated: (val: boolean) => void;
+  setShadowheartDefeated: (val: boolean) => void;
+  setShadowheartCoreCharge: (charge: number) => void;
+  addShadowheartCoreCharge: (delta: number) => void;
   setLobbySiphonTarget: (target: LobbySiphonTargetId) => void;
   setActiveScenarioId: (scenarioId: string | null) => void;
   setScenarioSelectorOpen: (open: boolean) => void;
@@ -487,6 +569,13 @@ export interface GameStoreState {
 }
 
 function getSubtitleForPhase(phase: BossPhase, bossId?: string): string {
+  if (bossId === BALDURS_GATE_PARTY_CONFIG.shadowheartId) {
+    if (phase === BOSS_PHASES.PHASE_2)
+      return BALDURS_GATE_PARTY_CONFIG.shadowheartPhase2Subtitle;
+    if (phase === BOSS_PHASES.PHASE_3)
+      return BALDURS_GATE_PARTY_CONFIG.shadowheartPhase3Subtitle;
+    return BALDURS_GATE_PARTY_CONFIG.shadowheartPhase1Subtitle;
+  }
   if (bossId === SPECIAL_SCENARIO_CONFIG.yenneferId) {
     if (phase === BOSS_PHASES.PHASE_2)
       return SPECIAL_SCENARIO_CONFIG.yenneferPhase2Subtitle;
@@ -534,6 +623,9 @@ const INITIAL_STATE = {
   wolfAndRavenDefeated: readInitialYenneferDefeated(),
   yenneferDefeated: readInitialYenneferDefeated(),
   yenneferCoreCharge: readInitialYenneferCoreCharge(),
+  baldursGatePartyDefeated: readInitialShadowheartDefeated(),
+  shadowheartDefeated: readInitialShadowheartDefeated(),
+  shadowheartCoreCharge: readInitialShadowheartCoreCharge(),
   lobbySiphonTarget: 'marina' as LobbySiphonTargetId,
   lobbyPrompt: null as LobbyPromptState | null,
   lobbyDummyHit: null as LobbyDummyHitState | null,
@@ -735,6 +827,34 @@ export const useGameStore = create<GameStoreState>((set) => ({
       persistYenneferCoreCharge(clamped);
       return { yenneferCoreCharge: clamped };
     }),
+  setBaldursGatePartyDefeated: (baldursGatePartyDefeated) => {
+    persistShadowheartDefeated(baldursGatePartyDefeated);
+    set({
+      baldursGatePartyDefeated,
+      shadowheartDefeated: baldursGatePartyDefeated,
+    });
+  },
+  setShadowheartDefeated: (shadowheartDefeated) => {
+    persistShadowheartDefeated(shadowheartDefeated);
+    set({
+      shadowheartDefeated,
+      baldursGatePartyDefeated: shadowheartDefeated,
+    });
+  },
+  setShadowheartCoreCharge: (charge) => {
+    const clamped = Math.max(0, Math.min(1, charge));
+    persistShadowheartCoreCharge(clamped);
+    set({ shadowheartCoreCharge: clamped });
+  },
+  addShadowheartCoreCharge: (delta) =>
+    set((state) => {
+      const clamped = Math.max(
+        0,
+        Math.min(1, state.shadowheartCoreCharge + delta),
+      );
+      persistShadowheartCoreCharge(clamped);
+      return { shadowheartCoreCharge: clamped };
+    }),
   setLobbySiphonTarget: (lobbySiphonTarget) => set({ lobbySiphonTarget }),
   setActiveScenarioId: (activeScenarioId) => set({ activeScenarioId }),
   setScenarioSelectorOpen: (isScenarioSelectorOpen) =>
@@ -880,6 +1000,9 @@ export const useGameStore = create<GameStoreState>((set) => ({
       wolfAndRavenDefeated: state.wolfAndRavenDefeated,
       yenneferDefeated: state.yenneferDefeated,
       yenneferCoreCharge: state.yenneferCoreCharge,
+      baldursGatePartyDefeated: state.baldursGatePartyDefeated,
+      shadowheartDefeated: state.shadowheartDefeated,
+      shadowheartCoreCharge: state.shadowheartCoreCharge,
       audioMuted: state.audioMuted,
       musicVolume: state.musicVolume,
       sfxVolume: state.sfxVolume,

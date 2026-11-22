@@ -791,8 +791,32 @@ export class CombatSystem implements ISystem {
             toDestroy.push(entity.id);
           }
         } else if (projectile.kind === 'GLACIAL_CRESCENT') {
+          const bounds = this.arena.bounds;
+          const activeArenaRadius =
+            bounds.kind === ARENA_BOUNDS_KINDS.CIRCULAR
+              ? bounds.radius
+              : ARENA_CONFIG.radius;
           const radial = Math.hypot(p.x, p.z);
+
+          // Tactical pillar cover blocks crescent waves along line-of-sight
+          if (!remove) {
+            for (let j = 0; j < pillars.length; j++) {
+              const pil = pillars[j];
+              if (!pil) continue;
+              const dx = p.x - pil.x;
+              const dz = p.z - pil.z;
+              const rad = pil.radius + BOSS_CONFIG.phase1.lancePillarPad;
+              if (dx * dx + dz * dz <= rad * rad && p.y <= pil.height) {
+                this.vBurstPos.set(p.x, p.y, p.z);
+                this.vfx.spawnFrostShatterBurst(this.vBurstPos, 6, 4.8);
+                remove = true;
+                break;
+              }
+            }
+          }
+
           if (
+            !remove &&
             player &&
             !projectile.hitEntityIds.includes(player.id) &&
             !player.health.isInvulnerable
@@ -809,15 +833,20 @@ export class CombatSystem implements ISystem {
 
           if (
             remove ||
-            radial > ARENA_CONFIG.radius + BOSS_CONFIG.phase1.crescentArenaPad
+            radial > activeArenaRadius + BOSS_CONFIG.phase1.crescentArenaPad
           ) {
             toDestroy.push(entity.id);
           }
         } else if (projectile.kind === 'SPIRAL_ORB') {
+          const bounds = this.arena.bounds;
+          const activeArenaRadius =
+            bounds.kind === ARENA_BOUNDS_KINDS.CIRCULAR
+              ? bounds.radius
+              : ARENA_CONFIG.radius;
           if (
             !remove &&
             Math.hypot(p.x, p.z) >
-              ARENA_CONFIG.radius + ARENA_CONFIG.floorCollisionRadiusPad
+              activeArenaRadius + ARENA_CONFIG.floorCollisionRadiusPad
           ) {
             remove = true;
           }

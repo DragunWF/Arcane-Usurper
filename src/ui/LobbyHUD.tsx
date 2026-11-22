@@ -24,6 +24,7 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
   const serenaCoreCharge = useGameStore((s) => s.serenaCoreCharge);
   const mikuCoreCharge = useGameStore((s) => s.mikuCoreCharge);
   const yenneferCoreCharge = useGameStore((s) => s.yenneferCoreCharge);
+  const shadowheartCoreCharge = useGameStore((s) => s.shadowheartCoreCharge);
   const lobbyPrompt = useGameStore((s) => s.lobbyPrompt);
   const lobbyDummyHit = useGameStore((s) => s.lobbyDummyHit);
   const audioMuted = useGameStore((s) => s.audioMuted);
@@ -55,6 +56,8 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
   const isSerenaDais = lobbyPrompt?.kind === LOBBY_PROMPT_KINDS.SERENA_DAIS;
   const isMikuDais = lobbyPrompt?.kind === LOBBY_PROMPT_KINDS.MIKU_DAIS;
   const isYenneferDais = lobbyPrompt?.kind === LOBBY_PROMPT_KINDS.YENNEFER_DAIS;
+  const isShadowheartDais =
+    lobbyPrompt?.kind === LOBBY_PROMPT_KINDS.SHADOWHEART_DAIS;
   const isSealed =
     isSealedRealm2 || isSealedRealm3 || isSealedGallery || isReservedGuest;
   const marinaChargePct = Math.round(
@@ -68,6 +71,9 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
   );
   const yenneferChargePct = Math.round(
     Math.max(0, Math.min(1, yenneferCoreCharge)) * 100,
+  );
+  const shadowheartChargePct = Math.round(
+    Math.max(0, Math.min(1, shadowheartCoreCharge)) * 100,
   );
 
   return (
@@ -177,20 +183,26 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
 
       {/* Contextual Bottom-Center Interaction Banner */}
       {lobbyPrompt &&
-        (isMarinaDais || isSerenaDais || isMikuDais || isYenneferDais ? (
+        (isMarinaDais ||
+        isSerenaDais ||
+        isMikuDais ||
+        isYenneferDais ||
+        isShadowheartDais ? (
           <div className="fixed bottom-12 sm:bottom-16 left-1/2 -translate-x-1/2 z-30 pointer-events-auto max-w-[calc(100vw-2rem)] flex flex-col items-center gap-2.5">
             {/* Live Core Charge Bar Header */}
             <div className="frost-panel rounded-2xl px-5 py-2.5 border-purple-400/45 text-center w-[280px] sm:w-[340px]">
               <div
                 className="text-[10px] sm:text-[11px] font-semibold tracking-[0.2em] uppercase"
                 style={{
-                  color: isYenneferDais
-                    ? PALETTE.hex.yenneferLilac
-                    : isMikuDais
-                      ? PALETTE.hex.harmonicEmerald
-                      : isSerenaDais
-                        ? PALETTE.hex.biolumCyan
-                        : PALETTE.hex.frostRunes,
+                  color: isShadowheartDais
+                    ? PALETTE.hex.bg3ShadowheartViolet
+                    : isYenneferDais
+                      ? PALETTE.hex.yenneferLilac
+                      : isMikuDais
+                        ? PALETTE.hex.harmonicEmerald
+                        : isSerenaDais
+                          ? PALETTE.hex.biolumCyan
+                          : PALETTE.hex.frostRunes,
                 }}
               >
                 {lobbyPrompt.subtitle}
@@ -200,29 +212,34 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
                   className="bar-fill h-full rounded-full transition-all duration-150"
                   style={{
                     width: `${
-                      isYenneferDais
-                        ? yenneferChargePct
-                        : isMikuDais
-                          ? mikuChargePct
-                          : isSerenaDais
-                            ? serenaChargePct
-                            : marinaChargePct
+                      isShadowheartDais
+                        ? shadowheartChargePct
+                        : isYenneferDais
+                          ? yenneferChargePct
+                          : isMikuDais
+                            ? mikuChargePct
+                            : isSerenaDais
+                              ? serenaChargePct
+                              : marinaChargePct
                     }%`,
-                    background: isYenneferDais
-                      ? `linear-gradient(90deg, ${PALETTE.hex.amethystTrim}, ${PALETTE.hex.yenneferLilac}, ${PALETTE.hex.voidCoreFuchsia})`
-                      : isMikuDais
-                        ? `linear-gradient(90deg, ${PALETTE.hex.harmonicEmerald}, ${PALETTE.hex.mikuCyan}, ${PALETTE.hex.harmonicMagenta})`
-                        : isSerenaDais
-                          ? `linear-gradient(90deg, ${PALETTE.hex.kelpEmerald}, ${PALETTE.hex.biolumCyan}, ${PALETTE.hex.pearlWhite})`
-                          : `linear-gradient(90deg, ${PALETTE.hex.frostRunes}, ${PALETTE.hex.iceHighlights})`,
-                    boxShadow: `0 0 12px ${
-                      isYenneferDais
-                        ? PALETTE.hex.yenneferLilac
+                    background:
+                      isShadowheartDais || isYenneferDais
+                        ? `linear-gradient(90deg, ${PALETTE.hex.amethystTrim}, ${PALETTE.hex.yenneferLilac}, ${PALETTE.hex.voidCoreFuchsia})`
                         : isMikuDais
-                          ? PALETTE.hex.harmonicEmerald
+                          ? `linear-gradient(90deg, ${PALETTE.hex.harmonicEmerald}, ${PALETTE.hex.mikuCyan}, ${PALETTE.hex.harmonicMagenta})`
                           : isSerenaDais
-                            ? PALETTE.hex.biolumCyan
-                            : PALETTE.hex.frostRunes
+                            ? `linear-gradient(90deg, ${PALETTE.hex.kelpEmerald}, ${PALETTE.hex.biolumCyan}, ${PALETTE.hex.pearlWhite})`
+                            : `linear-gradient(90deg, ${PALETTE.hex.frostRunes}, ${PALETTE.hex.iceHighlights})`,
+                    boxShadow: `0 0 12px ${
+                      isShadowheartDais
+                        ? PALETTE.hex.bg3ShadowheartViolet
+                        : isYenneferDais
+                          ? PALETTE.hex.yenneferLilac
+                          : isMikuDais
+                            ? PALETTE.hex.harmonicEmerald
+                            : isSerenaDais
+                              ? PALETTE.hex.biolumCyan
+                              : PALETTE.hex.frostRunes
                     }`,
                   }}
                 />
@@ -243,13 +260,15 @@ export function LobbyHUD({ controller }: LobbyHUDProps) {
                   Close-Range
                 </span>
               </button>
-              {(isYenneferDais
-                ? yenneferCoreCharge > 0
-                : isMikuDais
-                  ? mikuCoreCharge > 0
-                  : isSerenaDais
-                    ? serenaCoreCharge > 0
-                    : marinaCoreCharge > 0) && (
+              {(isShadowheartDais
+                ? shadowheartCoreCharge > 0
+                : isYenneferDais
+                  ? yenneferCoreCharge > 0
+                  : isMikuDais
+                    ? mikuCoreCharge > 0
+                    : isSerenaDais
+                      ? serenaCoreCharge > 0
+                      : marinaCoreCharge > 0) && (
                 <button
                   type="button"
                   onClick={() =>

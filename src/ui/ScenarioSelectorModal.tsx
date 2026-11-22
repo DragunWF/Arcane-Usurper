@@ -16,6 +16,7 @@ export function ScenarioSelectorModal({
 }: ScenarioSelectorModalProps) {
   const isOpen = useGameStore((s) => s.isScenarioSelectorOpen);
   const yenneferDefeated = useGameStore((s) => s.yenneferDefeated);
+  const shadowheartDefeated = useGameStore((s) => s.shadowheartDefeated);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -95,7 +96,14 @@ export function ScenarioSelectorModal({
           {SPECIAL_SCENARIOS.map((scenario) => {
             const isPlayable = scenario.unlocked && scenario.bosses.length > 0;
             const isCleared =
-              scenario.guestPedestalIndex === 0 && yenneferDefeated;
+              (scenario.guestPedestalIndex === 0 && yenneferDefeated) ||
+              (scenario.guestPedestalIndex === 1 && shadowheartDefeated);
+            const pedestalRoman =
+              scenario.guestPedestalIndex === 1
+                ? 'II'
+                : scenario.guestPedestalIndex === 0
+                  ? 'I'
+                  : `${(scenario.guestPedestalIndex ?? 0) + 1}`;
 
             return (
               <div
@@ -147,7 +155,7 @@ export function ScenarioSelectorModal({
                             color: PALETTE.hex.yenneferLilac,
                           }}
                         >
-                          GUEST PEDESTAL I UNLOCKED
+                          GUEST PEDESTAL {pedestalRoman} UNLOCKED
                         </span>
                       )}
                     </div>
@@ -165,10 +173,10 @@ export function ScenarioSelectorModal({
                               backgroundColor: `${PALETTE.hex.shadowSlate}CC`,
                               borderColor: boss.canBeSiphoned
                                 ? `${PALETTE.hex.amethystTrim}99`
-                                : `${PALETTE.hex.steelSilver}66`,
+                                : `${boss.barAccentHex}77`,
                               color: boss.canBeSiphoned
                                 ? PALETTE.hex.pulseLavender
-                                : PALETTE.hex.steelSilver,
+                                : boss.barAccentHex,
                             }}
                           >
                             {boss.canBeSiphoned ? (
@@ -183,15 +191,15 @@ export function ScenarioSelectorModal({
                               <span
                                 className="w-2 h-2 rounded-full shrink-0"
                                 style={{
-                                  backgroundColor: PALETTE.hex.steelSilver,
+                                  backgroundColor: boss.barAccentHex,
                                 }}
                               />
                             )}
                             <span>{boss.displayName}</span>
                             <span className="opacity-65">
                               {boss.canBeSiphoned
-                                ? '• Siphonable'
-                                : '• Ash-Bound'}
+                                ? '• Sovereign'
+                                : '• Guardian'}
                             </span>
                           </div>
                         ))}

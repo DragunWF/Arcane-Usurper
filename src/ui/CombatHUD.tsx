@@ -320,21 +320,196 @@ export function CombatHUD({ controller }: CombatHUDProps) {
                 </div>
               </div>
             </div>
+          ) : activeBosses.length > 2 ? (
+            /* 4-Boss Special Scenario Layout: Horizontal Top Row of Compact Companion HP Bars above Full-Width Sovereign Bar */
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 w-[340px] sm:w-[540px] md:w-[640px] max-w-[calc(100vw-2rem)] flex flex-col gap-2">
+              {/* Sleek Horizontal Top Row of Non-Siphonable Companions (Lae'zel, Astarion, Gale, ...) */}
+              <div
+                className="grid gap-1.5 sm:gap-2"
+                style={{
+                  gridTemplateColumns: `repeat(${Math.max(
+                    1,
+                    activeBosses.filter((entry) => !entry.canBeSiphoned).length,
+                  )}, minmax(0, 1fr))`,
+                }}
+              >
+                {activeBosses
+                  .filter((entry) => !entry.canBeSiphoned)
+                  .map((comp) => {
+                    const pct = comp.isDefeated
+                      ? 0
+                      : Math.max(
+                          0,
+                          Math.min(100, (comp.hp / Math.max(1, comp.maxHp)) * 100),
+                        );
+                    const accent = comp.barAccentHex || PALETTE.hex.steelSilver;
+                    return (
+                      <div
+                        key={comp.entityId}
+                        className="frost-panel rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 border transition-opacity duration-300"
+                        style={{
+                          opacity: comp.isDefeated ? 0.52 : 1,
+                          borderColor: comp.isDefeated
+                            ? `${PALETTE.hex.mutedSlate}66`
+                            : `${accent}88`,
+                          boxShadow: comp.isDefeated
+                            ? 'none'
+                            : `0 6px 18px ${accent}24`,
+                        }}
+                      >
+                        <div className="flex items-center justify-between gap-1 mb-1">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span
+                              className="w-2 h-2 rounded-sm rotate-45 shrink-0"
+                              style={{
+                                backgroundColor: comp.isDefeated
+                                  ? PALETTE.hex.drainedAshSilver
+                                  : accent,
+                                boxShadow: comp.isDefeated
+                                  ? 'none'
+                                  : `0 0 8px ${accent}`,
+                              }}
+                            />
+                            <span
+                              className="font-display text-[9px] sm:text-[10px] font-bold tracking-[0.12em] uppercase truncate"
+                              style={{
+                                color: comp.isDefeated
+                                  ? PALETTE.hex.drainedAshSilver
+                                  : PALETTE.hex.pureWhite,
+                              }}
+                            >
+                              {comp.displayName}
+                            </span>
+                          </div>
+                          {comp.isDefeated ? (
+                            <span
+                              className="text-[8px] sm:text-[9px] font-mono font-bold tracking-[0.12em] uppercase shrink-0"
+                              style={{ color: PALETTE.hex.drainedAshSilver }}
+                            >
+                              [FALLEN]
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-mono font-semibold text-sky-100/85 shrink-0">
+                              {Math.ceil(comp.hp)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="relative h-1.5 w-full rounded-full bg-slate-950/90 border border-slate-400/20 overflow-hidden p-[1px]">
+                          <div
+                            className="bar-fill relative h-full rounded-full transition-all duration-150"
+                            style={{
+                              width: `${pct.toFixed(1)}%`,
+                              background: comp.isDefeated
+                                ? PALETTE.hex.mutedSlate
+                                : `linear-gradient(90deg, ${PALETTE.hex.shadowSlate}, ${accent}, ${PALETTE.hex.pureWhite})`,
+                              boxShadow: comp.isDefeated
+                                ? 'none'
+                                : `0 0 8px ${accent}`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+
+              {/* Full-Width Royal-Violet Sovereign Bar (Shadowheart / Siphonable Boss) */}
+              {activeBosses
+                .filter((entry) => entry.canBeSiphoned)
+                .map((sov) => {
+                  const pct = Math.max(
+                    0,
+                    Math.min(100, (sov.hp / Math.max(1, sov.maxHp)) * 100),
+                  );
+                  return (
+                    <div
+                      key={sov.entityId}
+                      className="frost-panel rounded-xl px-4 py-2.5 sm:px-5 sm:py-3 border"
+                      style={{
+                        borderColor: `${PALETTE.hex.amethystTrim}AA`,
+                        boxShadow: `0 10px 30px ${PALETTE.hex.amethystTrim}44`,
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <svg
+                            className="w-4 h-4 shrink-0"
+                            viewBox="0 0 16 16"
+                            fill={PALETTE.hex.glowViolet}
+                            aria-label="Siphon Crest"
+                          >
+                            <path d="M8 0.5L10.3 5.7L15.5 8L10.3 10.3L8 15.5L5.7 10.3L0.5 8L5.7 5.7L8 0.5Z" />
+                          </svg>
+                          <span className="font-display text-xs sm:text-sm font-bold tracking-[0.16em] text-sky-50 truncate">
+                            {sov.displayName} &mdash; {sov.title}
+                          </span>
+                          <span
+                            className="text-[9px] font-semibold tracking-[0.16em] uppercase px-2 py-0.5 rounded shrink-0"
+                            style={{
+                              backgroundColor: `${PALETTE.hex.abyssalCloak}CC`,
+                              color:
+                                sov.isStaggered && hasLivingNonSiphonableBoss
+                                  ? PALETTE.hex.riftAmber
+                                  : sov.isStaggered
+                                    ? PALETTE.hex.pulseLavender
+                                    : PALETTE.hex.yenneferLilac,
+                            }}
+                          >
+                            {sov.isStaggered && hasLivingNonSiphonableBoss
+                              ? SPECIAL_SCENARIO_CONFIG.finisherLockedBossBarTag
+                              : sov.isStaggered
+                                ? 'STAGGERED'
+                                : 'SOVEREIGN'}
+                          </span>
+                        </div>
+                        <span className="text-[10px] sm:text-xs font-mono font-semibold text-sky-100/95 whitespace-nowrap">
+                          {Math.ceil(sov.hp)} / {sov.maxHp}
+                        </span>
+                      </div>
+
+                      <div className="relative h-2.5 sm:h-3 w-full rounded-full bg-slate-950/90 border border-purple-400/35 overflow-hidden p-[1px]">
+                        <div
+                          className="bar-fill relative h-full rounded-full transition-all duration-150"
+                          style={{
+                            width: `${pct.toFixed(1)}%`,
+                            background: `linear-gradient(90deg, ${PALETTE.hex.royalIndigo}, ${PALETTE.hex.amethystTrim}, ${PALETTE.hex.yenneferLilac})`,
+                            boxShadow: `0 0 14px ${PALETTE.hex.amethystTrim}`,
+                          }}
+                        />
+                      </div>
+
+                      {sov.isStaggered && hasLivingNonSiphonableBoss && (
+                        <div
+                          className="mt-1.5 flex items-center justify-center gap-1.5 text-[9px] sm:text-[10px] font-display font-bold tracking-[0.18em] uppercase"
+                          style={{ color: PALETTE.hex.riftAmber }}
+                        >
+                          <span>
+                            {SPECIAL_SCENARIO_CONFIG.finisherLockedCueText}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
           ) : activeBosses.length > 1 ? (
-            /* Compact Stacked Multi-Boss HP Bars: Non-Siphonable (Steel-Silver) stacked above Siphonable Sovereign (Royal-Violet + Siphon Crest) */
+            /* Compact Stacked 2-Boss HP Bars: Non-Siphonable (Steel-Silver) stacked above Siphonable Sovereign (Royal-Violet + Siphon Crest) */
             <div className="absolute top-3.5 left-1/2 -translate-x-1/2 w-[320px] sm:w-[480px] md:w-[540px] max-w-[calc(100vw-2rem)] flex flex-col gap-2">
               {[...activeBosses]
                 .sort((a, b) => Number(a.canBeSiphoned) - Number(b.canBeSiphoned))
                 .map((b) => {
-                  const pct = Math.max(
-                    0,
-                    Math.min(100, (b.hp / Math.max(1, b.maxHp)) * 100),
-                  );
+                  const pct = b.isDefeated
+                    ? 0
+                    : Math.max(
+                        0,
+                        Math.min(100, (b.hp / Math.max(1, b.maxHp)) * 100),
+                      );
                   return (
                     <div
                       key={b.entityId}
-                      className="frost-panel rounded-xl px-3.5 py-2 sm:px-4 sm:py-2.5 border"
+                      className="frost-panel rounded-xl px-3.5 py-2 sm:px-4 sm:py-2.5 border transition-opacity duration-300"
                       style={{
+                        opacity: b.isDefeated ? 0.55 : 1,
                         borderColor: b.canBeSiphoned
                           ? `${PALETTE.hex.amethystTrim}88`
                           : `${PALETTE.hex.steelSilver}66`,
@@ -358,8 +533,12 @@ export function CombatHUD({ controller }: CombatHUDProps) {
                             <span
                               className="w-2.5 h-2.5 rounded-sm rotate-45 shrink-0"
                               style={{
-                                backgroundColor: PALETTE.hex.steelSilver,
-                                boxShadow: `0 0 8px ${PALETTE.hex.steelSilver}`,
+                                backgroundColor: b.isDefeated
+                                  ? PALETTE.hex.drainedAshSilver
+                                  : PALETTE.hex.steelSilver,
+                                boxShadow: b.isDefeated
+                                  ? 'none'
+                                  : `0 0 8px ${PALETTE.hex.steelSilver}`,
                               }}
                             />
                           )}
@@ -370,19 +549,20 @@ export function CombatHUD({ controller }: CombatHUDProps) {
                             className="text-[9px] font-semibold tracking-[0.16em] uppercase px-1.5 py-0.5 rounded shrink-0"
                             style={{
                               backgroundColor: `${PALETTE.hex.abyssalCloak}CC`,
-                              color: b.isDissolving
-                                ? PALETTE.hex.ashEmber
-                                : b.isStaggered && hasLivingNonSiphonableBoss
-                                  ? PALETTE.hex.riftAmber
-                                  : b.isStaggered
-                                    ? PALETTE.hex.pulseLavender
-                                    : b.canBeSiphoned
-                                      ? PALETTE.hex.yenneferLilac
-                                      : PALETTE.hex.steelSilver,
+                              color:
+                                b.isDefeated || b.isDissolving
+                                  ? PALETTE.hex.drainedAshSilver
+                                  : b.isStaggered && hasLivingNonSiphonableBoss
+                                    ? PALETTE.hex.riftAmber
+                                    : b.isStaggered
+                                      ? PALETTE.hex.pulseLavender
+                                      : b.canBeSiphoned
+                                        ? PALETTE.hex.yenneferLilac
+                                        : PALETTE.hex.steelSilver,
                             }}
                           >
-                            {b.isDissolving
-                              ? 'FALLEN'
+                            {b.isDefeated || b.isDissolving
+                              ? '[FALLEN]'
                               : b.isStaggered && hasLivingNonSiphonableBoss
                                 ? SPECIAL_SCENARIO_CONFIG.finisherLockedBossBarTag
                                 : b.isStaggered

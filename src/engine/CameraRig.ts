@@ -738,9 +738,10 @@ export class CameraRig {
       } else if (
         bounds &&
         bounds.kind === ARENA_BOUNDS_KINDS.CIRCULAR &&
-        arena?.activeEnvironment === ENVIRONMENT_IDS.LOBBY
+        (arena?.activeEnvironment === ENVIRONMENT_IDS.LOBBY ||
+          arena?.activeEnvironment === ENVIRONMENT_IDS.SHARRAN_CRYPT)
       ) {
-        // Analytical cylinder intersection for enclosed circular Obsidian Spire Sanctum rotunda
+        // Analytical cylinder intersection for enclosed circular Sanctum rotunda & Sharran Crypt vault walls
         const safeR = Math.max(2.0, bounds.radius - margin);
         const ox = this.springPivotPos.x;
         const oz = this.springPivotPos.z;
