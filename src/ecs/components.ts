@@ -29,6 +29,7 @@ export type ProjectileKind =
   | 'ICE_LANCE'
   | 'GLACIAL_CRESCENT'
   | 'SPIRAL_ORB'
+  | 'MAGIC_MISSILE'
   | 'SERVANT_BOLT';
 
 export type HazardKind =
@@ -41,7 +42,10 @@ export type HazardKind =
   | 'LASER_WALL'
   | 'YRDEN_TRAP'
   | 'CHAOS_LIGHTNING'
-  | 'SPATIAL_RIFT';
+  | 'SPATIAL_RIFT'
+  | 'FIREBALL_BLAST'
+  | 'SPIRIT_GUARDIANS'
+  | 'GUIDING_BOLT_BEAM';
 
 export interface Vec3Data {
   x: number;
@@ -138,6 +142,8 @@ export interface ProjectileComponent {
   fanAngle: number;
   baseHeight: number;
   ownerEntityId: EntityId | null;
+  /** Optional angular homing turn rate (rad/sec) for Gale's Magic Missile bolts. */
+  homingTurnRate?: number;
 }
 
 export interface HazardZoneComponent {
@@ -195,15 +201,28 @@ export interface BossPhaseStateComponent {
   dashVelX: number;
   dashVelZ: number;
   ascendHeight: number;
-  /** Geralt Quen active shield durability (3 frontal hits -> 0) & remaining shield duration. */
+  /** Active barrier durability (Geralt frontal Quen / Gale 360° Arcane Ward) & timers. */
   quenHitsRemaining: number;
   quenTimer: number;
   quenCooldown: number;
+  /** True when the active barrier is 360° omnidirectional (Gale's Arcane Ward); false for frontal-only Quen. */
+  shieldIsOmnidirectional?: boolean;
   /** Yennefer Spatial Rift reposition cooldown & solo-enrage state when duo partner falls. */
   riftCooldown: number;
   isSoloEnraged: boolean;
-  /** Multi-stage pattern progress counter (e.g. Geralt 2-hit sword combo / Igni channel). */
+  /** Multi-stage pattern progress counter (e.g. Geralt 2-hit sword combo / Lae'zel Psionic Jump + Cleave). */
   patternSubStage: number;
+  /** Astarion Cunning Action: Hide stealth countdown & chosen crypt pillar index. */
+  stealthTimer?: number;
+  stealthTargetPillarIdx?: number;
+  /** Shadowheart Spirit Guardians melee-defense cooldown & fallen companion count (+12% cast speed each). */
+  spiritGuardiansCooldown?: number;
+  fallenAlliesCount?: number;
+  /** Lae'zel Psionic Jump parabolic start/landing coordinates (zero allocation). */
+  leapStartX?: number;
+  leapStartZ?: number;
+  leapEndX?: number;
+  leapEndZ?: number;
 }
 
 export interface SiphonableBossComponent {

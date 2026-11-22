@@ -68,6 +68,15 @@ export class GaleRig extends BossBase {
   private readonly nethereseRingMesh: THREE.Mesh;
   private readonly nethereseRingMat: THREE.MeshBasicMaterial;
   private readonly nethereseLight: THREE.PointLight;
+  // Violet-Cyan 360° Arcane Ward Protective Bubble
+  private readonly arcaneWardGroup = new THREE.Group();
+  private readonly arcaneWardShellMat: THREE.MeshBasicMaterial;
+  private readonly arcaneWardWireMat: THREE.MeshBasicMaterial;
+  private readonly arcaneWardRingMesh: THREE.Mesh;
+  private readonly arcaneWardLight: THREE.PointLight;
+  private arcaneWardActive = false;
+  private arcaneWardHitsRemaining = 0;
+  private arcaneWardDeflectFlashTimer = 0;
   private readonly auraRing: THREE.Mesh;
   private readonly faceMat: THREE.MeshToonMaterial;
 
@@ -171,6 +180,51 @@ export class GaleRig extends BossBase {
       3.2,
       2,
     );
+
+    this.arcaneWardShellMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.bg3GaleArcane,
+        transparent: true,
+        opacity: 0.24,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.arcaneWardWireMat = this.trackMat(
+      new THREE.MeshBasicMaterial({
+        color: PALETTE.frostRunes,
+        transparent: true,
+        opacity: 0.72,
+        wireframe: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    const wardGeo = this.trackGeo(new THREE.IcosahedronGeometry(1.16, 1));
+    const wardShell = new THREE.Mesh(wardGeo, this.arcaneWardShellMat);
+    const wardWire = new THREE.Mesh(wardGeo, this.arcaneWardWireMat);
+    wardWire.scale.setScalar(1.025);
+    this.arcaneWardRingMesh = new THREE.Mesh(
+      this.trackGeo(new THREE.TorusGeometry(1.22, 0.032, 8, 32)),
+      this.nethereseRingMat,
+    );
+    this.arcaneWardRingMesh.rotation.x = Math.PI * 0.38;
+    this.arcaneWardLight = new THREE.PointLight(
+      PALETTE.frostRunes,
+      0,
+      5.5,
+      1.7,
+    );
+    this.arcaneWardGroup.position.set(0, 1.08, 0);
+    this.arcaneWardGroup.add(
+      wardShell,
+      wardWire,
+      this.arcaneWardRingMesh,
+      this.arcaneWardLight,
+    );
+    this.arcaneWardGroup.visible = false;
+    this.root.add(this.arcaneWardGroup);
 
     this.buildArchmageRobes(skinMat, robePurpleMat, tunicDarkMat, goldTrimMat);
     this.buildHeadHairAndBeard(skinMat, this.faceMat, hairMat);
@@ -619,6 +673,20 @@ export class GaleRig extends BossBase {
     // Non-siphonable archmage maintains focused expression
   }
 
+  public setShieldVisual(active: boolean, hitsRemaining: number): void {
+    this.arcaneWardActive = active && hitsRemaining > 0;
+    this.arcaneWardHitsRemaining = Math.max(0, hitsRemaining);
+    if (!this.arcaneWardActive) {
+      this.arcaneWardGroup.visible = false;
+      this.arcaneWardLight.intensity = 0;
+    }
+  }
+
+  public triggerShieldDeflectFlash(): void {
+    this.arcaneWardDeflectFlashTimer = 0.24;
+    this.nethereseSurge = Math.max(this.nethereseSurge, 0.7);
+  }
+
   public setPhaseVisuals(phase: BossPhase): void {
     this.auraRing.scale.setScalar(phase >= BOSS_PHASES.PHASE_2 ? 1.24 : 1.0);
   }
@@ -657,6 +725,10 @@ export class GaleRig extends BossBase {
   ): void {
     this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
     this.castFlourishTimer = Math.max(0, this.castFlourishTimer - dt);
+    this.arcaneWardDeflectFlashTimer = Math.max(
+      0,
+      this.arcaneWardDeflectFlashTimer - dt,
+    );
 
     const breathe = Math.sin(elapsed * 2.5) * 0.022;
     const flourish =
@@ -695,6 +767,28 @@ export class GaleRig extends BossBase {
     this.auraRing.visible = true;
     this.auraRing.rotation.z = elapsed * 0.78;
 
+    // Animate 360° violet-cyan Arcane Ward protective bubble
+    if (this.arcaneWardActive) {
+      this.arcaneWardGroup.visible = true;
+      const wardRatio = Math.min(1, this.arcaneWardHitsRemaining / 3);
+      const flash =
+        this.arcaneWardDeflectFlashTimer > 0
+          ? this.arcaneWardDeflectFlashTimer / 0.24
+          : 0;
+      const pulse = 0.96 + 0.04 * Math.sin(elapsed * 5.2) + flash * 0.08;
+      this.arcaneWardGroup.position.y = 1.08 + breathe + this.ascendHeight;
+      this.arcaneWardGroup.scale.setScalar(pulse);
+      this.arcaneWardGroup.rotation.y = elapsed * 0.95;
+      this.arcaneWardRingMesh.rotation.z = -elapsed * 2.1;
+      this.arcaneWardShellMat.opacity =
+        0.16 + wardRatio * 0.14 + flash * 0.32;
+      this.arcaneWardWireMat.opacity =
+        0.48 + wardRatio * 0.34 + flash * 0.25;
+      this.arcaneWardLight.intensity = 2.6 + wardRatio * 1.8 + flash * 4.5;
+    } else {
+      this.arcaneWardGroup.visible = false;
+    }
+
     if (this.hitFlashTimer > 0) {
       for (let i = 0; i < this.drainableMaterials.length; i++) {
         const m = this.drainableMaterials[i];
@@ -727,6 +821,7 @@ export class GaleRig extends BossBase {
     );
     const t2 = rawT2 * rawT2 * (3 - 2 * rawT2);
 
+    this.setShieldVisual(false, 0);
     this.auraRing.visible = false;
     this.nethereseLight.intensity = THREE.MathUtils.lerp(1.45, 0.15, t1);
     this.faceMat.emissiveIntensity = THREE.MathUtils.lerp(
@@ -834,6 +929,8 @@ export class GaleRig extends BossBase {
     this.resetAshDissolve();
     this.resetBlindspotState();
     this.nethereseSurge = 0;
+    this.setShieldVisual(false, 0);
+    this.arcaneWardDeflectFlashTimer = 0;
     this.hitFlashTimer = 0;
     this.castFlourishTimer = 0;
     this.ascendHeight = 0;

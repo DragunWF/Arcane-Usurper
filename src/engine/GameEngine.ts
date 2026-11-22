@@ -4,6 +4,7 @@ import {
   AUDIO_CONFIG,
   AUDIO_MODES,
   BALDURS_GATE_PARTY_CONFIG,
+  BG3_PARTY_CONFIG,
   BOSS_CONFIG,
   BOSS_EXPRESSIONS,
   BOSS_PHASES,
@@ -1016,13 +1017,26 @@ export class GameEngine implements IGameController {
           quenCooldown:
             def.bossId === SPECIAL_SCENARIO_CONFIG.geraltId
               ? WOLF_AND_RAVEN_CONFIG.quenInitialCooldownSec
-              : 0,
+              : def.bossId === BALDURS_GATE_PARTY_CONFIG.galeId
+                ? BG3_PARTY_CONFIG.arcaneWardInitialCooldownSec
+                : 0,
+          shieldIsOmnidirectional:
+            def.bossId === BALDURS_GATE_PARTY_CONFIG.galeId,
           riftCooldown:
             def.bossId === SPECIAL_SCENARIO_CONFIG.yenneferId
               ? WOLF_AND_RAVEN_CONFIG.riftInitialCooldownSec
               : 0,
           isSoloEnraged: false,
           patternSubStage: 0,
+          stealthTimer: 0,
+          stealthTargetPillarIdx: 0,
+          spiritGuardiansCooldown:
+            def.bossId === BALDURS_GATE_PARTY_CONFIG.shadowheartId ? 2.0 : 0,
+          fallenAlliesCount: 0,
+          leapStartX: spawnX,
+          leapStartZ: spawnZ,
+          leapEndX: spawnX,
+          leapEndZ: spawnZ,
         },
         ...(def.canBeSiphoned
           ? {

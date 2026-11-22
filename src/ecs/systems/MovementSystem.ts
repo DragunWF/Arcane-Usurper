@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   ARENA_BOUNDS_KINDS,
   BALDURS_GATE_PARTY_CONFIG,
+  BG3_PARTY_CONFIG,
   BOSS_CONFIG,
   BOSS_PHASES,
   FINISHER_CONFIG,
@@ -602,11 +603,12 @@ export class MovementSystem implements ISystem {
       const bossPos = transform.position;
       const bossBodyRadius = boss.hurtbox?.radius ?? BOSS_CONFIG.hitRadius;
 
-      // Smoothly face Dark Mage unless locked in Twin Glacial Laser or Miku Crescendo Spotlights
+      // Smoothly face Dark Mage unless locked in Twin Glacial Laser, Miku Crescendo, or Guiding Bolt fire
       const lockRotation =
         bossPhase.activePatternId === 'TWIN_GLACIAL_LASER' ||
         bossPhase.activePatternId === 'MIKU_CRESCENDO_OVERDRIVE' ||
-        bossPhase.activePatternId === 'YENNEFER_OBSIDIAN_LASERS';
+        bossPhase.activePatternId === 'YENNEFER_OBSIDIAN_LASERS' ||
+        bossPhase.activePatternId === 'SHADOWHEART_GUIDING_BOLT';
       if (!lockRotation) {
         const dx = playerPos.x - bossPos.x;
         const dz = playerPos.z - bossPos.z;
@@ -663,15 +665,77 @@ export class MovementSystem implements ISystem {
         continue;
       }
 
-      // Hold steady gracefully during sweeping beam, curtain, or channeled storm patterns
+      // Hold steady gracefully during sweeping beam, curtain, leap-arc, or channeled storm patterns
       if (
         bossPhase.activePatternId === 'TWIN_GLACIAL_LASER' ||
         bossPhase.activePatternId === 'SNOWFLAKE_CURTAIN' ||
         bossPhase.activePatternId === 'MIKU_CRESCENDO_OVERDRIVE' ||
         bossPhase.activePatternId === 'YENNEFER_OBSIDIAN_LASERS' ||
         bossPhase.activePatternId === 'YENNEFER_CHAOS_MAELSTROM' ||
-        bossPhase.activePatternId === 'GERALT_IGNI_ARC'
+        bossPhase.activePatternId === 'GERALT_IGNI_ARC' ||
+        bossPhase.activePatternId === 'LAEZEL_PSIONIC_JUMP' ||
+        bossPhase.activePatternId === 'SHADOWHEART_GUIDING_BOLT' ||
+        bossPhase.activePatternId === 'SHADOWHEART_SHARRAN_ECLIPSE' ||
+        bossPhase.activePatternId === 'GALE_MAGIC_MISSILE' ||
+        bossPhase.activePatternId === 'GALE_FIREBALL'
       ) {
+        continue;
+      }
+
+      // Astarion Cunning Action: Hide — swiftly circles behind the chosen crypt pillar opposite the player
+      if (
+        bossPhase.activePatternId === 'ASTARION_CUNNING_HIDE' &&
+        (bossPhase.stealthTimer ?? 0) > 0
+      ) {
+        const pillarIdx = bossPhase.stealthTargetPillarIdx ?? 0;
+        const targetPillar = pillars[pillarIdx];
+        const hideSpeed =
+          BOSS_CONFIG.moveSpeed *
+          BALDURS_GATE_PARTY_CONFIG.astarionMoveSpeedMult *
+          BG3_PARTY_CONFIG.hideSpeedMult *
+          encoreSpeedMult;
+        let goalX = playerPos.x;
+        let goalZ = playerPos.z;
+        if (targetPillar) {
+          const awayX = targetPillar.x - playerPos.x;
+          const awayZ = targetPillar.z - playerPos.z;
+          const awayLen = Math.hypot(awayX, awayZ) || 1;
+          const baseAng = Math.atan2(awayX / awayLen, awayZ / awayLen);
+          const flankAng =
+            baseAng + bossPhase.orbitDir * Math.min(1.1, bossPhase.activePatternElapsed * 0.72);
+          goalX =
+            targetPillar.x +
+            Math.sin(flankAng) * BG3_PARTY_CONFIG.hidePillarOrbitRadius;
+          goalZ =
+            targetPillar.z +
+            Math.cos(flankAng) * BG3_PARTY_CONFIG.hidePillarOrbitRadius;
+        }
+        const sdx = goalX - bossPos.x;
+        const sdz = goalZ - bossPos.z;
+        const sLen = Math.hypot(sdx, sdz);
+        if (sLen > 0.08) {
+          const step = Math.min(sLen, hideSpeed * dt);
+          bossPos.x += (sdx / sLen) * step;
+          bossPos.z += (sdz / sLen) * step;
+        }
+        for (let pIdx = 0; pIdx < pillars.length; pIdx++) {
+          const pil = pillars[pIdx];
+          if (!pil) continue;
+          const pdx = bossPos.x - pil.x;
+          const pdz = bossPos.z - pil.z;
+          const minR = pil.radius + bossBodyRadius;
+          const pDistSq = pdx * pdx + pdz * pdz;
+          if (pDistSq < minR * minR && pDistSq > 0.00001) {
+            const pDist = Math.sqrt(pDistSq);
+            bossPos.x = pil.x + (pdx / pDist) * minR;
+            bossPos.z = pil.z + (pdz / pDist) * minR;
+          }
+        }
+        const radial = Math.hypot(bossPos.x, bossPos.z);
+        if (radial > bossClampRadius) {
+          bossPos.x = (bossPos.x / radial) * bossClampRadius;
+          bossPos.z = (bossPos.z / radial) * bossClampRadius;
+        }
         continue;
       }
 
@@ -916,6 +980,29 @@ export class MovementSystem implements ISystem {
         }
       } else {
         projectile.life -= dt;
+        // Zero-allocation homing turn steering for Gale's Magic Missile bolts
+        if (projectile.kind === 'MAGIC_MISSILE' && player) {
+          const dx = player.transform.position.x - transform.position.x;
+          const dz = player.transform.position.z - transform.position.z;
+          if (dx * dx + dz * dz > 0.04) {
+            const desiredAng = Math.atan2(dx, dz);
+            const curAng = Math.atan2(velocity.vx, velocity.vz);
+            let diff = desiredAng - curAng;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            const maxStep =
+              (projectile.homingTurnRate ??
+                BG3_PARTY_CONFIG.magicMissileTurnRateRad) * dt;
+            const nextAng =
+              curAng + THREE.MathUtils.clamp(diff, -maxStep, maxStep);
+            const spd = velocity.maxSpeed || BG3_PARTY_CONFIG.magicMissileSpeed;
+            velocity.vx = Math.sin(nextAng) * spd;
+            velocity.vz = Math.cos(nextAng) * spd;
+            transform.rotationY = nextAng;
+          }
+          const dy = 1.12 - transform.position.y;
+          velocity.vy = THREE.MathUtils.clamp(dy * 2.2, -3.5, 3.5);
+        }
         transform.position.x += velocity.vx * dt;
         transform.position.y += velocity.vy * dt;
         transform.position.z += velocity.vz * dt;

@@ -817,6 +817,14 @@ export class GeraltRig extends BossBase {
     this.signLight.color.setHex(hex);
   }
 
+  public setShieldVisual(active: boolean, hitsRemaining: number): void {
+    this.setQuenVisual(active, hitsRemaining);
+  }
+
+  public triggerShieldDeflectFlash(): void {
+    this.triggerQuenDeflectFlash();
+  }
+
   public setQuenVisual(active: boolean, hitsRemaining: number): void {
     this.quenActive = active && hitsRemaining > 0;
     this.quenHitsRemaining = Math.max(0, hitsRemaining);

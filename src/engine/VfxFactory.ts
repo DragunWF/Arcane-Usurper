@@ -106,6 +106,26 @@ export interface SpatialRiftMeshHandles {
   riftLight: THREE.PointLight;
 }
 
+export interface FireballBlastMeshHandles {
+  runeRing: THREE.Mesh;
+  runeMat: THREE.MeshBasicMaterial;
+  fillDisc: THREE.Mesh;
+  fillMat: THREE.MeshBasicMaterial;
+  blastSphere: THREE.Mesh;
+  blastMat: THREE.MeshBasicMaterial;
+  shockRing: THREE.Mesh;
+  shockMat: THREE.MeshBasicMaterial;
+  blastLight: THREE.PointLight;
+}
+
+export interface SpiritGuardiansMeshHandles {
+  floorRing: THREE.Mesh;
+  floorRingMat: THREE.MeshBasicMaterial;
+  orbitGroup: THREE.Group;
+  wispMat: THREE.MeshBasicMaterial;
+  auraLight: THREE.PointLight;
+}
+
 /**
  * Narrow VFX & mesh creation interface injected into ECS systems (ISP & DIP).
  */
@@ -136,6 +156,13 @@ export interface IVfxSpawner {
   createYrdenTrapGroup(origin: THREE.Vector3, radius: number): THREE.Group;
   createChaosLightningGroup(origin: THREE.Vector3, radius: number): THREE.Group;
   createSpatialRiftGroup(origin: THREE.Vector3): THREE.Group;
+  createFireballBlastGroup(origin: THREE.Vector3, radius: number): THREE.Group;
+  createSpiritGuardiansGroup(origin: THREE.Vector3, radius: number): THREE.Group;
+  createGuidingBoltBeamGroup(
+    origin: THREE.Vector3,
+    angle: number,
+    beamLength: number,
+  ): THREE.Group;
   createUmbralPulseGroup(origin: THREE.Vector3): THREE.Group;
   createFrostRingNovaGroup(origin: THREE.Vector3): THREE.Group;
   createPhaseShockwaveGroup(origin: THREE.Vector3, phase: BossPhase): THREE.Group;
@@ -162,7 +189,11 @@ export interface IVfxSpawner {
   spawnTrailSpark(position: THREE.Vector3): void;
   spawnImpactBurst(origin: THREE.Vector3, count?: number): void;
   spawnFrostShatterBurst(origin: THREE.Vector3, count?: number, maxSpeed?: number): void;
-  spawnTelegraphRing(origin: THREE.Vector3): void;
+  spawnTelegraphRing(
+    origin: THREE.Vector3,
+    customColor?: number,
+    customRadius?: number,
+  ): void;
   spawnAfterimage(mageRig: DarkMageRig): void;
   spawnVaporWisp(origin: THREE.Vector3): void;
   spawnFinisherParticle(origin: THREE.Vector3, throttle: DrainThrottleMode): void;
@@ -1381,6 +1412,262 @@ export class VfxFactory implements IVfxSpawner {
     return group;
   }
 
+  /**
+   * Gale's delayed Fireball ground blast ring + fiery orange-crimson detonation sphere.
+   */
+  public createFireballBlastGroup(
+    origin: THREE.Vector3,
+    radius: number,
+  ): THREE.Group {
+    const group = new THREE.Group();
+    group.position.set(origin.x, 0.06, origin.z);
+
+    const runeGeo = new THREE.RingGeometry(radius - 0.2, radius, 40);
+    const runeMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.geraltIgniOrange,
+      transparent: true,
+      opacity: 0.92,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const runeRing = new THREE.Mesh(runeGeo, runeMat);
+    runeRing.rotation.x = -Math.PI / 2;
+    group.add(runeRing);
+
+    const fillGeo = new THREE.CircleGeometry(radius - 0.16, 36);
+    const fillMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.bg3AstarionCrimson,
+      transparent: true,
+      opacity: 0.34,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const fillDisc = new THREE.Mesh(fillGeo, fillMat);
+    fillDisc.rotation.x = -Math.PI / 2;
+    fillDisc.scale.setScalar(0.06);
+    group.add(fillDisc);
+
+    const blastGeo = new THREE.SphereGeometry(
+      radius * 0.82,
+      18,
+      14,
+      0,
+      Math.PI * 2,
+      0,
+      Math.PI * 0.58,
+    );
+    const blastMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.geraltIgniOrange,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const blastSphere = new THREE.Mesh(blastGeo, blastMat);
+    blastSphere.visible = false;
+    group.add(blastSphere);
+
+    const shockGeo = new THREE.TorusGeometry(radius * 0.92, 0.14, 8, 36);
+    const shockMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.geraltQuenGold,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const shockRing = new THREE.Mesh(shockGeo, shockMat);
+    shockRing.rotation.x = Math.PI / 2;
+    shockRing.position.y = 0.24;
+    shockRing.visible = false;
+    group.add(shockRing);
+
+    const blastLight = new THREE.PointLight(
+      PALETTE.geraltIgniOrange,
+      0,
+      radius * 3.2,
+      1.6,
+    );
+    blastLight.position.y = 1.4;
+    group.add(blastLight);
+
+    const handles: FireballBlastMeshHandles = {
+      runeRing,
+      runeMat,
+      fillDisc,
+      fillMat,
+      blastSphere,
+      blastMat,
+      shockRing,
+      shockMat,
+      blastLight,
+    };
+    group.userData.fireballHandles = handles;
+    group.userData.ownedMaterials = [runeMat, fillMat, blastMat, shockMat];
+    group.userData.ownedGeometries = [runeGeo, fillGeo, blastGeo, shockGeo];
+
+    this.scene.add(group);
+    return group;
+  }
+
+  /**
+   * Shadowheart's orbiting necrotic-violet Spirit Guardians ring (melee deterrence aura).
+   */
+  public createSpiritGuardiansGroup(
+    origin: THREE.Vector3,
+    radius: number,
+  ): THREE.Group {
+    const group = new THREE.Group();
+    group.position.set(origin.x, 0.08, origin.z);
+
+    const floorGeo = new THREE.RingGeometry(radius - 0.22, radius, 48);
+    const floorRingMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.shadowheartEmblemGlow,
+      transparent: true,
+      opacity: 0.78,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const floorRing = new THREE.Mesh(floorGeo, floorRingMat);
+    floorRing.rotation.x = -Math.PI / 2;
+    group.add(floorRing);
+
+    const orbitGroup = new THREE.Group();
+    const wispMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.amethystTrim,
+      transparent: true,
+      opacity: 0.88,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const wispGeo = new THREE.ConeGeometry(0.16, 0.62, 6);
+    wispGeo.rotateX(Math.PI * 0.5);
+
+    const wispCount = 6;
+    for (let i = 0; i < wispCount; i++) {
+      const ang = (i / wispCount) * Math.PI * 2;
+      const wisp = new THREE.Mesh(wispGeo, wispMat);
+      wisp.position.set(
+        Math.cos(ang) * (radius * 0.86),
+        0.92 + (i % 2) * 0.34,
+        Math.sin(ang) * (radius * 0.86),
+      );
+      wisp.rotation.y = -ang;
+      orbitGroup.add(wisp);
+    }
+    group.add(orbitGroup);
+
+    const auraLight = new THREE.PointLight(
+      PALETTE.shadowheartEmblemGlow,
+      5.5,
+      radius * 2.4,
+      1.6,
+    );
+    auraLight.position.y = 1.1;
+    group.add(auraLight);
+
+    const handles: SpiritGuardiansMeshHandles = {
+      floorRing,
+      floorRingMat,
+      orbitGroup,
+      wispMat,
+      auraLight,
+    };
+    group.userData.spiritGuardiansHandles = handles;
+    group.userData.ownedMaterials = [floorRingMat, wispMat];
+    group.userData.ownedGeometries = [floorGeo, wispGeo];
+
+    this.scene.add(group);
+    return group;
+  }
+
+  /**
+   * Shadowheart's radiant-violet Guiding Bolt beam (reuses LaserMeshHandles + pillar LOS scaling).
+   */
+  public createGuidingBoltBeamGroup(
+    origin: THREE.Vector3,
+    angle: number,
+    beamLength: number,
+  ): THREE.Group {
+    const group = new THREE.Group();
+    group.position.copy(origin);
+    group.rotation.y = angle;
+
+    const unitLen = 1.0;
+    const telegraphGeo = new THREE.CylinderGeometry(0.045, 0.045, unitLen, 6);
+    telegraphGeo.rotateX(Math.PI / 2);
+    telegraphGeo.translate(0, 0, unitLen * 0.5);
+    const telegraphMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.sharranLunarSilver,
+      transparent: true,
+      opacity: 0.82,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const telegraphMesh = new THREE.Mesh(telegraphGeo, telegraphMat);
+    telegraphMesh.scale.set(1, 1, beamLength);
+    group.add(telegraphMesh);
+
+    const coreGeo = new THREE.CylinderGeometry(0.16, 0.2, unitLen, 10);
+    coreGeo.rotateX(Math.PI / 2);
+    coreGeo.translate(0, 0, unitLen * 0.5);
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.pureWhite,
+      transparent: true,
+      opacity: 0.96,
+    });
+    const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+    coreMesh.scale.set(1, 1, beamLength);
+    coreMesh.visible = false;
+    group.add(coreMesh);
+
+    const outerGeo = new THREE.CylinderGeometry(0.42, 0.52, unitLen, 12);
+    outerGeo.rotateX(Math.PI / 2);
+    outerGeo.translate(0, 0, unitLen * 0.5);
+    const outerMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.shadowheartEmblemGlow,
+      transparent: true,
+      opacity: 0.62,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const outerMesh = new THREE.Mesh(outerGeo, outerMat);
+    outerMesh.scale.set(1, 1, beamLength);
+    outerMesh.visible = false;
+    group.add(outerMesh);
+
+    const muzzleGeo = new THREE.SphereGeometry(0.36, 12, 12);
+    const muzzleMat = new THREE.MeshBasicMaterial({
+      color: PALETTE.sharranLunarSilver,
+      transparent: true,
+      opacity: 0.92,
+      blending: THREE.AdditiveBlending,
+    });
+    const muzzleMesh = new THREE.Mesh(muzzleGeo, muzzleMat);
+    muzzleMesh.visible = false;
+    group.add(muzzleMesh);
+
+    const handles: LaserMeshHandles = {
+      telegraphMesh,
+      telegraphMat,
+      coreMesh,
+      coreMat,
+      outerMesh,
+      outerMat,
+      muzzleMesh,
+      muzzleMat,
+    };
+    group.userData.laserHandles = handles;
+    group.userData.ownedMaterials = [telegraphMat, coreMat, outerMat, muzzleMat];
+    group.userData.ownedGeometries = [telegraphGeo, coreGeo, outerGeo, muzzleGeo];
+
+    this.scene.add(group);
+    return group;
+  }
+
   public spawnTrailSpark(position: THREE.Vector3): void {
     const mat = new THREE.MeshBasicMaterial({
       color: Math.random() > 0.35 ? PALETTE.glowViolet : PALETTE.voidCoreFuchsia,
@@ -1499,17 +1786,23 @@ export class VfxFactory implements IVfxSpawner {
     }
   }
 
-  public spawnTelegraphRing(origin: THREE.Vector3): void {
+  public spawnTelegraphRing(
+    origin: THREE.Vector3,
+    customColor?: number,
+    customRadius?: number,
+  ): void {
+    const outerR = customRadius ?? 2.2;
+    const innerR = Math.max(0.25, outerR * 0.18);
     const teleMat = new THREE.MeshBasicMaterial({
-      color: PALETTE.iceHighlights,
+      color: customColor ?? PALETTE.iceHighlights,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.62,
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
     const teleMesh = new THREE.Mesh(
-      new THREE.RingGeometry(0.4, 2.2, 36),
+      new THREE.RingGeometry(innerR, outerR, 36),
       teleMat,
     );
     teleMesh.rotation.x = -Math.PI / 2;

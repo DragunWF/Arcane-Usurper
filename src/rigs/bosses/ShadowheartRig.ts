@@ -110,6 +110,7 @@ export class ShadowheartRig extends BossBase {
   private accessoryFlickTimer = 0;
   private tauntReactTimer = 0;
   private ascendHeight = 0;
+  private eclipseChargeIntensity = 0;
   private captiveFaceTimer = 0;
 
   // Reusable scratch colors (zero per-frame allocations)
@@ -1060,6 +1061,10 @@ export class ShadowheartRig extends BossBase {
     this.ascendHeight = extraY;
   }
 
+  public setEclipseCharge(intensity: number): void {
+    this.eclipseChargeIntensity = THREE.MathUtils.clamp(intensity, 0, 1);
+  }
+
   public triggerHitFlash(): void {
     this.hitFlashTimer = 0.14;
   }
@@ -1127,19 +1132,24 @@ export class ShadowheartRig extends BossBase {
     this.leftKneePivot.rotation.x = THREE.MathUtils.lerp(0.18, 1.56, s);
     this.rightKneePivot.rotation.x = THREE.MathUtils.lerp(0.18, 1.56, s);
 
-    // Shield raised defensively on left, Sharran mace ready on right
+    // Shield raised defensively on left, Sharran mace ready on right (+ Eclipse overhead invocation)
+    const ecl = this.eclipseChargeIntensity * (1 - s);
     this.leftShoulderPivot.rotation.set(
-      THREE.MathUtils.lerp(-0.52 - flourish * 0.35, 0.14, s),
+      THREE.MathUtils.lerp(-0.52 - flourish * 0.35 - ecl * 0.95, 0.14, s),
       0.24,
-      THREE.MathUtils.lerp(0.26, 0.18, s),
+      THREE.MathUtils.lerp(0.26 + ecl * 0.38, 0.18, s),
     );
     this.rightShoulderPivot.rotation.set(
-      THREE.MathUtils.lerp(-0.46 - flourish * 0.92, 0.14, s),
+      THREE.MathUtils.lerp(-0.46 - flourish * 0.92 - ecl * 1.25, 0.14, s),
       -0.16,
-      THREE.MathUtils.lerp(-0.24, -0.18, s),
+      THREE.MathUtils.lerp(-0.24 - ecl * 0.34, -0.18, s),
     );
     this.leftElbowPivot.rotation.set(THREE.MathUtils.lerp(-0.82, -0.4, s), 0, 0);
     this.rightElbowPivot.rotation.set(THREE.MathUtils.lerp(-0.66, -0.4, s), 0, 0);
+    if (s < 0.5) {
+      this.sharranEmblemLight.intensity =
+        1.35 * (1 - this.currentDrainBleach) + ecl * 3.6;
+    }
 
     this.applyExhaustedExposureHeave(
       this.torsoGroup,
@@ -1483,6 +1493,7 @@ export class ShadowheartRig extends BossBase {
     this.accessoryFlickTimer = 0;
     this.tauntReactTimer = 0;
     this.ascendHeight = 0;
+    this.eclipseChargeIntensity = 0;
     this.maceGroup.visible = true;
     this.shieldGroup.visible = true;
     this.auraRing.visible = true;

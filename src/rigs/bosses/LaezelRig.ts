@@ -610,6 +610,20 @@ export class LaezelRig extends BossBase {
     kneePivot.add(boot);
   }
 
+  private psionicLeapIntensity = 0;
+  private cleaveSlashStep: 0 | 1 | 2 = 0;
+  private cleaveSlashTimer = 0;
+
+  public setPsionicLeapAura(intensity: number): void {
+    this.psionicLeapIntensity = THREE.MathUtils.clamp(intensity, 0, 1);
+  }
+
+  public triggerGreatswordSlash(step: 1 | 2): void {
+    this.cleaveSlashStep = step;
+    this.cleaveSlashTimer = 0.28;
+    this.castFlourishTimer = 0.34;
+  }
+
   public setExpression(_expression: BossExpression, _spiralPhase = 0): void {
     // Non-siphonable warrior maintains fierce combat expression
   }
@@ -652,37 +666,63 @@ export class LaezelRig extends BossBase {
   ): void {
     this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
     this.castFlourishTimer = Math.max(0, this.castFlourishTimer - dt);
+    this.cleaveSlashTimer = Math.max(0, this.cleaveSlashTimer - dt);
+    if (this.cleaveSlashTimer <= 0) this.cleaveSlashStep = 0;
 
     const breathe = Math.sin(elapsed * 3.0) * 0.02;
     const flourish =
       this.castFlourishTimer > 0
         ? Math.sin((this.castFlourishTimer / 0.42) * Math.PI)
         : 0;
+    const slashWave =
+      this.cleaveSlashTimer > 0
+        ? Math.sin((this.cleaveSlashTimer / 0.28) * Math.PI)
+        : 0;
+    const slashDir = this.cleaveSlashStep === 2 ? -1 : 1;
+    const leap = this.psionicLeapIntensity;
 
     this.bodyPivot.position.set(0, 0.94 + breathe + this.ascendHeight, 0);
-    this.bodyPivot.rotation.set(0, 0, 0);
-    this.torsoGroup.rotation.set(0.12 + flourish * 0.24, -0.22 + flourish * 0.65, 0);
-    this.headGroup.rotation.set(-0.04, 0.18, 0);
+    this.bodyPivot.rotation.set(leap * 0.26, 0, 0);
+    this.torsoGroup.rotation.set(
+      0.12 + flourish * 0.24 + leap * 0.2,
+      -0.22 + flourish * 0.45 + slashWave * slashDir * 0.85,
+      0,
+    );
+    this.headGroup.rotation.set(-0.04, 0.18 - slashWave * slashDir * 0.22, 0);
 
-    this.topKnotPivot.rotation.x = Math.sin(elapsed * 3.8) * 0.08;
+    this.topKnotPivot.rotation.x = Math.sin(elapsed * 3.8) * 0.08 - leap * 0.45;
     for (let i = 0; i < this.sideBraidPivots.length; i++) {
-      this.sideBraidPivots[i]!.rotation.x = Math.sin(elapsed * 3.2 + i) * 0.08;
+      this.sideBraidPivots[i]!.rotation.x =
+        Math.sin(elapsed * 3.2 + i) * 0.08 - leap * 0.35;
     }
 
-    // Wide aggressive Githyanki greatsword stance
-    this.leftLegPivot.rotation.set(-0.26, 0, -0.1);
-    this.rightLegPivot.rotation.set(0.24, 0, 0.1);
-    this.leftKneePivot.rotation.x = 0.36;
-    this.rightKneePivot.rotation.x = 0.24;
+    // Wide aggressive Githyanki greatsword stance (+ airborne crouch during Psionic Jump)
+    this.leftLegPivot.rotation.set(-0.26 - leap * 0.65, 0, -0.1);
+    this.rightLegPivot.rotation.set(0.24 - leap * 0.55, 0, 0.1);
+    this.leftKneePivot.rotation.x = 0.36 + leap * 0.95;
+    this.rightKneePivot.rotation.x = 0.24 + leap * 0.85;
 
-    this.leftShoulderPivot.rotation.set(-0.68 - flourish * 0.45, 0.32, 0.18);
+    this.leftShoulderPivot.rotation.set(
+      -0.68 - flourish * 0.45 - leap * 0.95,
+      0.32,
+      0.18,
+    );
     this.leftElbowPivot.rotation.set(-0.88 + flourish * 0.3, 0, 0);
-    this.rightShoulderPivot.rotation.set(-0.62 - flourish * 0.85, -0.22 + flourish * 0.5, -0.24);
-    this.rightElbowPivot.rotation.set(-0.82 + flourish * 0.45, 0, 0);
-    this.greatswordGroup.rotation.set(Math.PI * 0.4, 0, 0);
+    this.rightShoulderPivot.rotation.set(
+      -0.62 - flourish * 0.85 - leap * 1.35 + slashWave * 0.72,
+      -0.22 + slashWave * slashDir * 0.95,
+      -0.24 - slashWave * 0.35,
+    );
+    this.rightElbowPivot.rotation.set(-0.82 + flourish * 0.45 + slashWave * 0.42, 0, 0);
+    this.greatswordGroup.rotation.set(
+      Math.PI * 0.4 + slashWave * 0.45 - leap * 0.5,
+      0,
+      slashWave * slashDir * 0.38,
+    );
 
     this.auraRing.visible = true;
-    this.auraRing.rotation.z = elapsed * 0.95;
+    this.auraRing.scale.setScalar(1.0 + leap * 0.45);
+    this.auraRing.rotation.z = elapsed * (0.95 + leap * 3.5);
 
     if (this.hitFlashTimer > 0) {
       for (let i = 0; i < this.drainableMaterials.length; i++) {
@@ -824,6 +864,9 @@ export class LaezelRig extends BossBase {
     this.resetBlindspotState();
     this.hitFlashTimer = 0;
     this.castFlourishTimer = 0;
+    this.psionicLeapIntensity = 0;
+    this.cleaveSlashStep = 0;
+    this.cleaveSlashTimer = 0;
     this.ascendHeight = 0;
     this.faceMat.emissiveIntensity = 0.34;
     this.bodyPivot.position.set(0, 0.94, 0);

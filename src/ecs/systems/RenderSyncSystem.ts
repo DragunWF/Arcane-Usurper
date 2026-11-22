@@ -11,6 +11,7 @@ import type { SceneManager } from '../../engine/SceneManager';
 import type {
   AbyssalWhirlpoolMeshHandles,
   ChaosLightningMeshHandles,
+  FireballBlastMeshHandles,
   FrostRingMeshHandles,
   HarmonicAmpNodeHandles,
   IcePillarMeshHandles,
@@ -20,6 +21,7 @@ import type {
   PhaseWaveMeshHandles,
   PulseMeshHandles,
   SpatialRiftMeshHandles,
+  SpiritGuardiansMeshHandles,
   YrdenTrapMeshHandles,
 } from '../../engine/VfxFactory';
 import type { DarkMageRig } from '../../rigs/DarkMageRig';
@@ -487,6 +489,102 @@ export class RenderSyncSystem implements ISystem {
           handles.coreMat.opacity = env * 0.72;
           handles.rimMat.opacity = env * 0.95;
           handles.riftLight.intensity = env * 9.0;
+        }
+      } else if (hz.kind === 'FIREBALL_BLAST') {
+        const handles = obj.userData.fireballHandles as
+          | FireballBlastMeshHandles
+          | undefined;
+        if (handles) {
+          if (hz.elapsed < 0) {
+            obj.visible = false;
+          } else {
+            obj.visible = true;
+            if (hz.elapsed < hz.telegraphDuration) {
+              const p = hz.elapsed / Math.max(0.001, hz.telegraphDuration);
+              handles.fillDisc.visible = true;
+              handles.blastSphere.visible = false;
+              handles.shockRing.visible = false;
+              handles.fillDisc.scale.setScalar(0.08 + p * 0.92);
+              handles.runeRing.rotation.z += dt * (2.2 + p * 4.5);
+              handles.runeMat.opacity = 0.62 + 0.38 * Math.sin(p * Math.PI * 6);
+              handles.fillMat.opacity = 0.22 + p * 0.44;
+              handles.blastLight.intensity = p * 3.8;
+            } else {
+              handles.fillDisc.visible = false;
+              handles.blastSphere.visible = true;
+              handles.shockRing.visible = true;
+              const et = THREE.MathUtils.clamp(
+                (hz.elapsed - hz.telegraphDuration) /
+                  Math.max(0.001, hz.activeDuration),
+                0,
+                1,
+              );
+              const pop = 1 - Math.pow(1 - Math.min(1, et / 0.28), 3);
+              const fade = 1 - et;
+              handles.blastSphere.scale.setScalar(0.35 + pop * 0.85);
+              handles.shockRing.scale.setScalar(0.65 + et * 0.65);
+              handles.blastMat.opacity = fade * 0.78;
+              handles.shockMat.opacity = fade * 0.92;
+              handles.runeMat.opacity = fade * 0.75;
+              handles.blastLight.intensity = fade * 16.0;
+            }
+          }
+        }
+      } else if (hz.kind === 'SPIRIT_GUARDIANS') {
+        const handles = obj.userData.spiritGuardiansHandles as
+          | SpiritGuardiansMeshHandles
+          | undefined;
+        if (handles) {
+          const t = THREE.MathUtils.clamp(
+            hz.elapsed / Math.max(0.001, hz.activeDuration),
+            0,
+            1,
+          );
+          const fadeIn = Math.min(1, t / 0.1);
+          const fadeOut = t > 0.82 ? (1 - t) / 0.18 : 1;
+          const env = fadeIn * fadeOut;
+          const pulse = 0.88 + 0.12 * Math.sin(elapsed * 7.5);
+          handles.floorRing.rotation.z -= dt * 1.8;
+          handles.orbitGroup.rotation.y += dt * 3.4;
+          handles.floorRingMat.opacity = 0.78 * env * pulse;
+          handles.wispMat.opacity = 0.88 * env;
+          handles.auraLight.intensity = 5.5 * env * pulse;
+        }
+      } else if (hz.kind === 'GUIDING_BOLT_BEAM') {
+        obj.rotation.y = hz.angle;
+        const handles = obj.userData.laserHandles as
+          | LaserMeshHandles
+          | undefined;
+        if (handles) {
+          const len = Math.max(0.5, hz.beamLength);
+          if (hz.elapsed < hz.telegraphDuration) {
+            const p = hz.elapsed / Math.max(0.001, hz.telegraphDuration);
+            handles.telegraphMesh.visible = true;
+            handles.telegraphMesh.scale.set(1, 1, len);
+            handles.telegraphMat.opacity =
+              0.42 + 0.52 * Math.sin(p * Math.PI * 7);
+            handles.coreMesh.visible = false;
+            handles.outerMesh.visible = false;
+            handles.muzzleMesh.visible = false;
+          } else {
+            handles.telegraphMesh.visible = false;
+            handles.coreMesh.visible = true;
+            handles.outerMesh.visible = true;
+            handles.muzzleMesh.visible = true;
+            const et = THREE.MathUtils.clamp(
+              (hz.elapsed - hz.telegraphDuration) /
+                Math.max(0.001, hz.activeDuration),
+              0,
+              1,
+            );
+            const fade = 1 - Math.pow(et, 1.5);
+            const pulse = 0.9 + 0.16 * Math.sin(hz.elapsed * 38);
+            handles.coreMesh.scale.set(pulse * fade, pulse * fade, len);
+            handles.outerMesh.scale.set(pulse * fade, pulse * fade, len);
+            handles.coreMat.opacity = 0.96 * fade;
+            handles.outerMat.opacity = 0.62 * fade;
+            handles.muzzleMat.opacity = 0.9 * fade;
+          }
         }
       }
     }

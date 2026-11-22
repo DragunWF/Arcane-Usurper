@@ -615,6 +615,18 @@ export class AstarionRig extends BossBase {
     this.auraRing.visible = !isStealthed;
   }
 
+  private sneakTelegraphIntensity = 0;
+  private sneakStrikeTimer = 0;
+
+  public setSneakTelegraph(intensity: number): void {
+    this.sneakTelegraphIntensity = THREE.MathUtils.clamp(intensity, 0, 1);
+  }
+
+  public triggerSneakStrike(): void {
+    this.sneakStrikeTimer = 0.32;
+    this.castFlourishTimer = 0.36;
+  }
+
   public setExpression(_expression: BossExpression, _spiralPhase = 0): void {
     // Non-siphonable vampire spawn maintains predatory smirk
   }
@@ -657,18 +669,23 @@ export class AstarionRig extends BossBase {
   ): void {
     this.hitFlashTimer = Math.max(0, this.hitFlashTimer - dt);
     this.castFlourishTimer = Math.max(0, this.castFlourishTimer - dt);
+    this.sneakStrikeTimer = Math.max(0, this.sneakStrikeTimer - dt);
 
-    const crouch = this.stealthIntensity * 0.16;
+    const crouch = this.stealthIntensity * 0.16 + this.sneakTelegraphIntensity * 0.12;
     const breathe = Math.sin(elapsed * 3.4) * 0.018;
     const flourish =
       this.castFlourishTimer > 0
         ? Math.sin((this.castFlourishTimer / 0.38) * Math.PI)
         : 0;
+    const lunge =
+      this.sneakStrikeTimer > 0
+        ? Math.sin((this.sneakStrikeTimer / 0.32) * Math.PI)
+        : 0;
 
     this.bodyPivot.position.set(0, 0.94 - crouch + breathe + this.ascendHeight, 0);
-    this.bodyPivot.rotation.set(0, 0, 0);
+    this.bodyPivot.rotation.set(lunge * 0.32, 0, 0);
     this.torsoGroup.rotation.set(
-      0.16 + crouch * 1.1 + flourish * 0.25,
+      0.16 + crouch * 1.1 + flourish * 0.25 + lunge * 0.22,
       Math.sin(elapsed * 2.2) * 0.12 + flourish * 0.45,
       0,
     );
@@ -680,12 +697,21 @@ export class AstarionRig extends BossBase {
     this.leftKneePivot.rotation.x = 0.48 + crouch * 1.6;
     this.rightKneePivot.rotation.x = 0.32 + crouch * 1.4;
 
-    this.leftShoulderPivot.rotation.set(-0.68 - flourish * 0.65, 0.28, 0.32);
-    this.leftElbowPivot.rotation.set(-0.92 + flourish * 0.5, 0, 0);
-    this.rightShoulderPivot.rotation.set(-0.56 - flourish * 0.72, -0.28, -0.32);
-    this.rightElbowPivot.rotation.set(-0.88 + flourish * 0.55, 0, 0);
-    this.leftDaggerGroup.rotation.set(Math.PI * 0.48, 0, 0);
-    this.rightDaggerGroup.rotation.set(Math.PI * 0.48, 0, 0);
+    const daggerCross = this.sneakTelegraphIntensity * 0.65;
+    this.leftShoulderPivot.rotation.set(
+      -0.68 - flourish * 0.65 - lunge * 0.85,
+      0.28 + daggerCross,
+      0.32 + lunge * 0.45,
+    );
+    this.leftElbowPivot.rotation.set(-0.92 + flourish * 0.5 + lunge * 0.55, 0, 0);
+    this.rightShoulderPivot.rotation.set(
+      -0.56 - flourish * 0.72 - lunge * 0.85,
+      -0.28 - daggerCross,
+      -0.32 - lunge * 0.45,
+    );
+    this.rightElbowPivot.rotation.set(-0.88 + flourish * 0.55 + lunge * 0.55, 0, 0);
+    this.leftDaggerGroup.rotation.set(Math.PI * 0.48 + lunge * 0.35, 0, 0);
+    this.rightDaggerGroup.rotation.set(Math.PI * 0.48 + lunge * 0.35, 0, 0);
 
     if (this.stealthCloakMesh.visible) {
       this.stealthCloakMesh.rotation.y = elapsed * 2.4;
@@ -827,6 +853,8 @@ export class AstarionRig extends BossBase {
     this.resetAshDissolve();
     this.resetBlindspotState();
     this.setShadowStealth(0);
+    this.sneakTelegraphIntensity = 0;
+    this.sneakStrikeTimer = 0;
     this.hitFlashTimer = 0;
     this.castFlourishTimer = 0;
     this.ascendHeight = 0;

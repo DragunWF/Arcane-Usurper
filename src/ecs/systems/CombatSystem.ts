@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   ARENA_BOUNDS_KINDS,
   ARENA_CONFIG,
+  BG3_PARTY_CONFIG,
   BOSS_CONFIG,
   CHAMBER_CONFIG,
   DESTRUCTIBLE_PROP_TYPES,
@@ -30,12 +31,16 @@ import type { IAudioTrigger } from '../../engine/SoundEngine';
 import type { IVfxSpawner } from '../../engine/VfxFactory';
 import type { DarkMageRig } from '../../rigs/DarkMageRig';
 import type { BossRigAdapter } from '../../rigs/bosses/BossBase';
-import type { GeraltRig } from '../../rigs/bosses/GeraltRig';
 import {
   areAllOtherBossesDefeated,
   type EntityId,
 } from '../components';
 import type { ECSWorld, ISystem } from '../World';
+
+interface IShieldedBossRig {
+  setShieldVisual?: (active: boolean, hitsRemaining: number) => void;
+  triggerShieldDeflectFlash?: () => void;
+}
 
 export { areAllOtherBossesDefeated };
 
@@ -432,15 +437,16 @@ export class CombatSystem implements ISystem {
             transform.position.z - boss.transform.position.z,
           );
           if (dist <= PLAYER_CONFIG.umbralPulseRadius + boss.hurtbox.radius) {
-            // Right-Click Umbral Pulse immediately shatters Geralt's active Quen barrier
+            // Right-Click Umbral Pulse immediately shatters active Quen or Arcane Ward barriers
             if (boss.bossPhase.quenHitsRemaining > 0) {
+              const isArcaneWard = boss.bossPhase.shieldIsOmnidirectional === true;
               boss.bossPhase.quenHitsRemaining = 0;
               boss.bossPhase.quenTimer = 0;
-              boss.bossPhase.quenCooldown = WOLF_AND_RAVEN_CONFIG.quenCooldownSec;
+              boss.bossPhase.quenCooldown = isArcaneWard
+                ? BG3_PARTY_CONFIG.arcaneWardCooldownSec
+                : WOLF_AND_RAVEN_CONFIG.quenCooldownSec;
               const rig = this.getBossRigForEntity(boss.id);
-              if (boss.bossPhase.bossId === SPECIAL_SCENARIO_CONFIG.geraltId) {
-                (rig as GeraltRig).setQuenVisual(false, 0);
-              }
+              (rig as unknown as IShieldedBossRig).setShieldVisual?.(false, 0);
               this.vBurstPos.set(
                 boss.transform.position.x,
                 1.15,
@@ -448,11 +454,15 @@ export class CombatSystem implements ISystem {
               );
               this.vfx.spawnImpactBurst(
                 this.vBurstPos,
-                WOLF_AND_RAVEN_CONFIG.quenShatterSparkCount,
+                isArcaneWard
+                  ? BG3_PARTY_CONFIG.arcaneWardShatterSparkCount
+                  : WOLF_AND_RAVEN_CONFIG.quenShatterSparkCount,
               );
               this.audio.playQuenShatter();
               this.callbacks.addCameraShake(
-                WOLF_AND_RAVEN_CONFIG.quenShatterCameraShake,
+                isArcaneWard
+                  ? BG3_PARTY_CONFIG.arcaneWardShatterCameraShake
+                  : WOLF_AND_RAVEN_CONFIG.quenShatterCameraShake,
               );
             }
             this.damageBoss(boss, BOSS_CONFIG.pulseDamage, null);
@@ -563,48 +573,58 @@ export class CombatSystem implements ISystem {
               projectile.hitEntityIds.push(boss.id);
               this.vBurstPos.set(p.x, p.y, p.z);
 
-              // Geralt's Quen Active Shield absorbs frontal bolts (3 hits to shatter);
-              // Blinking behind him bypasses Quen for full rear-flank damage!
+              // Active Barrier check: Geralt's frontal Quen (bypassable from behind) OR Gale's 360° Arcane Ward
               let absorbedByQuen = false;
               if (boss.bossPhase.quenHitsRemaining > 0) {
-                const distXZ = Math.hypot(dx, dz) || 1;
-                const toBoltX = dx / distXZ;
-                const toBoltZ = dz / distXZ;
-                const fwdX = Math.sin(boss.transform.rotationY);
-                const fwdZ = Math.cos(boss.transform.rotationY);
-                const frontDot = toBoltX * fwdX + toBoltZ * fwdZ;
+                const isArcaneWard =
+                  boss.bossPhase.shieldIsOmnidirectional === true;
+                let blocksHit = isArcaneWard;
+                if (!blocksHit) {
+                  const distXZ = Math.hypot(dx, dz) || 1;
+                  const toBoltX = dx / distXZ;
+                  const toBoltZ = dz / distXZ;
+                  const fwdX = Math.sin(boss.transform.rotationY);
+                  const fwdZ = Math.cos(boss.transform.rotationY);
+                  const frontDot = toBoltX * fwdX + toBoltZ * fwdZ;
+                  blocksHit = frontDot >= WOLF_AND_RAVEN_CONFIG.quenFrontalMinDot;
+                }
 
-                if (frontDot >= WOLF_AND_RAVEN_CONFIG.quenFrontalMinDot) {
+                if (blocksHit) {
                   absorbedByQuen = true;
                   boss.bossPhase.quenHitsRemaining = Math.max(
                     0,
                     boss.bossPhase.quenHitsRemaining - 1,
                   );
                   const rig = this.getBossRigForEntity(boss.id);
-                  if (boss.bossPhase.bossId === SPECIAL_SCENARIO_CONFIG.geraltId) {
-                    const gRig = rig as GeraltRig;
-                    gRig.triggerQuenDeflectFlash();
-                    gRig.setQuenVisual(
-                      boss.bossPhase.quenHitsRemaining > 0,
-                      boss.bossPhase.quenHitsRemaining,
-                    );
-                  }
+                  const shieldedRig = rig as unknown as IShieldedBossRig;
+                  shieldedRig.triggerShieldDeflectFlash?.();
+                  shieldedRig.setShieldVisual?.(
+                    boss.bossPhase.quenHitsRemaining > 0,
+                    boss.bossPhase.quenHitsRemaining,
+                  );
                   if (boss.bossPhase.quenHitsRemaining <= 0) {
                     boss.bossPhase.quenTimer = 0;
-                    boss.bossPhase.quenCooldown =
-                      WOLF_AND_RAVEN_CONFIG.quenCooldownSec;
+                    boss.bossPhase.quenCooldown = isArcaneWard
+                      ? BG3_PARTY_CONFIG.arcaneWardCooldownSec
+                      : WOLF_AND_RAVEN_CONFIG.quenCooldownSec;
                     this.vfx.spawnImpactBurst(
                       this.vBurstPos,
-                      WOLF_AND_RAVEN_CONFIG.quenShatterSparkCount,
+                      isArcaneWard
+                        ? BG3_PARTY_CONFIG.arcaneWardShatterSparkCount
+                        : WOLF_AND_RAVEN_CONFIG.quenShatterSparkCount,
                     );
                     this.audio.playQuenShatter();
                     this.callbacks.addCameraShake(
-                      WOLF_AND_RAVEN_CONFIG.quenShatterCameraShake,
+                      isArcaneWard
+                        ? BG3_PARTY_CONFIG.arcaneWardShatterCameraShake
+                        : WOLF_AND_RAVEN_CONFIG.quenShatterCameraShake,
                     );
                   } else {
                     this.vfx.spawnImpactBurst(
                       this.vBurstPos,
-                      WOLF_AND_RAVEN_CONFIG.quenDeflectSparkCount,
+                      isArcaneWard
+                        ? BG3_PARTY_CONFIG.arcaneWardDeflectSparkCount
+                        : WOLF_AND_RAVEN_CONFIG.quenDeflectSparkCount,
                     );
                     this.audio.playQuenHit();
                   }
@@ -881,6 +901,57 @@ export class CombatSystem implements ISystem {
                 remove = true;
                 break;
               }
+            }
+          }
+
+          if (remove) {
+            toDestroy.push(entity.id);
+          }
+        } else if (projectile.kind === 'MAGIC_MISSILE') {
+          const bounds = this.arena.bounds;
+          const activeArenaRadius =
+            bounds.kind === ARENA_BOUNDS_KINDS.CIRCULAR
+              ? bounds.radius
+              : ARENA_CONFIG.radius;
+          if (
+            !remove &&
+            Math.hypot(p.x, p.z) >
+              activeArenaRadius + ARENA_CONFIG.floorCollisionRadiusPad
+          ) {
+            remove = true;
+          }
+
+          // Collide & detonate cleanly against the 4 tactical crypt pillars
+          if (!remove) {
+            for (let j = 0; j < pillars.length; j++) {
+              const pil = pillars[j];
+              if (!pil) continue;
+              const dx = p.x - pil.x;
+              const dz = p.z - pil.z;
+              const rad = pil.radius + BG3_PARTY_CONFIG.magicMissilePillarPad;
+              if (dx * dx + dz * dz <= rad * rad && p.y <= pil.height) {
+                this.vBurstPos.set(p.x, p.y, p.z);
+                this.vfx.spawnImpactBurst(this.vBurstPos, 8);
+                remove = true;
+                break;
+              }
+            }
+          }
+
+          if (
+            !remove &&
+            player &&
+            !projectile.hitEntityIds.includes(player.id) &&
+            !player.health.isInvulnerable
+          ) {
+            const dx = p.x - player.transform.position.x;
+            const dz = p.z - player.transform.position.z;
+            if (dx * dx + dz * dz <= projectile.radius * projectile.radius) {
+              projectile.hitEntityIds.push(player.id);
+              this.damagePlayer(projectile.damage, state);
+              this.vBurstPos.set(p.x, p.y, p.z);
+              this.vfx.spawnImpactBurst(this.vBurstPos, 10);
+              remove = true;
             }
           }
 
@@ -1222,6 +1293,186 @@ export class CombatSystem implements ISystem {
         }
       } else if (hz.kind === 'SPATIAL_RIFT') {
         if (hz.elapsed >= hz.activeDuration) {
+          toDestroy.push(entity.id);
+        }
+      } else if (hz.kind === 'FIREBALL_BLAST') {
+        if (hz.elapsed < 0) continue;
+        if (
+          hz.elapsed >= hz.telegraphDuration &&
+          hz.elapsed < hz.telegraphDuration + hz.activeDuration
+        ) {
+          if (!hz.hasTriggered) {
+            hz.hasTriggered = true;
+            this.audio.playIgniBurst();
+            this.callbacks.addCameraShake(BG3_PARTY_CONFIG.fireballCameraShake);
+            this.vBurstPos.set(
+              transform.position.x,
+              0.85,
+              transform.position.z,
+            );
+            this.vfx.spawnImpactBurst(this.vBurstPos, 20);
+            if (player && !hz.hasHitPlayer && !player.health.isInvulnerable) {
+              const dist = Math.hypot(
+                player.transform.position.x - transform.position.x,
+                player.transform.position.z - transform.position.z,
+              );
+              if (dist <= hz.currentRadius) {
+                hz.hasHitPlayer = true;
+                this.damagePlayer(hz.damage, state);
+              }
+            }
+          }
+        } else if (hz.elapsed >= hz.telegraphDuration + hz.activeDuration) {
+          toDestroy.push(entity.id);
+        }
+      } else if (hz.kind === 'SPIRIT_GUARDIANS') {
+        hz.hitCooldown = Math.max(0, hz.hitCooldown - dt);
+        const owner =
+          hz.ownerEntityId !== undefined && hz.ownerEntityId !== null
+            ? this.world.getEntity(hz.ownerEntityId)
+            : undefined;
+        if (
+          hz.elapsed >= hz.activeDuration ||
+          !owner ||
+          !owner.transform ||
+          !owner.bossPhase ||
+          owner.bossPhase.isDefeated ||
+          owner.bossPhase.isStaggered
+        ) {
+          toDestroy.push(entity.id);
+          continue;
+        }
+        transform.position.x = owner.transform.position.x;
+        transform.position.y = 0.08;
+        transform.position.z = owner.transform.position.z;
+
+        if (
+          state === GAME_STATES.BOSS_COMBAT &&
+          player &&
+          !player.health.isInvulnerable &&
+          hz.hitCooldown <= 0
+        ) {
+          const dist = Math.hypot(
+            player.transform.position.x - transform.position.x,
+            player.transform.position.z - transform.position.z,
+          );
+          if (dist <= hz.maxRadius) {
+            hz.hitCooldown = BG3_PARTY_CONFIG.spiritGuardiansHitCooldownSec;
+            this.damagePlayer(hz.damage, state);
+            this.vBurstPos.set(
+              player.transform.position.x,
+              1.1,
+              player.transform.position.z,
+            );
+            this.vfx.spawnImpactBurst(this.vBurstPos, 8);
+          }
+        }
+      } else if (hz.kind === 'GUIDING_BOLT_BEAM') {
+        hz.hitCooldown = Math.max(0, hz.hitCooldown - dt);
+        const owner =
+          hz.ownerEntityId !== undefined && hz.ownerEntityId !== null
+            ? this.world.getEntity(hz.ownerEntityId)
+            : undefined;
+        if (
+          !owner ||
+          !owner.transform ||
+          !owner.bossPhase ||
+          owner.bossPhase.isDefeated ||
+          owner.bossPhase.isStaggered
+        ) {
+          toDestroy.push(entity.id);
+          continue;
+        }
+
+        transform.position.x = owner.transform.position.x;
+        transform.position.y = 1.18 + owner.bossPhase.ascendHeight;
+        transform.position.z = owner.transform.position.z;
+
+        // Track Dark Mage softly during first 70% of telegraph, then lock beam heading
+        if (hz.elapsed < hz.telegraphDuration * 0.7 && player) {
+          const targetAng = Math.atan2(
+            player.transform.position.x - transform.position.x,
+            player.transform.position.z - transform.position.z,
+          );
+          let diff = targetAng - hz.angle;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          hz.angle += diff * Math.min(1, dt * 4.5);
+        }
+        transform.rotationY = hz.angle;
+
+        // Zero-allocation ray-cylinder pillar line-of-sight clamp so crypt pillars block Guiding Bolt
+        const dirX = Math.sin(hz.angle);
+        const dirZ = Math.cos(hz.angle);
+        let clampedLen: number = BG3_PARTY_CONFIG.guidingBoltBeamLength;
+        const pillars = this.arena.pillarColliders;
+        for (let pIdx = 0; pIdx < pillars.length; pIdx++) {
+          const pil = pillars[pIdx];
+          if (!pil) continue;
+          const ox = pil.x - transform.position.x;
+          const oz = pil.z - transform.position.z;
+          const proj = ox * dirX + oz * dirZ;
+          if (proj <= 0 || proj >= clampedLen) continue;
+          const perpSq = ox * ox + oz * oz - proj * proj;
+          const hitR = pil.radius + 0.16;
+          if (perpSq <= hitR * hitR) {
+            const impactDist = Math.max(
+              0.4,
+              proj - Math.sqrt(Math.max(0, hitR * hitR - perpSq)),
+            );
+            if (impactDist < clampedLen) {
+              clampedLen = impactDist;
+            }
+          }
+        }
+        hz.beamLength = clampedLen;
+
+        if (
+          hz.elapsed >= hz.telegraphDuration &&
+          hz.elapsed < hz.telegraphDuration + hz.activeDuration
+        ) {
+          if (!hz.hasTriggered) {
+            hz.hasTriggered = true;
+            this.audio.playChaosLightning();
+            this.callbacks.addCameraShake(
+              BG3_PARTY_CONFIG.guidingBoltCameraShake,
+            );
+            // Pillar impact spark flash if blocked by a crypt pillar
+            if (clampedLen < BG3_PARTY_CONFIG.guidingBoltBeamLength - 0.5) {
+              this.vBurstPos.set(
+                transform.position.x + dirX * clampedLen,
+                transform.position.y,
+                transform.position.z + dirZ * clampedLen,
+              );
+              this.vfx.spawnImpactBurst(this.vBurstPos, 12);
+            }
+          }
+
+          if (
+            player &&
+            !hz.hasHitPlayer &&
+            !player.health.isInvulnerable &&
+            hz.hitCooldown <= 0
+          ) {
+            const relX = player.transform.position.x - transform.position.x;
+            const relZ = player.transform.position.z - transform.position.z;
+            const proj = relX * dirX + relZ * dirZ;
+            if (proj >= 0.4 && proj <= clampedLen) {
+              const perp = Math.abs(relX * -dirZ + relZ * dirX);
+              if (perp <= hz.hitThickness) {
+                hz.hasHitPlayer = true;
+                hz.hitCooldown = 0.5;
+                this.damagePlayer(hz.damage, state);
+                this.vBurstPos.set(
+                  player.transform.position.x,
+                  1.15,
+                  player.transform.position.z,
+                );
+                this.vfx.spawnImpactBurst(this.vBurstPos, 14);
+              }
+            }
+          }
+        } else if (hz.elapsed >= hz.telegraphDuration + hz.activeDuration) {
           toDestroy.push(entity.id);
         }
       }

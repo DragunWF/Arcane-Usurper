@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   ARENA_CONFIG,
   BALDURS_GATE_PARTY_CONFIG,
+  BG3_PARTY_CONFIG,
   BOSS_CONFIG,
   BOSS_EXPRESSIONS,
   BOSS_PHASES,
@@ -10,6 +11,7 @@ import {
   NG_PLUS_CONFIG,
   PALETTE,
   SERENA_CONFIG,
+  SHARRAN_CRYPT_CONFIG,
   SPECIAL_SCENARIO_CONFIG,
   STOLEN_KISS_CONFIG,
   WOLF_AND_RAVEN_CONFIG,
@@ -21,9 +23,13 @@ import type {
   FrostRingMeshHandles,
   IVfxSpawner,
 } from '../../engine/VfxFactory';
+import type { AstarionRig } from '../../rigs/bosses/AstarionRig';
 import type { BossRigAdapter } from '../../rigs/bosses/BossBase';
+import type { GaleRig } from '../../rigs/bosses/GaleRig';
 import type { GeraltRig } from '../../rigs/bosses/GeraltRig';
+import type { LaezelRig } from '../../rigs/bosses/LaezelRig';
 import type { MarinaRig } from '../../rigs/bosses/MarinaRig';
+import type { ShadowheartRig } from '../../rigs/bosses/ShadowheartRig';
 import type { YenneferRig } from '../../rigs/bosses/YenneferRig';
 import {
   areAllOtherBossesDefeated,
@@ -471,17 +477,26 @@ export class BossAISystem implements ISystem {
       // Step 1.1s two-stage grounded collapse for defeated non-siphonable bosses (body stays visible on floor!)
       if (bp.dissolveTimer >= 0) {
         const collapseDur = WOLF_AND_RAVEN_CONFIG.collapseDurationSec;
-        // First frame of collapse: deactivate Quen/Signs, enrage surviving Sovereign partner & show HUD banner
+        // First frame of collapse: deactivate Quen/Arcane Ward/Stealth, boost surviving Sovereign & show HUD banner
         if (bp.dissolveTimer === 0) {
           const hadQuen = bp.quenHitsRemaining > 0;
           bp.quenHitsRemaining = 0;
           bp.quenTimer = 0;
           bp.dashTimer = 0;
+          bp.stealthTimer = 0;
           bp.activePatternId = null;
+          this.clearBossOwnHazards(boss.id);
+          if (hadQuen) {
+            this.audio.playQuenShatter();
+          }
+          (
+            rig as Partial<GeraltRig> & Partial<GaleRig>
+          ).setShieldVisual?.(false, 0);
+          (rig as Partial<AstarionRig>).setShadowStealth?.(0);
+          (rig as Partial<AstarionRig>).setSneakTelegraph?.(0);
+          (rig as Partial<LaezelRig>).setPsionicLeapAura?.(0);
+
           if (bp.bossId === SPECIAL_SCENARIO_CONFIG.geraltId) {
-            if (hadQuen) {
-              this.audio.playQuenShatter();
-            }
             (rig as GeraltRig).setQuenVisual(false, 0);
             (rig as GeraltRig).setAmberBladeTrail(0);
             (rig as GeraltRig).setIgniChannel(0);
@@ -514,6 +529,40 @@ export class BossAISystem implements ISystem {
                 ? WOLF_AND_RAVEN_CONFIG.geraltVanquishedSubtext
                 : WOLF_AND_RAVEN_CONFIG.geraltVanquishedFinisherReadySubtext,
             );
+          } else if (
+            bp.bossId === BALDURS_GATE_PARTY_CONFIG.laezelId ||
+            bp.bossId === BALDURS_GATE_PARTY_CONFIG.astarionId ||
+            bp.bossId === BALDURS_GATE_PARTY_CONFIG.galeId
+          ) {
+            let fallenCount = 0;
+            let remainingAllies = 0;
+            for (let j = 0; j < bosses.length; j++) {
+              const b = bosses[j];
+              if (!b || b.bossPhase.canBeSiphoned) continue;
+              if (b.bossPhase.isDefeated || b.bossPhase.dissolveTimer >= 0) {
+                fallenCount++;
+              } else {
+                remainingAllies++;
+              }
+            }
+            for (let j = 0; j < bosses.length; j++) {
+              const ally = bosses[j];
+              if (
+                ally &&
+                ally.bossPhase.bossId === BALDURS_GATE_PARTY_CONFIG.shadowheartId
+              ) {
+                ally.bossPhase.fallenAlliesCount = fallenCount;
+                if (!ally.bossPhase.isStaggered && !ally.bossPhase.isDefeated) {
+                  this.getBossRigForEntity(ally.id).triggerCastFlourish();
+                }
+              }
+            }
+            this.callbacks.onDuoAllyVanquished?.(
+              `${bp.displayName} FALLEN`,
+              remainingAllies === 0
+                ? BG3_PARTY_CONFIG.allAlliesFallenBannerSubtext
+                : BG3_PARTY_CONFIG.allyFallenBannerSubtext,
+            );
           }
         }
 
@@ -545,15 +594,18 @@ export class BossAISystem implements ISystem {
 
       if (bp.isDefeated) continue;
 
-      // Tick Geralt Quen Shield & Yennefer Spatial Rift Cooldowns
+      // Tick Active Shield (Geralt Quen / Gale Arcane Ward), Spatial Rift, & Spirit Guardians Cooldowns
       if (bp.quenTimer > 0) {
         bp.quenTimer = Math.max(0, bp.quenTimer - dt);
         if (bp.quenTimer <= 0 && bp.quenHitsRemaining > 0) {
           bp.quenHitsRemaining = 0;
-          bp.quenCooldown = WOLF_AND_RAVEN_CONFIG.quenCooldownSec;
-          if (bp.bossId === SPECIAL_SCENARIO_CONFIG.geraltId) {
-            (rig as GeraltRig).setQuenVisual(false, 0);
-          }
+          bp.quenCooldown =
+            bp.shieldIsOmnidirectional === true
+              ? BG3_PARTY_CONFIG.arcaneWardCooldownSec
+              : WOLF_AND_RAVEN_CONFIG.quenCooldownSec;
+          (
+            rig as Partial<GeraltRig> & Partial<GaleRig>
+          ).setShieldVisual?.(false, 0);
         }
       } else if (bp.quenCooldown > 0) {
         bp.quenCooldown = Math.max(0, bp.quenCooldown - dt);
@@ -561,6 +613,12 @@ export class BossAISystem implements ISystem {
 
       if (bp.riftCooldown > 0) {
         bp.riftCooldown = Math.max(0, bp.riftCooldown - dt);
+      }
+      if ((bp.spiritGuardiansCooldown ?? 0) > 0) {
+        bp.spiritGuardiansCooldown = Math.max(
+          0,
+          (bp.spiritGuardiansCooldown ?? 0) - dt,
+        );
       }
 
       // Asymmetric Siphon Gate: only siphonable bosses tick STOLEN_KISS exposure windows
@@ -608,10 +666,16 @@ export class BossAISystem implements ISystem {
         this.executeYenneferSpatialRift(boss, rig as YenneferRig);
       }
 
+      const castSpeedMult = bp.isSoloEnraged
+        ? WOLF_AND_RAVEN_CONFIG.soloEnrageSpeedMult
+        : bp.bossId === BALDURS_GATE_PARTY_CONFIG.shadowheartId
+          ? 1 +
+            (bp.fallenAlliesCount ?? 0) *
+              BG3_PARTY_CONFIG.shadowheartFallenCastBoostPerAlly
+          : 1.0;
+
       if (bp.activePatternId !== null) {
-        const patternDt = bp.isSoloEnraged
-          ? dt * WOLF_AND_RAVEN_CONFIG.soloEnrageSpeedMult
-          : dt;
+        const patternDt = dt * castSpeedMult;
         bp.activePatternElapsed += patternDt;
         const strategy = this.strategies.get(bp.activePatternId);
         if (strategy?.tick) {
@@ -625,9 +689,12 @@ export class BossAISystem implements ISystem {
           }
           bp.activePatternId = null;
           bp.patternSubStage = 0;
-          bp.attackCooldown = profile.getCooldown(bp.phase);
-          if (bp.isSoloEnraged) {
-            bp.attackCooldown /= WOLF_AND_RAVEN_CONFIG.soloEnrageSpeedMult;
+          bp.attackCooldown = profile.getCooldown(bp.phase) / castSpeedMult;
+
+          // Lae'zel chains Psionic Jump slam immediately into her rapid 2-hit Greatsword Cleave
+          if (finishedPatternId === 'LAEZEL_PSIONIC_JUMP') {
+            this.startPattern('LAEZEL_GREATSWORD_CLEAVE', ctx);
+            continue;
           }
 
           // Open Mid-Fight Stolen Kiss 360° frontal guard-break window strictly for siphonable bosses
@@ -656,9 +723,7 @@ export class BossAISystem implements ISystem {
         continue;
       }
 
-      const cooldownDt = bp.isSoloEnraged
-        ? dt * WOLF_AND_RAVEN_CONFIG.soloEnrageSpeedMult
-        : dt;
+      const cooldownDt = dt * castSpeedMult;
       bp.attackCooldown -= cooldownDt;
       if (bp.attackCooldown > 0) continue;
 
@@ -681,6 +746,26 @@ export class BossAISystem implements ISystem {
         bp.quenCooldown <= 0
       ) {
         this.startPattern('GERALT_QUEN_SHIELD', ctx);
+        continue;
+      }
+
+      // Gale proactively raises his 360° violet-cyan Arcane Ward bubble when cooldown is ready
+      if (
+        bp.bossId === BALDURS_GATE_PARTY_CONFIG.galeId &&
+        bp.quenHitsRemaining <= 0 &&
+        bp.quenCooldown <= 0
+      ) {
+        this.startPattern('GALE_ARCANE_WARD', ctx);
+        continue;
+      }
+
+      // Shadowheart invokes orbiting Spirit Guardians when the Dark Mage closes into melee range
+      if (
+        bp.bossId === BALDURS_GATE_PARTY_CONFIG.shadowheartId &&
+        distToPlayer <= BG3_PARTY_CONFIG.spiritGuardiansTriggerDist &&
+        (bp.spiritGuardiansCooldown ?? 0) <= 0
+      ) {
+        this.startPattern('SHADOWHEART_SPIRIT_GUARDIANS', ctx);
         continue;
       }
 
@@ -3174,23 +3259,965 @@ export class BossAISystem implements ISystem {
       },
     });
 
-    // Baseline combat profiles for Shadows of the Sharran Crypt (BG3 1v4 party)
+    // =========================================================================
+    // SHADOWS OF THE SHARRAN CRYPT — 4-BOSS BALDUR'S GATE 3 TACTICAL PARTY AI
+    // =========================================================================
     const bg3 = BALDURS_GATE_PARTY_CONFIG;
+    const pCfg = BG3_PARTY_CONFIG;
+    const cryptCfg = SHARRAN_CRYPT_CONFIG;
+
+    // -------------------------------------------------------------------------
+    // 1. LAE'ZEL (Frontline Vanguard): Psionic Jump Leap Slam + 2-Hit Greatsword Cleave
+    // -------------------------------------------------------------------------
+    this.registerPattern({
+      id: 'LAEZEL_PSIONIC_JUMP',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        const bPos = ctx.bossEntity.transform.position;
+        const laezel = ctx.bossRig as Partial<LaezelRig>;
+        bp.patternSubStage = 0;
+        bp.leapStartX = bPos.x;
+        bp.leapStartZ = bPos.z;
+        // Aim landing slightly ahead of player, clamped inside Sharran Crypt bounds
+        const rawEndX = ctx.playerPos.x + ctx.playerVel.x * 0.25;
+        const rawEndZ = ctx.playerPos.z + ctx.playerVel.z * 0.25;
+        const r = Math.hypot(rawEndX, rawEndZ);
+        const clampR = cryptCfg.bossClampRadius - 1.2;
+        let landX = r > clampR ? (rawEndX / r) * clampR : rawEndX;
+        let landZ = r > clampR ? (rawEndZ / r) * clampR : rawEndZ;
+
+        // Push landing point cleanly outside the 4 symmetrical crypt pillars
+        const ringR = cryptCfg.arenaRadius * cryptCfg.innerPillarRingRatio;
+        const minPillarClear = cryptCfg.innerPillarCollisionRadius + bg3.laezelHitRadius + 0.35;
+        for (let i = 0; i < cryptCfg.innerPillarCount; i++) {
+          const pAng =
+            cryptCfg.innerPillarAngleOffsetRad +
+            (i / cryptCfg.innerPillarCount) * Math.PI * 2;
+          const px = Math.cos(pAng) * ringR;
+          const pz = Math.sin(pAng) * ringR;
+          const pdx = landX - px;
+          const pdz = landZ - pz;
+          const pdSq = pdx * pdx + pdz * pdz;
+          if (pdSq < minPillarClear * minPillarClear && pdSq > 0.0001) {
+            const pd = Math.sqrt(pdSq);
+            landX = px + (pdx / pd) * minPillarClear;
+            landZ = pz + (pdz / pd) * minPillarClear;
+          }
+        }
+        bp.leapEndX = landX;
+        bp.leapEndZ = landZ;
+
+        laezel.setPsionicLeapAura?.(1.0);
+        ctx.bossRig.triggerCastFlourish();
+        ctx.audio.playSummonGlyphChime();
+        scratchOrigin.set(bp.leapEndX, 0.08, bp.leapEndZ);
+        ctx.vfx.spawnTelegraphRing(
+          scratchOrigin,
+          PALETTE.laezelCrimson,
+          pCfg.psionicJumpSlamRadius * 0.65,
+        );
+        bp.activePatternDuration =
+          pCfg.psionicJumpTelegraphSec +
+          pCfg.psionicJumpAirSec +
+          pCfg.psionicJumpRecoverySec;
+      },
+      tick(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        const bPos = ctx.bossEntity.transform.position;
+        const laezel = ctx.bossRig as Partial<LaezelRig>;
+        const t = bp.activePatternElapsed;
+        const tLaunch = pCfg.psionicJumpTelegraphSec;
+        const tLand = tLaunch + pCfg.psionicJumpAirSec;
+
+        if (t >= tLaunch && t < tLand) {
+          if (bp.patternSubStage === 0) {
+            bp.patternSubStage = 1;
+            ctx.audio.playShadowBlink();
+          }
+          const airP = THREE.MathUtils.clamp(
+            (t - tLaunch) / pCfg.psionicJumpAirSec,
+            0,
+            1,
+          );
+          const lx = THREE.MathUtils.lerp(bp.leapStartX ?? bPos.x, bp.leapEndX ?? bPos.x, airP);
+          const lz = THREE.MathUtils.lerp(bp.leapStartZ ?? bPos.z, bp.leapEndZ ?? bPos.z, airP);
+          bPos.x = lx;
+          bPos.z = lz;
+          const arcY = Math.sin(airP * Math.PI) * pCfg.psionicJumpArcHeight;
+          bp.ascendHeight = arcY;
+          ctx.bossRig.setAscendHeight(arcY);
+          laezel.setPsionicLeapAura?.(1.0);
+        } else if (t >= tLand && bp.patternSubStage < 2) {
+          bp.patternSubStage = 2;
+          bp.ascendHeight = 0;
+          ctx.bossRig.setAscendHeight(0);
+          laezel.setPsionicLeapAura?.(0);
+          laezel.triggerGreatswordSlash?.(1);
+          ctx.audio.playBassDrop();
+          ctx.addCameraShake(pCfg.psionicJumpCameraShake);
+
+          // Crimson-amber expanding Psionic Slam shockwave ring
+          scratchOrigin.set(bPos.x, 0.16, bPos.z);
+          const slamGroup = ctx.vfx.createFrostRingNovaGroup(scratchOrigin);
+          const handles = slamGroup.userData.frostRingHandles as
+            | FrostRingMeshHandles
+            | undefined;
+          if (handles) {
+            handles.ringMat.color.setHex(PALETTE.laezelCrimson);
+            handles.wallMat.color.setHex(PALETTE.riftAmber);
+          }
+          ctx.world.createEntity({
+            transform: {
+              position: { x: bPos.x, y: 0.16, z: bPos.z },
+              rotationY: 0,
+              scale: 1,
+            },
+            hazardZone: {
+              kind: 'FROST_RING_NOVA',
+              faction: 'BOSS',
+              damage: pCfg.psionicJumpSlamDamage,
+              elapsed: 0,
+              telegraphDuration: 0,
+              activeDuration: pCfg.psionicJumpSlamDurationSec,
+              currentRadius: 0.85,
+              maxRadius: pCfg.psionicJumpSlamRadius,
+              hitThickness: pCfg.psionicJumpSlamHitThickness,
+              angle: 0,
+              startAngle: 0,
+              endAngle: 0,
+              beamLength: 0,
+              hitCooldown: 0,
+              hasHitPlayer: false,
+              hasTriggered: true,
+              ownerEntityId: ctx.bossEntity.id,
+            },
+            meshRef: { object3D: slamGroup },
+          });
+
+          const dist = Math.hypot(
+            ctx.playerPos.x - bPos.x,
+            ctx.playerPos.z - bPos.z,
+          );
+          if (dist <= pCfg.psionicJumpSlamRadius * 0.72) {
+            ctx.damagePlayerMelee(pCfg.psionicJumpSlamDamage);
+          }
+        }
+      },
+      finish(ctx) {
+        ctx.bossEntity.bossPhase.ascendHeight = 0;
+        ctx.bossRig.setAscendHeight(0);
+        (ctx.bossRig as Partial<LaezelRig>).setPsionicLeapAura?.(0);
+      },
+    });
+
+    this.registerPattern({
+      id: 'LAEZEL_GREATSWORD_CLEAVE',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        bp.patternSubStage = 0;
+        ctx.bossRig.triggerCastFlourish();
+        bp.activePatternDuration =
+          pCfg.cleaveWindup1Sec +
+          pCfg.cleaveDash1Sec +
+          pCfg.cleaveWindup2Sec +
+          pCfg.cleaveDash2Sec +
+          pCfg.cleaveRecoverySec;
+      },
+      tick(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        const bPos = ctx.bossEntity.transform.position;
+        const laezel = ctx.bossRig as Partial<LaezelRig>;
+        const t = bp.activePatternElapsed;
+
+        const tCleave1 = pCfg.cleaveWindup1Sec;
+        const tWindup2 = tCleave1 + pCfg.cleaveDash1Sec;
+        const tCleave2 = tWindup2 + pCfg.cleaveWindup2Sec;
+
+        if (bp.patternSubStage === 0 && t >= tCleave1) {
+          bp.patternSubStage = 1;
+          const dx = ctx.playerPos.x - bPos.x;
+          const dz = ctx.playerPos.z - bPos.z;
+          const dist = Math.hypot(dx, dz) || 1;
+          const ang = Math.atan2(dx, dz);
+          ctx.bossEntity.transform.rotationY = ang;
+          bp.dashVelX = (dx / dist) * pCfg.cleaveDashSpeed;
+          bp.dashVelZ = (dz / dist) * pCfg.cleaveDashSpeed;
+          bp.dashTimer = pCfg.cleaveDash1Sec;
+          laezel.triggerGreatswordSlash?.(1);
+          ctx.audio.playLaserSlash();
+
+          scratchOrigin.set(bPos.x, 1.08, bPos.z);
+          const waveMesh = ctx.vfx.createCrescentBladeGroup(
+            scratchOrigin,
+            ang,
+            false,
+            { blade: PALETTE.laezelCrimson, edge: PALETTE.laezelAstralBlade },
+          );
+          ctx.world.createEntity({
+            transform: {
+              position: { x: bPos.x, y: 1.08, z: bPos.z },
+              rotationY: ang,
+              scale: 0.92,
+            },
+            velocity: {
+              vx: Math.sin(ang) * pCfg.cleaveWaveSpeed,
+              vy: 0,
+              vz: Math.cos(ang) * pCfg.cleaveWaveSpeed,
+              maxSpeed: pCfg.cleaveWaveSpeed,
+            },
+            projectile: {
+              faction: 'BOSS',
+              kind: 'GLACIAL_CRESCENT',
+              damage: pCfg.cleaveWaveDamage,
+              radius: pCfg.cleaveWaveRadius,
+              life: pCfg.cleaveWaveLife,
+              maxLife: pCfg.cleaveWaveLife,
+              trailTimer: 0,
+              spinSpeed: 0,
+              pierceRemaining: 0,
+              hitEntityIds: [],
+              state: 'FLY',
+              fireDelay: 0,
+              fanAngle: 0,
+              baseHeight: 1.08,
+              ownerEntityId: ctx.bossEntity.id,
+            },
+            meshRef: { object3D: waveMesh },
+          });
+        } else if (
+          bp.patternSubStage === 1 &&
+          t >= tCleave1 + pCfg.cleaveDash1Sec * 0.55
+        ) {
+          bp.patternSubStage = 2;
+          const dist = Math.hypot(
+            ctx.playerPos.x - bPos.x,
+            ctx.playerPos.z - bPos.z,
+          );
+          if (dist <= pCfg.cleaveMeleeHitRadius) {
+            ctx.damagePlayerMelee(pCfg.cleaveMeleeDamage);
+          }
+        } else if (bp.patternSubStage === 2 && t >= tCleave2) {
+          bp.patternSubStage = 3;
+          const dx = ctx.playerPos.x - bPos.x;
+          const dz = ctx.playerPos.z - bPos.z;
+          const dist = Math.hypot(dx, dz) || 1;
+          const ang = Math.atan2(dx, dz);
+          ctx.bossEntity.transform.rotationY = ang;
+          bp.dashVelX = (dx / dist) * (pCfg.cleaveDashSpeed * 1.12);
+          bp.dashVelZ = (dz / dist) * (pCfg.cleaveDashSpeed * 1.12);
+          bp.dashTimer = pCfg.cleaveDash2Sec;
+          laezel.triggerGreatswordSlash?.(2);
+          ctx.audio.playLaserSlash();
+
+          for (const spread of [-0.16, 0.16] as const) {
+            const sAng = ang + spread;
+            scratchOrigin.set(bPos.x, 1.08, bPos.z);
+            const waveMesh = ctx.vfx.createCrescentBladeGroup(
+              scratchOrigin,
+              sAng,
+              false,
+              { blade: PALETTE.riftAmber, edge: PALETTE.laezelAstralBlade },
+            );
+            ctx.world.createEntity({
+              transform: {
+                position: { x: bPos.x, y: 1.08, z: bPos.z },
+                rotationY: sAng,
+                scale: 0.9,
+              },
+              velocity: {
+                vx: Math.sin(sAng) * pCfg.cleaveWaveSpeed,
+                vy: 0,
+                vz: Math.cos(sAng) * pCfg.cleaveWaveSpeed,
+                maxSpeed: pCfg.cleaveWaveSpeed,
+              },
+              projectile: {
+                faction: 'BOSS',
+                kind: 'GLACIAL_CRESCENT',
+                damage: pCfg.cleaveWaveDamage,
+                radius: pCfg.cleaveWaveRadius,
+                life: pCfg.cleaveWaveLife,
+                maxLife: pCfg.cleaveWaveLife,
+                trailTimer: 0,
+                spinSpeed: 0,
+                pierceRemaining: 0,
+                hitEntityIds: [],
+                state: 'FLY',
+                fireDelay: 0,
+                fanAngle: spread,
+                baseHeight: 1.08,
+                ownerEntityId: ctx.bossEntity.id,
+              },
+              meshRef: { object3D: waveMesh },
+            });
+          }
+        } else if (
+          bp.patternSubStage === 3 &&
+          t >= tCleave2 + pCfg.cleaveDash2Sec * 0.55
+        ) {
+          bp.patternSubStage = 4;
+          const dist = Math.hypot(
+            ctx.playerPos.x - bPos.x,
+            ctx.playerPos.z - bPos.z,
+          );
+          if (dist <= pCfg.cleaveMeleeHitRadius) {
+            ctx.damagePlayerMelee(pCfg.cleaveMeleeDamage);
+          }
+        }
+      },
+    });
+
+    // -------------------------------------------------------------------------
+    // 2. ASTARION (Stealth Flanker): Cunning Action: Hide + Sneak Attack & 3-Dagger Crimson Fan
+    // -------------------------------------------------------------------------
+    this.registerPattern({
+      id: 'ASTARION_CUNNING_HIDE',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        const bPos = ctx.bossEntity.transform.position;
+        const astarion = ctx.bossRig as Partial<AstarionRig>;
+        bp.patternSubStage = 0;
+        bp.stealthTimer = pCfg.hideDurationSec;
+
+        // Pick the closest of the 4 symmetrical crypt pillars to slip behind
+        const ringR = cryptCfg.arenaRadius * cryptCfg.innerPillarRingRatio;
+        let bestIdx = 0;
+        let bestDistSq = Infinity;
+        for (let i = 0; i < cryptCfg.innerPillarCount; i++) {
+          const ang =
+            cryptCfg.innerPillarAngleOffsetRad +
+            (i / cryptCfg.innerPillarCount) * Math.PI * 2;
+          const px = Math.cos(ang) * ringR;
+          const pz = Math.sin(ang) * ringR;
+          const dSq = (px - bPos.x) * (px - bPos.x) + (pz - bPos.z) * (pz - bPos.z);
+          if (dSq < bestDistSq) {
+            bestDistSq = dSq;
+            bestIdx = i;
+          }
+        }
+        bp.stealthTargetPillarIdx = bestIdx;
+        astarion.setShadowStealth?.(1.0);
+        ctx.audio.playShadowBlink();
+        bp.activePatternDuration =
+          pCfg.hideDurationSec +
+          pCfg.sneakTelegraphSec +
+          pCfg.sneakDashDurationSec +
+          pCfg.sneakRecoverySec;
+      },
+      tick(ctx, dt) {
+        const bp = ctx.bossEntity.bossPhase;
+        const bPos = ctx.bossEntity.transform.position;
+        const astarion = ctx.bossRig as Partial<AstarionRig>;
+        const t = bp.activePatternElapsed;
+
+        const tReveal = pCfg.hideDurationSec;
+        const tLunge = tReveal + pCfg.sneakTelegraphSec;
+
+        if (t < tReveal) {
+          bp.stealthTimer = Math.max(0, tReveal - t);
+          astarion.setShadowStealth?.(1.0);
+        } else if (bp.patternSubStage === 0) {
+          // Drop stealth & flash crimson Sneak Attack telegraph right before lunging
+          bp.patternSubStage = 1;
+          bp.stealthTimer = 0;
+          astarion.setShadowStealth?.(0);
+          astarion.setSneakTelegraph?.(1.0);
+          ctx.audio.playSummonGlyphChime();
+          scratchOrigin.set(bPos.x, 0.1, bPos.z);
+          ctx.vfx.spawnTelegraphRing(
+            scratchOrigin,
+            PALETTE.bg3AstarionCrimson,
+            1.9,
+          );
+        } else if (bp.patternSubStage === 1 && t >= tLunge) {
+          bp.patternSubStage = 2;
+          astarion.setSneakTelegraph?.(0);
+          astarion.triggerSneakStrike?.();
+          const dx = ctx.playerPos.x - bPos.x;
+          const dz = ctx.playerPos.z - bPos.z;
+          const dist = Math.hypot(dx, dz) || 1;
+          const ang = Math.atan2(dx, dz);
+          ctx.bossEntity.transform.rotationY = ang;
+          bp.dashVelX = (dx / dist) * pCfg.sneakDashSpeed;
+          bp.dashVelZ = (dz / dist) * pCfg.sneakDashSpeed;
+          bp.dashTimer = pCfg.sneakDashDurationSec;
+          ctx.audio.playLaserSlash();
+
+          // Accompanying tight crimson sneak-slash crescent
+          scratchOrigin.set(bPos.x, 1.02, bPos.z);
+          const slashMesh = ctx.vfx.createCrescentBladeGroup(
+            scratchOrigin,
+            ang,
+            false,
+            { blade: PALETTE.bg3AstarionCrimson, edge: PALETTE.astarionDaggerGlow },
+          );
+          ctx.world.createEntity({
+            transform: {
+              position: { x: bPos.x, y: 1.02, z: bPos.z },
+              rotationY: ang,
+              scale: 0.78,
+            },
+            velocity: {
+              vx: Math.sin(ang) * pCfg.daggerSpeed,
+              vy: 0,
+              vz: Math.cos(ang) * pCfg.daggerSpeed,
+              maxSpeed: pCfg.daggerSpeed,
+            },
+            projectile: {
+              faction: 'BOSS',
+              kind: 'GLACIAL_CRESCENT',
+              damage: pCfg.daggerDamage,
+              radius: 1.08,
+              life: 0.9,
+              maxLife: 0.9,
+              trailTimer: 0,
+              spinSpeed: 0,
+              pierceRemaining: 0,
+              hitEntityIds: [],
+              state: 'FLY',
+              fireDelay: 0,
+              fanAngle: 0,
+              baseHeight: 1.02,
+              ownerEntityId: ctx.bossEntity.id,
+            },
+            meshRef: { object3D: slashMesh },
+          });
+        } else if (
+          bp.patternSubStage === 2 &&
+          t >= tLunge + pCfg.sneakDashDurationSec * 0.55
+        ) {
+          bp.patternSubStage = 3;
+          const dist = Math.hypot(
+            ctx.playerPos.x - bPos.x,
+            ctx.playerPos.z - bPos.z,
+          );
+          if (dist <= pCfg.sneakMeleeHitRadius) {
+            ctx.damagePlayerMelee(pCfg.sneakMeleeDamage);
+          }
+        }
+        void dt;
+      },
+      finish(ctx) {
+        ctx.bossEntity.bossPhase.stealthTimer = 0;
+        const astarion = ctx.bossRig as Partial<AstarionRig>;
+        astarion.setShadowStealth?.(0);
+        astarion.setSneakTelegraph?.(0);
+      },
+    });
+
+    this.registerPattern({
+      id: 'ASTARION_DAGGER_VOLLEY',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        bp.activePatternLaunched = false;
+        ctx.bossRig.triggerCastFlourish();
+        (ctx.bossRig as Partial<AstarionRig>).setSneakTelegraph?.(0.75);
+        bp.activePatternDuration = pCfg.daggerAttackDurationSec;
+      },
+      tick(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        if (
+          !bp.activePatternLaunched &&
+          bp.activePatternElapsed >= pCfg.daggerTelegraphSec
+        ) {
+          bp.activePatternLaunched = true;
+          (ctx.bossRig as Partial<AstarionRig>).setSneakTelegraph?.(0);
+          (ctx.bossRig as Partial<AstarionRig>).triggerSneakStrike?.();
+          ctx.audio.playIceLance();
+
+          const bPos = ctx.bossEntity.transform.position;
+          const baseAng = Math.atan2(
+            ctx.playerPos.x - bPos.x,
+            ctx.playerPos.z - bPos.z,
+          );
+          ctx.bossEntity.transform.rotationY = baseAng;
+          const count = pCfg.daggerCount;
+          for (let i = 0; i < count; i++) {
+            const offset =
+              count > 1 ? (i / (count - 1) - 0.5) * pCfg.daggerFanRad : 0;
+            const ang = baseAng + offset;
+            scratchOrigin.set(
+              bPos.x + Math.sin(ang) * 0.72,
+              1.12,
+              bPos.z + Math.cos(ang) * 0.72,
+            );
+            const daggerMesh = ctx.vfx.createSpiralOrbGroup(
+              scratchOrigin,
+              false,
+              false,
+              { core: PALETTE.astarionDaggerGlow, halo: PALETTE.bg3AstarionCrimson },
+            );
+            ctx.world.createEntity({
+              transform: {
+                position: {
+                  x: scratchOrigin.x,
+                  y: scratchOrigin.y,
+                  z: scratchOrigin.z,
+                },
+                rotationY: ang,
+                scale: 0.85,
+              },
+              velocity: {
+                vx: Math.sin(ang) * pCfg.daggerSpeed,
+                vy: 0,
+                vz: Math.cos(ang) * pCfg.daggerSpeed,
+                maxSpeed: pCfg.daggerSpeed,
+              },
+              projectile: {
+                faction: 'BOSS',
+                kind: 'SPIRAL_ORB',
+                damage: pCfg.daggerDamage,
+                radius: pCfg.daggerRadius,
+                life: pCfg.daggerLife,
+                maxLife: pCfg.daggerLife,
+                trailTimer: 0,
+                spinSpeed: 12,
+                pierceRemaining: 0,
+                hitEntityIds: [],
+                state: 'FLY',
+                fireDelay: 0,
+                fanAngle: offset,
+                baseHeight: 1.12,
+                ownerEntityId: ctx.bossEntity.id,
+              },
+              meshRef: { object3D: daggerMesh },
+            });
+          }
+        }
+      },
+      finish(ctx) {
+        (ctx.bossRig as Partial<AstarionRig>).setSneakTelegraph?.(0);
+      },
+    });
+
+    // -------------------------------------------------------------------------
+    // 3. GALE (Backline Artillery): Arcane Ward Bubble, 3-Bolt Homing Magic Missile, Delayed Fireball
+    // -------------------------------------------------------------------------
+    this.registerPattern({
+      id: 'GALE_ARCANE_WARD',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        const gale = ctx.bossRig as Partial<GaleRig>;
+        bp.quenHitsRemaining = pCfg.arcaneWardMaxHits;
+        bp.quenTimer = pCfg.arcaneWardDurationSec;
+        bp.quenCooldown = pCfg.arcaneWardCooldownSec;
+        bp.shieldIsOmnidirectional = true;
+        ctx.bossRig.triggerCastFlourish();
+        gale.setNethereseSurge?.(0.95);
+        gale.setShieldVisual?.(true, pCfg.arcaneWardMaxHits);
+        ctx.audio.playSummonGlyphChime();
+        bp.activePatternDuration = pCfg.arcaneWardCastDurationSec;
+      },
+      finish(ctx) {
+        (ctx.bossRig as Partial<GaleRig>).setNethereseSurge?.(0);
+      },
+    });
+
+    this.registerPattern({
+      id: 'GALE_MAGIC_MISSILE',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        bp.patternSubStage = 0;
+        bp.activePatternFireTimer = pCfg.magicMissileTelegraphSec;
+        ctx.bossRig.triggerCastFlourish();
+        (ctx.bossRig as Partial<GaleRig>).setNethereseSurge?.(0.85);
+        ctx.audio.playSummonGlyphChime();
+        bp.activePatternDuration = pCfg.magicMissileAttackDurationSec;
+      },
+      tick(ctx, dt) {
+        const bp = ctx.bossEntity.bossPhase;
+        if (bp.patternSubStage >= pCfg.magicMissileCount) return;
+        bp.activePatternFireTimer -= dt;
+        if (bp.activePatternFireTimer <= 0) {
+          const idx = bp.patternSubStage++;
+          bp.activePatternFireTimer = pCfg.magicMissileIntervalSec;
+          ctx.audio.playVoidBolt();
+
+          const bPos = ctx.bossEntity.transform.position;
+          const baseAng = Math.atan2(
+            ctx.playerPos.x - bPos.x,
+            ctx.playerPos.z - bPos.z,
+          );
+          const fanSpread = (idx - 1) * 0.42;
+          const ang = baseAng + fanSpread;
+          scratchOrigin.set(
+            bPos.x + Math.sin(ang) * 0.85,
+            1.28 + (idx === 1 ? 0.16 : 0),
+            bPos.z + Math.cos(ang) * 0.85,
+          );
+          const missileMesh = ctx.vfx.createSpiralOrbGroup(
+            scratchOrigin,
+            false,
+            false,
+            { core: PALETTE.frostRunes, halo: PALETTE.bg3GaleArcane },
+          );
+          ctx.world.createEntity({
+            transform: {
+              position: {
+                x: scratchOrigin.x,
+                y: scratchOrigin.y,
+                z: scratchOrigin.z,
+              },
+              rotationY: ang,
+              scale: 0.78,
+            },
+            velocity: {
+              vx: Math.sin(ang) * pCfg.magicMissileSpeed,
+              vy: 0,
+              vz: Math.cos(ang) * pCfg.magicMissileSpeed,
+              maxSpeed: pCfg.magicMissileSpeed,
+            },
+            projectile: {
+              faction: 'BOSS',
+              kind: 'MAGIC_MISSILE',
+              damage: pCfg.magicMissileDamage,
+              radius: pCfg.magicMissileRadius,
+              life: pCfg.magicMissileLife,
+              maxLife: pCfg.magicMissileLife,
+              trailTimer: 0,
+              spinSpeed: 10,
+              pierceRemaining: 0,
+              hitEntityIds: [],
+              state: 'FLY',
+              fireDelay: 0,
+              fanAngle: fanSpread,
+              baseHeight: 1.25,
+              ownerEntityId: ctx.bossEntity.id,
+              homingTurnRate: pCfg.magicMissileTurnRateRad,
+            },
+            meshRef: { object3D: missileMesh },
+          });
+        }
+      },
+      finish(ctx) {
+        (ctx.bossRig as Partial<GaleRig>).setNethereseSurge?.(0);
+      },
+    });
+
+    this.registerPattern({
+      id: 'GALE_FIREBALL',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        ctx.bossRig.triggerCastFlourish();
+        (ctx.bossRig as Partial<GaleRig>).setNethereseSurge?.(1.0);
+        ctx.audio.playSummonGlyphChime();
+
+        const count =
+          bp.phase >= BOSS_PHASES.PHASE_2
+            ? pCfg.fireballCountP2
+            : pCfg.fireballCountP1;
+        const clampR = cryptCfg.bossClampRadius - 1.5;
+
+        for (let i = 0; i < count; i++) {
+          const leadX =
+            i === 0
+              ? ctx.playerPos.x + ctx.playerVel.x * pCfg.fireballLeadFactor
+              : ctx.playerPos.x +
+                ctx.playerVel.x * pCfg.fireballLeadFactor +
+                Math.cos(bp.orbitAngle + i * 2.2) * pCfg.fireballSpreadRadius;
+          const leadZ =
+            i === 0
+              ? ctx.playerPos.z + ctx.playerVel.z * pCfg.fireballLeadFactor
+              : ctx.playerPos.z +
+                ctx.playerVel.z * pCfg.fireballLeadFactor +
+                Math.sin(bp.orbitAngle + i * 2.2) * pCfg.fireballSpreadRadius;
+          const rad = Math.hypot(leadX, leadZ);
+          const fx = rad > clampR ? (leadX / rad) * clampR : leadX;
+          const fz = rad > clampR ? (leadZ / rad) * clampR : leadZ;
+
+          scratchOrigin.set(fx, 0.06, fz);
+          const blastMesh = ctx.vfx.createFireballBlastGroup(
+            scratchOrigin,
+            pCfg.fireballRadius,
+          );
+          ctx.world.createEntity({
+            transform: {
+              position: { x: fx, y: 0.06, z: fz },
+              rotationY: 0,
+              scale: 1,
+            },
+            hazardZone: {
+              kind: 'FIREBALL_BLAST',
+              faction: 'BOSS',
+              damage: pCfg.fireballDamage,
+              elapsed: -i * pCfg.fireballCascadeStepSec,
+              telegraphDuration: pCfg.fireballTelegraphSec,
+              activeDuration: pCfg.fireballActiveSec,
+              currentRadius: pCfg.fireballRadius,
+              maxRadius: pCfg.fireballRadius,
+              hitThickness: 0,
+              angle: 0,
+              startAngle: 0,
+              endAngle: 0,
+              beamLength: 0,
+              hitCooldown: 0,
+              hasHitPlayer: false,
+              hasTriggered: false,
+              ownerEntityId: ctx.bossEntity.id,
+            },
+            meshRef: { object3D: blastMesh },
+          });
+        }
+        bp.activePatternDuration = pCfg.fireballCastDurationSec;
+      },
+      finish(ctx) {
+        (ctx.bossRig as Partial<GaleRig>).setNethereseSurge?.(0);
+      },
+    });
+
+    // -------------------------------------------------------------------------
+    // 4. SHADOWHEART (Sovereign Cleric): Guiding Bolt, Spirit Guardians, Sharran Eclipse -> 360° Stolen Kiss
+    // -------------------------------------------------------------------------
+    this.registerPattern({
+      id: 'SHADOWHEART_GUIDING_BOLT',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        const bPos = ctx.bossEntity.transform.position;
+        const ang = Math.atan2(
+          ctx.playerPos.x - bPos.x,
+          ctx.playerPos.z - bPos.z,
+        );
+        ctx.bossEntity.transform.rotationY = ang;
+        ctx.bossRig.triggerCastFlourish();
+        ctx.audio.playSummonGlyphChime();
+
+        scratchOrigin.set(bPos.x, 1.18 + bp.ascendHeight, bPos.z);
+        const beamGroup = ctx.vfx.createGuidingBoltBeamGroup(
+          scratchOrigin,
+          ang,
+          pCfg.guidingBoltBeamLength,
+        );
+        ctx.world.createEntity({
+          transform: {
+            position: {
+              x: scratchOrigin.x,
+              y: scratchOrigin.y,
+              z: scratchOrigin.z,
+            },
+            rotationY: ang,
+            scale: 1,
+          },
+          hazardZone: {
+            kind: 'GUIDING_BOLT_BEAM',
+            faction: 'BOSS',
+            damage: pCfg.guidingBoltDamage,
+            elapsed: 0,
+            telegraphDuration: pCfg.guidingBoltTelegraphSec,
+            activeDuration: pCfg.guidingBoltActiveSec,
+            currentRadius: pCfg.guidingBoltHitWidth,
+            maxRadius: pCfg.guidingBoltBeamLength,
+            hitThickness: pCfg.guidingBoltHitWidth,
+            angle: ang,
+            startAngle: ang,
+            endAngle: ang,
+            beamLength: pCfg.guidingBoltBeamLength,
+            hitCooldown: 0,
+            hasHitPlayer: false,
+            hasTriggered: false,
+            ownerEntityId: ctx.bossEntity.id,
+          },
+          meshRef: { object3D: beamGroup },
+        });
+        bp.activePatternDuration = pCfg.guidingBoltDurationSec;
+      },
+    });
+
+    this.registerPattern({
+      id: 'SHADOWHEART_SPIRIT_GUARDIANS',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        const bPos = ctx.bossEntity.transform.position;
+        bp.spiritGuardiansCooldown = pCfg.spiritGuardiansCooldownSec;
+        ctx.bossRig.triggerCastFlourish();
+        ctx.audio.playYrdenPulse();
+
+        scratchOrigin.set(bPos.x, 0.08, bPos.z);
+        const sgGroup = ctx.vfx.createSpiritGuardiansGroup(
+          scratchOrigin,
+          pCfg.spiritGuardiansRadius,
+        );
+        ctx.world.createEntity({
+          transform: {
+            position: { x: bPos.x, y: 0.08, z: bPos.z },
+            rotationY: 0,
+            scale: 1,
+          },
+          hazardZone: {
+            kind: 'SPIRIT_GUARDIANS',
+            faction: 'BOSS',
+            damage: pCfg.spiritGuardiansTickDamage,
+            elapsed: 0,
+            telegraphDuration: 0,
+            activeDuration: pCfg.spiritGuardiansDurationSec,
+            currentRadius: pCfg.spiritGuardiansRadius,
+            maxRadius: pCfg.spiritGuardiansRadius,
+            hitThickness: 0,
+            angle: 0,
+            startAngle: 0,
+            endAngle: 0,
+            beamLength: 0,
+            hitCooldown: 0.18,
+            hasHitPlayer: false,
+            hasTriggered: true,
+            ownerEntityId: ctx.bossEntity.id,
+          },
+          meshRef: { object3D: sgGroup },
+        });
+        bp.activePatternDuration = pCfg.spiritGuardiansCastDurationSec;
+      },
+    });
+
+    // Sharran Eclipse -> Expanding Dark-Violet Lunar Shockwave Ring opening the 1.8s 360° Stolen Kiss Window!
+    this.registerPattern({
+      id: 'SHADOWHEART_SHARRAN_ECLIPSE',
+      start(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        const sh = ctx.bossRig as Partial<ShadowheartRig>;
+        bp.activePatternLaunched = false;
+        ctx.bossRig.triggerCastFlourish();
+        sh.setEclipseCharge?.(0.35);
+        ctx.audio.playSummonGlyphChime();
+        const bPos = ctx.bossEntity.transform.position;
+        scratchOrigin.set(bPos.x, 0.08, bPos.z);
+        ctx.vfx.spawnTelegraphRing(
+          scratchOrigin,
+          PALETTE.bg3ShadowheartViolet,
+          3.1,
+        );
+        bp.activePatternDuration = pCfg.eclipseChannelSec + pCfg.eclipseRecoverySec;
+      },
+      tick(ctx) {
+        const bp = ctx.bossEntity.bossPhase;
+        const sh = ctx.bossRig as Partial<ShadowheartRig>;
+        const p = THREE.MathUtils.clamp(
+          bp.activePatternElapsed / pCfg.eclipseChannelSec,
+          0,
+          1,
+        );
+        if (!bp.activePatternLaunched) {
+          sh.setEclipseCharge?.(0.35 + p * 0.65);
+        }
+
+        if (
+          !bp.activePatternLaunched &&
+          bp.activePatternElapsed >= pCfg.eclipseChannelSec
+        ) {
+          bp.activePatternLaunched = true;
+          sh.setEclipseCharge?.(0);
+          ctx.audio.playChordBurst();
+          ctx.addCameraShake(pCfg.eclipseCameraShake);
+
+          const bPos = ctx.bossEntity.transform.position;
+          scratchOrigin.set(bPos.x, 0.2, bPos.z);
+          const eclipseGroup = ctx.vfx.createFrostRingNovaGroup(scratchOrigin);
+          const handles = eclipseGroup.userData.frostRingHandles as
+            | FrostRingMeshHandles
+            | undefined;
+          if (handles) {
+            handles.ringMat.color.setHex(PALETTE.bg3ShadowheartViolet);
+            handles.wallMat.color.setHex(PALETTE.sharranLunarSilver);
+          }
+          ctx.world.createEntity({
+            transform: {
+              position: { x: bPos.x, y: 0.2, z: bPos.z },
+              rotationY: 0,
+              scale: 1,
+            },
+            hazardZone: {
+              kind: 'FROST_RING_NOVA',
+              faction: 'BOSS',
+              damage: pCfg.eclipseDamage,
+              elapsed: 0,
+              telegraphDuration: 0,
+              activeDuration: pCfg.eclipseRingDurationSec,
+              currentRadius: 1.0,
+              maxRadius: pCfg.eclipseMaxRadius,
+              hitThickness: pCfg.eclipseRingHitThickness,
+              angle: 0,
+              startAngle: 0,
+              endAngle: 0,
+              beamLength: 0,
+              hitCooldown: 0,
+              hasHitPlayer: false,
+              hasTriggered: true,
+              ownerEntityId: ctx.bossEntity.id,
+            },
+            meshRef: { object3D: eclipseGroup },
+          });
+
+          // Radial dark-violet & lunar-silver Sharran eclipse shards
+          const orbCount = pCfg.eclipseOrbCount;
+          for (let i = 0; i < orbCount; i++) {
+            const ang = (i / orbCount) * Math.PI * 2;
+            scratchOrigin.set(
+              bPos.x + Math.sin(ang) * 0.9,
+              1.12,
+              bPos.z + Math.cos(ang) * 0.9,
+            );
+            const orbMesh = ctx.vfx.createSpiralOrbGroup(
+              scratchOrigin,
+              false,
+              false,
+              { core: PALETTE.sharranLunarSilver, halo: PALETTE.bg3ShadowheartViolet },
+            );
+            ctx.world.createEntity({
+              transform: {
+                position: {
+                  x: scratchOrigin.x,
+                  y: scratchOrigin.y,
+                  z: scratchOrigin.z,
+                },
+                rotationY: ang,
+                scale: 0.95,
+              },
+              velocity: {
+                vx: Math.sin(ang) * pCfg.eclipseOrbSpeed,
+                vy: 0,
+                vz: Math.cos(ang) * pCfg.eclipseOrbSpeed,
+                maxSpeed: pCfg.eclipseOrbSpeed,
+              },
+              projectile: {
+                faction: 'BOSS',
+                kind: 'SPIRAL_ORB',
+                damage: pCfg.eclipseOrbDamage,
+                radius: 0.64,
+                life: 2.6,
+                maxLife: 2.6,
+                trailTimer: 0,
+                spinSpeed: 8,
+                pierceRemaining: 0,
+                hitEntityIds: [],
+                state: 'FLY',
+                fireDelay: 0,
+                fanAngle: ang,
+                baseHeight: 1.12,
+                ownerEntityId: ctx.bossEntity.id,
+              },
+              meshRef: { object3D: orbMesh },
+            });
+          }
+        }
+      },
+      finish(ctx) {
+        (ctx.bossRig as Partial<ShadowheartRig>).setEclipseCharge?.(0);
+      },
+    });
+
+    // Register Tactical Party Combat Profiles
     this.registerProfile({
       bossId: bg3.laezelId,
       phase2Threshold: 0.5,
       phase3Threshold: -1,
       staggerThreshold: 0,
-      phase2Opener: 'GERALT_VANGUARD_COMBO',
-      phase3Opener: 'GERALT_VANGUARD_COMBO',
-      closeRangePattern: 'GERALT_VANGUARD_COMBO',
-      phase1Cycle: ['GERALT_VANGUARD_COMBO', 'GERALT_IGNI_ARC'],
-      phase2Cycle: ['GERALT_VANGUARD_COMBO', 'GERALT_IGNI_ARC'],
-      phase3Cycle: ['GERALT_VANGUARD_COMBO'],
+      phase2Opener: 'LAEZEL_PSIONIC_JUMP',
+      phase3Opener: 'LAEZEL_PSIONIC_JUMP',
+      closeRangePattern: 'LAEZEL_GREATSWORD_CLEAVE',
+      phase1Cycle: ['LAEZEL_PSIONIC_JUMP', 'LAEZEL_GREATSWORD_CLEAVE'],
+      phase2Cycle: ['LAEZEL_PSIONIC_JUMP', 'LAEZEL_GREATSWORD_CLEAVE'],
+      phase3Cycle: ['LAEZEL_PSIONIC_JUMP'],
       getCooldown(phase: BossPhase): number {
         return phase >= BOSS_PHASES.PHASE_2
-          ? bg3.laezelAttackCooldownP2
-          : bg3.laezelAttackCooldownP1;
+          ? pCfg.laezelAttackCooldownP2
+          : pCfg.laezelAttackCooldownP1;
       },
     });
 
@@ -3199,16 +4226,16 @@ export class BossAISystem implements ISystem {
       phase2Threshold: 0.5,
       phase3Threshold: -1,
       staggerThreshold: 0,
-      phase2Opener: 'GERALT_VANGUARD_COMBO',
-      phase3Opener: 'GERALT_VANGUARD_COMBO',
-      closeRangePattern: 'GERALT_VANGUARD_COMBO',
-      phase1Cycle: ['GERALT_VANGUARD_COMBO', 'YENNEFER_OBSIDIAN_FEATHERS'],
-      phase2Cycle: ['GERALT_VANGUARD_COMBO', 'YENNEFER_OBSIDIAN_FEATHERS'],
-      phase3Cycle: ['GERALT_VANGUARD_COMBO'],
+      phase2Opener: 'ASTARION_CUNNING_HIDE',
+      phase3Opener: 'ASTARION_CUNNING_HIDE',
+      closeRangePattern: 'ASTARION_DAGGER_VOLLEY',
+      phase1Cycle: ['ASTARION_CUNNING_HIDE', 'ASTARION_DAGGER_VOLLEY'],
+      phase2Cycle: ['ASTARION_CUNNING_HIDE', 'ASTARION_DAGGER_VOLLEY'],
+      phase3Cycle: ['ASTARION_CUNNING_HIDE'],
       getCooldown(phase: BossPhase): number {
         return phase >= BOSS_PHASES.PHASE_2
-          ? bg3.astarionAttackCooldownP2
-          : bg3.astarionAttackCooldownP1;
+          ? pCfg.astarionAttackCooldownP2
+          : pCfg.astarionAttackCooldownP1;
       },
     });
 
@@ -3217,16 +4244,16 @@ export class BossAISystem implements ISystem {
       phase2Threshold: 0.5,
       phase3Threshold: -1,
       staggerThreshold: 0,
-      phase2Opener: 'YENNEFER_CHAOS_LIGHTNING',
-      phase3Opener: 'YENNEFER_CHAOS_LIGHTNING',
+      phase2Opener: 'GALE_ARCANE_WARD',
+      phase3Opener: 'GALE_FIREBALL',
       closeRangePattern: null,
-      phase1Cycle: ['YENNEFER_OBSIDIAN_FEATHERS', 'YENNEFER_CHAOS_LIGHTNING'],
-      phase2Cycle: ['YENNEFER_CHAOS_LIGHTNING', 'YENNEFER_OBSIDIAN_FEATHERS'],
-      phase3Cycle: ['YENNEFER_CHAOS_LIGHTNING'],
+      phase1Cycle: ['GALE_MAGIC_MISSILE', 'GALE_FIREBALL', 'GALE_MAGIC_MISSILE'],
+      phase2Cycle: ['GALE_FIREBALL', 'GALE_MAGIC_MISSILE'],
+      phase3Cycle: ['GALE_FIREBALL'],
       getCooldown(phase: BossPhase): number {
         return phase >= BOSS_PHASES.PHASE_2
-          ? bg3.galeAttackCooldownP2
-          : bg3.galeAttackCooldownP1;
+          ? pCfg.galeAttackCooldownP2
+          : pCfg.galeAttackCooldownP1;
       },
     });
 
@@ -3235,28 +4262,26 @@ export class BossAISystem implements ISystem {
       phase2Threshold: 0.6,
       phase3Threshold: 0.28,
       staggerThreshold: 0,
-      phase2Opener: 'YENNEFER_CHAOS_MAELSTROM',
-      phase3Opener: 'YENNEFER_CHAOS_MAELSTROM',
-      closeRangePattern: null,
+      phase2Opener: 'SHADOWHEART_SHARRAN_ECLIPSE',
+      phase3Opener: 'SHADOWHEART_SHARRAN_ECLIPSE',
+      closeRangePattern: 'SHADOWHEART_SPIRIT_GUARDIANS',
       phase1Cycle: [
-        'YENNEFER_CHAOS_LIGHTNING',
-        'YENNEFER_OBSIDIAN_FEATHERS',
-        'YENNEFER_CHAOS_MAELSTROM',
+        'SHADOWHEART_GUIDING_BOLT',
+        'SHADOWHEART_SHARRAN_ECLIPSE',
+        'SHADOWHEART_GUIDING_BOLT',
       ],
       phase2Cycle: [
-        'YENNEFER_CHAOS_LIGHTNING',
-        'YENNEFER_OBSIDIAN_FEATHERS',
-        'YENNEFER_CHAOS_MAELSTROM',
+        'SHADOWHEART_GUIDING_BOLT',
+        'SHADOWHEART_SHARRAN_ECLIPSE',
       ],
       phase3Cycle: [
-        'YENNEFER_CHAOS_LIGHTNING',
-        'YENNEFER_CHAOS_MAELSTROM',
-        'YENNEFER_OBSIDIAN_FEATHERS',
+        'SHADOWHEART_SHARRAN_ECLIPSE',
+        'SHADOWHEART_GUIDING_BOLT',
       ],
       getCooldown(phase: BossPhase): number {
-        if (phase === BOSS_PHASES.PHASE_3) return bg3.shadowheartAttackCooldownP3;
-        if (phase === BOSS_PHASES.PHASE_2) return bg3.shadowheartAttackCooldownP2;
-        return bg3.shadowheartAttackCooldownP1;
+        if (phase === BOSS_PHASES.PHASE_3) return pCfg.shadowheartAttackCooldownP3;
+        if (phase === BOSS_PHASES.PHASE_2) return pCfg.shadowheartAttackCooldownP2;
+        return pCfg.shadowheartAttackCooldownP1;
       },
     });
   }
