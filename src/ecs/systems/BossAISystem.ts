@@ -2520,10 +2520,10 @@ export class BossAISystem implements ISystem {
       id: 'GERALT_VANGUARD_COMBO',
       start(ctx) {
         const bp = ctx.bossEntity.bossPhase;
-        const geralt = ctx.bossRig as GeraltRig;
+        const geralt = ctx.bossRig as Partial<GeraltRig>;
         bp.patternSubStage = 0;
-        geralt.setAmberBladeTrail(0.92);
-        geralt.triggerCastFlourish();
+        geralt.setAmberBladeTrail?.(0.92);
+        ctx.bossRig.triggerCastFlourish();
         bp.activePatternDuration =
           wr.swordTelegraph1Sec +
           wr.swordDash1DurationSec +
@@ -2534,7 +2534,7 @@ export class BossAISystem implements ISystem {
       tick(ctx) {
         const bp = ctx.bossEntity.bossPhase;
         const bPos = ctx.bossEntity.transform.position;
-        const geralt = ctx.bossRig as GeraltRig;
+        const geralt = ctx.bossRig as Partial<GeraltRig>;
         const t = bp.activePatternElapsed;
 
         const tSlash1 = wr.swordTelegraph1Sec;
@@ -2552,8 +2552,8 @@ export class BossAISystem implements ISystem {
           bp.dashVelX = (dx / dist) * wr.swordDashSpeed;
           bp.dashVelZ = (dz / dist) * wr.swordDashSpeed;
           bp.dashTimer = wr.swordDash1DurationSec;
-          geralt.triggerSwordSlash(1);
-          geralt.setAmberBladeTrail(1.0);
+          geralt.triggerSwordSlash?.(1);
+          geralt.setAmberBladeTrail?.(1.0);
           ctx.audio.playLaserSlash();
 
           // Launch tight amber-silver crescent slash wave
@@ -2606,7 +2606,7 @@ export class BossAISystem implements ISystem {
           }
         } else if (bp.patternSubStage === 2 && t >= tChainWindup) {
           bp.patternSubStage = 3;
-          geralt.setAmberBladeTrail(0.95);
+          geralt.setAmberBladeTrail?.(0.95);
         } else if (bp.patternSubStage === 3 && t >= tSlash2) {
           bp.patternSubStage = 4;
           const dx = ctx.playerPos.x - bPos.x;
@@ -2617,8 +2617,8 @@ export class BossAISystem implements ISystem {
           bp.dashVelX = (dx / dist) * (wr.swordDashSpeed * 1.12);
           bp.dashVelZ = (dz / dist) * (wr.swordDashSpeed * 1.12);
           bp.dashTimer = wr.swordDash2DurationSec;
-          geralt.triggerSwordSlash(2);
-          geralt.setAmberBladeTrail(1.0);
+          geralt.triggerSwordSlash?.(2);
+          geralt.setAmberBladeTrail?.(1.0);
           ctx.audio.playLaserSlash();
 
           // Second cross-slash wave with slight twin spread
@@ -2673,11 +2673,11 @@ export class BossAISystem implements ISystem {
             ctx.damagePlayerMelee(wr.swordSlashDamage);
           }
         } else if (t >= tRecovery) {
-          geralt.setAmberBladeTrail(0);
+          geralt.setAmberBladeTrail?.(0);
         }
       },
       finish(ctx) {
-        (ctx.bossRig as GeraltRig).setAmberBladeTrail(0);
+        (ctx.bossRig as Partial<GeraltRig>).setAmberBladeTrail?.(0);
       },
     });
 
@@ -2686,13 +2686,13 @@ export class BossAISystem implements ISystem {
       id: 'GERALT_QUEN_SHIELD',
       start(ctx) {
         const bp = ctx.bossEntity.bossPhase;
-        const geralt = ctx.bossRig as GeraltRig;
+        const geralt = ctx.bossRig as Partial<GeraltRig>;
         bp.quenHitsRemaining = wr.quenMaxHits;
         bp.quenTimer = wr.quenDurationSec;
         bp.quenCooldown = wr.quenCooldownSec;
-        geralt.triggerCastFlourish();
-        geralt.triggerSignFlash('QUEN');
-        geralt.setQuenVisual(true, wr.quenMaxHits);
+        ctx.bossRig.triggerCastFlourish();
+        geralt.triggerSignFlash?.('QUEN');
+        geralt.setQuenVisual?.(true, wr.quenMaxHits);
         ctx.audio.playSummonGlyphChime();
         bp.activePatternDuration = wr.quenCastDurationSec;
       },
@@ -2703,20 +2703,20 @@ export class BossAISystem implements ISystem {
       id: 'GERALT_IGNI_ARC',
       start(ctx) {
         const bp = ctx.bossEntity.bossPhase;
-        const geralt = ctx.bossRig as GeraltRig;
+        const geralt = ctx.bossRig as Partial<GeraltRig>;
         bp.activePatternLaunched = false;
-        geralt.triggerCastFlourish();
-        geralt.setIgniChannel(1.0);
+        ctx.bossRig.triggerCastFlourish();
+        geralt.setIgniChannel?.(1.0);
         ctx.audio.playSummonGlyphChime();
         bp.activePatternDuration = wr.igniTelegraphSec + wr.igniRecoverySec;
       },
       tick(ctx) {
         const bp = ctx.bossEntity.bossPhase;
-        const geralt = ctx.bossRig as GeraltRig;
+        const geralt = ctx.bossRig as Partial<GeraltRig>;
         if (!bp.activePatternLaunched && bp.activePatternElapsed >= wr.igniTelegraphSec) {
           bp.activePatternLaunched = true;
-          geralt.setIgniChannel(0);
-          geralt.triggerSignFlash('IGNI');
+          geralt.setIgniChannel?.(0);
+          geralt.triggerSignFlash?.('IGNI');
           ctx.audio.playIgniBurst();
 
           const bPos = ctx.bossEntity.transform.position;
@@ -2776,7 +2776,7 @@ export class BossAISystem implements ISystem {
         }
       },
       finish(ctx) {
-        (ctx.bossRig as GeraltRig).setIgniChannel(0);
+        (ctx.bossRig as Partial<GeraltRig>).setIgniChannel?.(0);
       },
     });
 
@@ -2785,9 +2785,9 @@ export class BossAISystem implements ISystem {
       id: 'GERALT_YRDEN_TRAP',
       start(ctx) {
         const bp = ctx.bossEntity.bossPhase;
-        const geralt = ctx.bossRig as GeraltRig;
-        geralt.triggerCastFlourish();
-        geralt.triggerSignFlash('YRDEN');
+        const geralt = ctx.bossRig as Partial<GeraltRig>;
+        ctx.bossRig.triggerCastFlourish();
+        geralt.triggerSignFlash?.('YRDEN');
         ctx.audio.playYrdenPulse();
 
         const tx = ctx.playerPos.x;
@@ -3015,10 +3015,10 @@ export class BossAISystem implements ISystem {
       id: 'YENNEFER_CHAOS_MAELSTROM',
       start(ctx) {
         const bp = ctx.bossEntity.bossPhase;
-        const yen = ctx.bossRig as YenneferRig;
+        const yen = ctx.bossRig as Partial<YenneferRig>;
         bp.activePatternLaunched = false;
-        yen.triggerCastFlourish();
-        yen.setMaelstromCharge(0.35);
+        ctx.bossRig.triggerCastFlourish();
+        yen.setMaelstromCharge?.(0.35);
         ctx.audio.playSummonGlyphChime();
         const bPos = ctx.bossEntity.transform.position;
         scratchOrigin.set(bPos.x, 0.08, bPos.z);
@@ -3027,14 +3027,14 @@ export class BossAISystem implements ISystem {
       },
       tick(ctx) {
         const bp = ctx.bossEntity.bossPhase;
-        const yen = ctx.bossRig as YenneferRig;
+        const yen = ctx.bossRig as Partial<YenneferRig>;
         const p = THREE.MathUtils.clamp(
           bp.activePatternElapsed / wr.maelstromChannelSec,
           0,
           1,
         );
         if (!bp.activePatternLaunched) {
-          yen.setMaelstromCharge(0.35 + p * 0.65);
+          yen.setMaelstromCharge?.(0.35 + p * 0.65);
         }
 
         if (
@@ -3042,7 +3042,7 @@ export class BossAISystem implements ISystem {
           bp.activePatternElapsed >= wr.maelstromChannelSec
         ) {
           bp.activePatternLaunched = true;
-          yen.setMaelstromCharge(0);
+          yen.setMaelstromCharge?.(0);
           ctx.audio.playChordBurst();
           ctx.addCameraShake(wr.maelstromCameraShake);
 
@@ -3140,7 +3140,7 @@ export class BossAISystem implements ISystem {
         }
       },
       finish(ctx) {
-        (ctx.bossRig as YenneferRig).setMaelstromCharge(0);
+        (ctx.bossRig as Partial<YenneferRig>).setMaelstromCharge?.(0);
       },
     });
 

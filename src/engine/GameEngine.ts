@@ -48,11 +48,15 @@ import { MovementSystem } from '../ecs/systems/MovementSystem';
 import { RenderSyncSystem } from '../ecs/systems/RenderSyncSystem';
 import { ECSWorld } from '../ecs/World';
 import { DarkMageRig } from '../rigs/DarkMageRig';
+import { AstarionRig } from '../rigs/bosses/AstarionRig';
 import type { BossRigAdapter } from '../rigs/bosses/BossBase';
+import { GaleRig } from '../rigs/bosses/GaleRig';
 import { GeraltRig } from '../rigs/bosses/GeraltRig';
+import { LaezelRig } from '../rigs/bosses/LaezelRig';
 import { MarinaRig } from '../rigs/bosses/MarinaRig';
 import { MikuRig } from '../rigs/bosses/MikuRig';
 import { SerenaRig } from '../rigs/bosses/SerenaRig';
+import { ShadowheartRig } from '../rigs/bosses/ShadowheartRig';
 import { YenneferRig } from '../rigs/bosses/YenneferRig';
 import {
   useGameStore,
@@ -862,8 +866,12 @@ export class GameEngine implements IGameController {
         if (!cached) {
           cached =
             key === 'shadowheart'
-              ? new YenneferRig(this.sceneManager.scene)
-              : new GeraltRig(this.sceneManager.scene);
+              ? new ShadowheartRig(this.sceneManager.scene)
+              : key === 'laezel'
+                ? new LaezelRig(this.sceneManager.scene)
+                : key === 'astarion'
+                  ? new AstarionRig(this.sceneManager.scene)
+                  : new GaleRig(this.sceneManager.scene);
           cached.root.visible = false;
           this.dynamicScenarioRigs.set(key, cached);
         }

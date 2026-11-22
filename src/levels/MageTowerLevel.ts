@@ -11,6 +11,7 @@ import { ToonAssets } from '../engine/ToonAssets';
 import { MarinaRig } from '../rigs/bosses/MarinaRig';
 import { MikuRig } from '../rigs/bosses/MikuRig';
 import { SerenaRig } from '../rigs/bosses/SerenaRig';
+import { ShadowheartRig } from '../rigs/bosses/ShadowheartRig';
 import { YenneferRig } from '../rigs/bosses/YenneferRig';
 
 export interface SanctumCollider {
@@ -232,7 +233,7 @@ export class MageTowerLevel {
   private readonly yenneferDaisRuneSegments: THREE.MeshBasicMaterial[] = [];
   private guestPedestal2Sigil: THREE.Mesh | null = null;
   private shadowheartActiveGroup: THREE.Group | null = null;
-  private _captiveShadowheartRig: YenneferRig | null = null;
+  private _captiveShadowheartRig: ShadowheartRig | null = null;
   private shadowheartLeftConduitTip: THREE.Object3D | null = null;
   private shadowheartRightConduitTip: THREE.Object3D | null = null;
   private shadowheartLeftTetherMesh: THREE.Mesh | null = null;
@@ -273,7 +274,7 @@ export class MageTowerLevel {
     return this._captiveYenneferRig;
   }
 
-  public get captiveShadowheartRig(): YenneferRig | null {
+  public get captiveShadowheartRig(): ShadowheartRig | null {
     return this._captiveShadowheartRig;
   }
 
@@ -3808,8 +3809,8 @@ export class MageTowerLevel {
       this.shadowheartRightConduitTip,
     );
 
-    // Captive Guest Sovereign Rig (strict upright vertical yaw only; swapped to ShadowheartRig once built)
-    this._captiveShadowheartRig = new YenneferRig(
+    // Captive Shadowheart Guest Sovereign Rig (strict upright vertical yaw only)
+    this._captiveShadowheartRig = new ShadowheartRig(
       p2Group as unknown as THREE.Scene,
     );
     this._captiveShadowheartRig.root.position.set(0, cfg.daisHeight, 0);
