@@ -423,32 +423,26 @@ export abstract class BossBase implements BossRigAdapter {
   public abstract resetForEncounter(encoreTier: number): void;
   public abstract dispose(): void;
 
-  private readonly scratchEmberColor = new THREE.Color(PALETTE.ashEmber);
   private readonly scratchAshColor = new THREE.Color(PALETTE.ashCharcoal);
 
   /**
-   * Default lethal stagger-collapse & ash/ember dissolution for non-siphonable bosses (0 -> 1).
-   * Rigs may override to add custom limb slump while calling `super.applyAshDissolve(progress)`.
+   * Default grounded defeat collapse hook for non-siphonable bosses (0 -> 1).
+   * Preserves full mesh scale and opacity (`visible = true`) so defeated bodies remain
+   * visibly fallen on the arena floor until scenario reset or return to the Sanctum.
    */
   public applyAshDissolve(progress: number): void {
     const p = THREE.MathUtils.clamp(progress, 0, 1);
-    const emberPeak = Math.sin(Math.min(1, p * 1.45) * Math.PI);
-    const fade = 1 - THREE.MathUtils.smoothstep(p, 0.38, 1.0);
-
+    const dim = p * 0.25;
     for (let i = 0; i < this.drainableMaterials.length; i++) {
       const mat = this.drainableMaterials[i];
       const orig = this.originalColors[i];
       if (!mat || !orig) continue;
-      mat.color.copy(orig).lerp(this.scratchAshColor, Math.min(1, p * 1.25));
-      mat.emissive.copy(this.scratchEmberColor);
-      mat.emissiveIntensity = emberPeak * 2.2;
-      mat.transparent = true;
-      mat.opacity = Math.max(0.02, fade);
+      mat.color.copy(orig).lerp(this.scratchAshColor, dim);
+      mat.emissiveIntensity = Math.max(0, mat.emissiveIntensity * (1 - p));
+      mat.transparent = false;
+      mat.opacity = 1.0;
     }
-
-    const scaleXZ = THREE.MathUtils.lerp(1.0, 0.86, p * p);
-    const scaleY = THREE.MathUtils.lerp(1.0, 0.62, p * p);
-    this.root.scale.set(scaleXZ, scaleY, scaleXZ);
+    this.root.scale.set(1, 1, 1);
   }
 
   /**

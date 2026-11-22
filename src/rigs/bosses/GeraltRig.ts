@@ -5,6 +5,7 @@ import {
   GAME_STATES,
   PALETTE,
   SPECIAL_SCENARIO_CONFIG,
+  WOLF_AND_RAVEN_CONFIG,
   type BossExpression,
   type BossPhase,
   type DrainThrottleMode,
@@ -74,6 +75,7 @@ export class GeraltRig extends BossBase {
   private readonly rightKneePivot = new THREE.Group();
   private readonly swordGroup = new THREE.Group();
   private readonly auraRing: THREE.Mesh;
+  private readonly faceMat: THREE.MeshToonMaterial;
 
   // Left-Palm Witcher Sign Glyph Emitter (Igni / Quen / Yrden)
   private readonly signEmitterGroup = new THREE.Group();
@@ -146,7 +148,7 @@ export class GeraltRig extends BossBase {
 
     // 512x512 Scarred Witcher Face Canvas with Amber-Gold Cat-Slit Eyes (#F59E0B)
     const faceTex = this.createGeraltFaceTexture();
-    const faceMat = this.trackMat(
+    this.faceMat = this.trackMat(
       new THREE.MeshToonMaterial({
         map: faceTex,
         gradientMap: ToonAssets.getThreeStepToonGradientMap(),
@@ -159,6 +161,7 @@ export class GeraltRig extends BossBase {
         polygonOffsetFactor: -1,
       }),
     );
+    const faceMat = this.faceMat;
 
     const auraMat = this.trackMat(
       new THREE.MeshBasicMaterial({
@@ -1014,46 +1017,109 @@ export class GeraltRig extends BossBase {
   }
 
   /**
-   * Lethal 1.6s Ash-Dissolve Animation at 0 HP:
-   * Drops Geralt cleanly onto one knee while 36 pooled ash & ember particles swirl upward off his silhouette.
+   * Two-Stage Grounded Fallen-Body Collapse at 0 HP (`collapseDurationSec = 1.1s`):
+   * - Stage 1 (0.0s – 0.45s): Drops to one knee as Quen deactivates and amber cat eyes dim.
+   * - Stage 2 (0.45s – 1.10s): Slumps heavily onto his side/back onto the Skellige arena floor
+   *   with arms, legs, and silver longsword resting slack in a persistent defeated sprawl (`visible = true`).
    */
   public override applyAshDissolve(progress: number): void {
+    const cfg = WOLF_AND_RAVEN_CONFIG;
     const p = THREE.MathUtils.clamp(progress, 0, 1);
-    const slump = p * p * (3 - 2 * p);
+    const elapsedSec = p * cfg.collapseDurationSec;
 
-    this.bodyPivot.position.set(0, THREE.MathUtils.lerp(0.96, 0.44, slump), 0);
-    this.torsoGroup.rotation.set(THREE.MathUtils.lerp(0.1, 0.52, slump), 0, 0);
-    this.headGroup.rotation.set(THREE.MathUtils.lerp(-0.04, 0.44, slump), 0, 0);
-    this.leftLegPivot.rotation.set(-0.92 * slump, 0, -0.1);
-    this.leftKneePivot.rotation.x = 1.54 * slump;
-    this.rightLegPivot.rotation.set(0.32 * slump, 0, 0.1);
-    this.rightKneePivot.rotation.x = 1.36 * slump;
-    this.leftShoulderPivot.rotation.set(0.18 * slump, 0, 0.38 * slump);
-    this.rightShoulderPivot.rotation.set(-0.24 * slump, 0, -0.28 * slump);
+    const rawT1 = THREE.MathUtils.clamp(elapsedSec / cfg.collapseStage1EndSec, 0, 1);
+    const t1 = rawT1 * rawT1 * (3 - 2 * rawT1);
+
+    const stage2Dur = Math.max(0.01, cfg.collapseDurationSec - cfg.collapseStage1EndSec);
+    const rawT2 = THREE.MathUtils.clamp(
+      (elapsedSec - cfg.collapseStage1EndSec) / stage2Dur,
+      0,
+      1,
+    );
+    const t2 = rawT2 * rawT2 * (3 - 2 * rawT2);
+
+    // Deactivate active combat aura, Quen barrier, blade trail, and Sign emitter
     this.auraRing.visible = false;
     this.quenBarrierGroup.visible = false;
+    this.quenActive = false;
+    this.quenHitsRemaining = 0;
     this.bladeTrailMesh.visible = false;
     this.signEmitterGroup.visible = false;
     this.signLight.intensity = 0;
+    this.ashPoolGroup.visible = false;
 
-    // Drive pooled ash & ember particles swirling upward off his kneeling silhouette
-    this.ashPoolGroup.visible = p > 0.01 && p < 0.995;
-    for (let i = 0; i < this.ashPool.length; i++) {
-      const pt = this.ashPool[i]!;
-      const localP = THREE.MathUtils.clamp(p * 1.18 - (i % 6) * 0.04, 0, 1);
-      const ang = pt.seedAngle + localP * pt.swirlSpeed * Math.PI;
-      const r = pt.seedRadius * (1 + localP * 1.45);
-      pt.mesh.position.set(
-        Math.cos(ang) * r,
-        pt.seedY * (1 - slump * 0.35) + localP * pt.riseSpeed * 1.5,
-        Math.sin(ang) * r,
-      );
-      pt.mesh.rotation.set(localP * 6.0, localP * 4.5, 0);
-      const env = Math.sin(localP * Math.PI);
-      const s = (pt.isEmber ? 1.05 : 0.85) * (0.35 + env * 0.9);
-      pt.mesh.scale.setScalar(s);
-      pt.mesh.material.opacity = env * (pt.isEmber ? 0.95 : 0.72);
-    }
+    // Dim amber cat-slit eyes during Stage 1 kneel
+    this.faceMat.emissiveIntensity = THREE.MathUtils.lerp(
+      0.34,
+      cfg.collapseFaceEmissiveDim,
+      t1,
+    );
+
+    // Stage 1: Drop to one knee -> Stage 2: Slump heavily onto side/back grounded at floor level
+    const kneelY = THREE.MathUtils.lerp(0.96, cfg.collapseKneelBodyY, t1);
+    const bodyY = THREE.MathUtils.lerp(kneelY, cfg.collapseFloorBodyY, t2);
+    this.bodyPivot.position.set(0, bodyY, 0);
+    this.bodyPivot.rotation.set(
+      cfg.collapseFallPitchRad * t2,
+      0,
+      cfg.collapseFallRollRad * t2,
+    );
+
+    const kneelTorsoX = THREE.MathUtils.lerp(0.1, 0.48, t1);
+    this.torsoGroup.rotation.set(
+      THREE.MathUtils.lerp(kneelTorsoX, 0.08, t2),
+      THREE.MathUtils.lerp(-0.18, 0.12, t2),
+      THREE.MathUtils.lerp(0, -0.14, t2),
+    );
+
+    const kneelHeadX = THREE.MathUtils.lerp(-0.04, 0.42, t1);
+    this.headGroup.rotation.set(
+      THREE.MathUtils.lerp(kneelHeadX, 0.14, t2),
+      THREE.MathUtils.lerp(0.16, 0.34, t2),
+      THREE.MathUtils.lerp(0, -0.26, t2),
+    );
+    this.ponytailPivot.rotation.x = THREE.MathUtils.lerp(0.18, 0.48, t2);
+
+    // Legs: one-knee kneel (Stage 1) -> relaxed defeated sprawl on floor (Stage 2)
+    this.leftLegPivot.rotation.set(
+      THREE.MathUtils.lerp(-0.92 * t1, 0.16, t2),
+      0,
+      THREE.MathUtils.lerp(-0.1, -0.24, t2),
+    );
+    this.leftKneePivot.rotation.x = THREE.MathUtils.lerp(1.54 * t1, 0.38, t2);
+    this.rightLegPivot.rotation.set(
+      THREE.MathUtils.lerp(0.32 * t1, -0.06, t2),
+      0,
+      THREE.MathUtils.lerp(0.1, 0.28, t2),
+    );
+    this.rightKneePivot.rotation.x = THREE.MathUtils.lerp(1.36 * t1, 0.56, t2);
+
+    // Arms & silver longsword resting slack on the floor
+    this.leftShoulderPivot.rotation.set(
+      THREE.MathUtils.lerp(0.18 * t1, -0.22, t2),
+      0,
+      THREE.MathUtils.lerp(0.38 * t1, 0.72, t2),
+    );
+    this.leftElbowPivot.rotation.set(
+      THREE.MathUtils.lerp(-0.42 * t1, -0.28, t2),
+      0,
+      0,
+    );
+    this.rightShoulderPivot.rotation.set(
+      THREE.MathUtils.lerp(-0.24 * t1, 0.18, t2),
+      0,
+      THREE.MathUtils.lerp(-0.28 * t1, -0.64, t2),
+    );
+    this.rightElbowPivot.rotation.set(
+      THREE.MathUtils.lerp(-0.48 * t1, -0.22, t2),
+      0,
+      0,
+    );
+    this.swordGroup.rotation.set(
+      THREE.MathUtils.lerp(Math.PI * 0.42, Math.PI * 0.62, t2),
+      0,
+      THREE.MathUtils.lerp(0, 0.35, t2),
+    );
 
     super.applyAshDissolve(p);
   }
@@ -1122,6 +1188,10 @@ export class GeraltRig extends BossBase {
     this.ashPoolGroup.visible = false;
     this.signEmitterGroup.visible = false;
     this.signLight.intensity = 0;
+    this.faceMat.emissiveIntensity = 0.34;
+    this.bodyPivot.position.set(0, 0.96, 0);
+    this.bodyPivot.rotation.set(0, 0, 0);
+    this.swordGroup.rotation.set(Math.PI * 0.42, 0, 0);
     restoreDrainableMaterials(
       this.drainableMaterials,
       this.originalColors,

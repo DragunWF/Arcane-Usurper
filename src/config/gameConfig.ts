@@ -3367,6 +3367,16 @@ export const WOLF_AND_RAVEN_CONFIG = Object.freeze({
   geraltVanquishedSubtext: 'YENNEFER ENTERS SOLO CHAOS ENRAGE',
   vanquishedBannerMs: 3200,
 
+  // Grounded Two-Stage Fallen-Body Collapse (non-siphonable bosses at 0 HP — remains visible in arena)
+  collapseDurationSec: 1.1,
+  collapseStage1EndSec: 0.45,
+  collapseKneelBodyY: 0.46,
+  collapseFloorBodyY: 0.14,
+  collapseFallPitchRad: -1.46,
+  collapseFallRollRad: 0.34,
+  collapseFaceEmissiveDim: 0.04,
+  collapseFloorImpactDustCount: 14,
+
   // Yennefer Finisher Mantle Clearance, Dip Hair Gravity & [F] Taunt Threshold
   yenneferMantleRestPitchRad: -0.82,
   yenneferMantleEmbraceClearanceRad: -1.04,

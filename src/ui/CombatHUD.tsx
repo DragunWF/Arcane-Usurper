@@ -361,7 +361,7 @@ export function CombatHUD({ controller }: CombatHUDProps) {
                             }}
                           >
                             {b.isDissolving
-                              ? 'ASH DISSOLVING'
+                              ? 'FALLEN'
                               : b.isStaggered
                                 ? 'STAGGERED'
                                 : b.canBeSiphoned

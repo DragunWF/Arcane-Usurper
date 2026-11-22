@@ -381,18 +381,22 @@ export class BossAISystem implements ISystem {
       const boss = bosses[i];
       if (!boss) continue;
       const bp = boss.bossPhase;
-      if (bp.isDefeated) continue;
-
       const rig = this.getBossRigForEntity(boss.id);
 
-      // Step lethal stagger-collapse & 1.6s ash/ember dissolution for defeated non-siphonable bosses
+      // Step 1.1s two-stage grounded collapse for defeated non-siphonable bosses (body stays visible on floor!)
       if (bp.dissolveTimer >= 0) {
-        // First frame of Geralt's collapse: notify HUD banner & enrage surviving Sovereign partner
+        const collapseDur = WOLF_AND_RAVEN_CONFIG.collapseDurationSec;
+        // First frame of collapse: deactivate Quen/Signs, enrage surviving Sovereign partner & show HUD banner
         if (bp.dissolveTimer === 0) {
+          const hadQuen = bp.quenHitsRemaining > 0;
           bp.quenHitsRemaining = 0;
           bp.quenTimer = 0;
+          bp.dashTimer = 0;
+          bp.activePatternId = null;
           if (bp.bossId === SPECIAL_SCENARIO_CONFIG.geraltId) {
-            this.audio.playAshDissolve();
+            if (hadQuen) {
+              this.audio.playQuenShatter();
+            }
             (rig as GeraltRig).setQuenVisual(false, 0);
             (rig as GeraltRig).setAmberBladeTrail(0);
             (rig as GeraltRig).setIgniChannel(0);
@@ -423,41 +427,33 @@ export class BossAISystem implements ISystem {
           }
         }
 
-        const prevStep = Math.floor(
-          bp.dissolveTimer / SPECIAL_SCENARIO_CONFIG.ashEmberBurstIntervalSec,
-        );
-        bp.dissolveTimer += dt;
-        const nextStep = Math.floor(
-          bp.dissolveTimer / SPECIAL_SCENARIO_CONFIG.ashEmberBurstIntervalSec,
-        );
-        const progress = THREE.MathUtils.clamp(
-          bp.dissolveTimer / SPECIAL_SCENARIO_CONFIG.ashDissolveDurationSec,
-          0,
-          1,
-        );
-        rig.applyAshDissolve(progress);
-
-        if (nextStep > prevStep) {
-          this.scratchOrigin.set(
-            boss.transform.position.x,
-            0.75 + (1 - progress) * 0.65,
-            boss.transform.position.z,
+        if (bp.dissolveTimer < collapseDur) {
+          bp.dissolveTimer = Math.min(collapseDur, bp.dissolveTimer + dt);
+          const progress = THREE.MathUtils.clamp(
+            bp.dissolveTimer / collapseDur,
+            0,
+            1,
           );
-          this.vfx.spawnImpactBurst(this.scratchOrigin, 8);
-        }
+          rig.applyAshDissolve(progress);
 
-        if (bp.dissolveTimer >= SPECIAL_SCENARIO_CONFIG.ashDissolveDurationSec) {
-          bp.isDefeated = true;
-          rig.root.visible = false;
-          this.scratchOrigin.set(
-            boss.transform.position.x,
-            0.85,
-            boss.transform.position.z,
-          );
-          this.vfx.spawnFrostShatterBurst(this.scratchOrigin, 16, 7.2);
+          // Single subtle dust/ember floor impact puff when body hits the Skellige floor
+          if (bp.dissolveTimer >= collapseDur) {
+            this.scratchOrigin.set(
+              boss.transform.position.x,
+              0.22,
+              boss.transform.position.z,
+            );
+            this.vfx.spawnImpactBurst(
+              this.scratchOrigin,
+              WOLF_AND_RAVEN_CONFIG.collapseFloorImpactDustCount,
+            );
+            this.audio.playAshDissolve();
+          }
         }
         continue;
       }
+
+      if (bp.isDefeated) continue;
 
       // Tick Geralt Quen Shield & Yennefer Spatial Rift Cooldowns
       if (bp.quenTimer > 0) {

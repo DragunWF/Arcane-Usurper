@@ -146,9 +146,16 @@ export class RenderSyncSystem implements ISystem {
         if (!boss) continue;
         const rig = this.getBossRigForEntity(boss.id);
         const bp = boss.bossPhase;
-        rig.root.visible = !isBossHiddenState && !bp.isDefeated;
+        // Non-siphonable defeated bosses remain visibly sprawled on the arena floor
+        // throughout solo-enrage, SIPHON_FINISHER, and VICTORY_DIORAMA until arena reset/exit
+        const keepFallenBodyVisible = !bp.canBeSiphoned && bp.isDefeated;
+        rig.root.visible = !isBossHiddenState && (!bp.isDefeated || keepFallenBodyVisible);
 
-        if (!isDioramaOrFinisher && !isBossHiddenState && !bp.isDefeated) {
+        if (!isBossHiddenState && keepFallenBodyVisible) {
+          const bPos = boss.transform.position;
+          rig.root.position.set(bPos.x, 0, bPos.z);
+          rig.root.rotation.set(0, boss.transform.rotationY, 0);
+        } else if (!isDioramaOrFinisher && !isBossHiddenState && !bp.isDefeated) {
           const bPos = boss.transform.position;
           rig.root.position.set(bPos.x, bPos.y, bPos.z);
           rig.root.rotation.y = boss.transform.rotationY;

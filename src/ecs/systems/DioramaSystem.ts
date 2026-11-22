@@ -12,6 +12,7 @@ import {
   SERENA_CONFIG,
   SIPHON_GALLERY_CONFIG,
   SPECIAL_SCENARIO_CONFIG,
+  WOLF_AND_RAVEN_CONFIG,
   type GameState,
 } from '../../config/gameConfig';
 import type { IAudioTrigger } from '../../engine/SoundEngine';
@@ -145,12 +146,13 @@ export class DioramaSystem implements ISystem {
       if (!b || b.bossPhase.canBeSiphoned || b.bossPhase.isDefeated) continue;
 
       b.bossPhase.isDefeated = true;
-      b.bossPhase.dissolveTimer = SPECIAL_SCENARIO_CONFIG.ashDissolveDurationSec;
+      b.bossPhase.dissolveTimer = WOLF_AND_RAVEN_CONFIG.collapseDurationSec;
       b.bossPhase.activePatternId = null;
 
       const rig = this.bossRigs.get(b.id);
       if (rig) {
-        rig.root.visible = false;
+        rig.applyAshDissolve(1.0);
+        rig.root.visible = true;
       }
 
       const bx = b.transform.position.x;

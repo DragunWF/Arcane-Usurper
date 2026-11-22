@@ -1625,16 +1625,17 @@ export class CombatSystem implements ISystem {
     this.vfx.spawnFrostShatterBurst(burstPos, 10, 6.2);
     this.audio.playIceShatter(0.5);
 
-    // Non-siphonable boss reaching 0 HP immediately enters lethal stagger-collapse & 1.6s ash/ember dissolution
+    // Non-siphonable boss reaching 0 HP immediately enters persistent grounded defeated state (isDefeated = true)
+    // and begins the 1.1s two-stage collapse animation onto the arena floor (no vanishing!)
     if (!bp.canBeSiphoned && boss.health.current <= 0) {
+      bp.isDefeated = true;
       bp.dissolveTimer = 0;
       bp.activePatternId = null;
       bp.ascendHeight = 0;
       rig.setAscendHeight(0);
-      this.vfx.spawnImpactBurst(burstPos, 24);
-      this.vfx.spawnFrostShatterBurst(burstPos, 18, 8.8);
-      this.audio.playIceShatter(0.95);
-      this.callbacks.addCameraShake(SPECIAL_SCENARIO_CONFIG.disperseCameraShake * 0.7);
+      this.vfx.spawnImpactBurst(burstPos, 18);
+      this.audio.playIceShatter(0.85);
+      this.callbacks.addCameraShake(SPECIAL_SCENARIO_CONFIG.disperseCameraShake * 0.65);
     }
 
     this.callbacks.onBossDamaged(boss.id);
